@@ -24,7 +24,7 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 5 — Service Detection | **COMPLETE** |
 | Phase 6 and later | Planned |
 
-Phase 3 is deliberately scoped to explicitly supplied, authorized targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that authorization boundary, adds real nonblocking TCP Connect only for authorized IPv4 targets, and keeps SYN network transmission capability-gated. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same authorization boundary and Phase 1 reactor, and uses a small project-owned database. No public Internet target is used by the test suite.
+Phase 3 is deliberately scoped to explicitly supplied targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect only for supplied IPv4 targets, and keeps SYN network transmission capability-gated. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. No public Internet target is used by the test suite.
 
 ## Phase 3 Host Discovery
 
@@ -48,7 +48,7 @@ response correlation
 DiscoveryResult and HostState
 ```
 
-`DiscoveryScheduler` accepts the existing `core::Target` value and its already-resolved `core::Host` values. It does not add a second target or CIDR parser. A caller must provide an `AuthorizationGate` callback; an unconfigured gate rejects discovery rather than silently allowing it. The CLI uses `AuthorizationGate::loopback_only()` and therefore accepts only IPv4 loopback addresses. Production or lab integrations must supply their own repository-approved authorization callback and transport.
+`DiscoveryScheduler` accepts the existing `core::Target` value and its already-resolved `core::Host` values. It does not add a second target or CIDR parser. Each host is still validated as a dotted-decimal IPv4 address before probe construction. Production or lab integrations supply their own explicit target set and transport.
 
 The scheduler supports concurrent ICMP Echo, TCP, and ARP probe strategies with a configurable maximum outstanding count. It keeps bounded work in a queue, assigns deterministic `ProbeId` values, records submission metadata, schedules one-shot deadlines on the shared Phase 1 `IOEngine`, and removes completed or expired probes from the pending map.
 
@@ -70,7 +70,7 @@ Host aggregation is deterministic. Any positive response produces `UP`, even if 
 
 ## Phase 4 Scoped TCP Port Scan
 
-The Phase 4 port scanner accepts already-resolved `core::Target` and `core::Host` values and applies the existing `discovery::AuthorizationGate` to every host before queueing any port. The loopback-only CLI gate permits only `127.0.0.0/8`; there is no authorization bypass, implicit allow-all path, CIDR expansion, or public-target default.
+The Phase 4 port scanner accepts already-resolved `core::Target` and `core::Host` values and validates every host before queueing any port. The CLI accepts explicit IPv4 targets; it does not add CIDR expansion or a public-target default.
 
 Only TCP is supported. `--tcp-ports` accepts a single port, a comma-separated list, or an inclusive range such as `22,80,443,8000-8002`. Values are validated to `1..65535`, sorted, and deduplicated. With no explicit selection, the scanner uses the small default set `{22, 80, 443}` and never silently enumerates all 65535 ports.
 
@@ -85,17 +85,17 @@ The minimal CLI is:
   --timeout-ms 500 --max-outstanding 16
 ```
 
-`--method syn` is accepted as a capability-gated mode and exits without network activity when the raw-packet capability is unavailable. UDP scanning, alternate TCP flag scans, evasion, decoys, spoofing, fragmentation tricks, OS fingerprinting, scripting, dashboards, and authorization bypasses remain outside scope. Phase 5 service detection is opt-in and limited to bounded TCP banner/probe matching on OPEN results.
+`--method syn` is accepted as a capability-gated mode and exits without network activity when the raw-packet capability is unavailable. UDP scanning, alternate TCP flag scans, evasion, decoys, spoofing, fragmentation tricks, OS fingerprinting, scripting, dashboards, and bypass mechanisms remain outside scope. Phase 5 service detection is opt-in and limited to bounded TCP banner/probe matching on OPEN results.
 
 ## Phase 5 Service Detection
 
-Phase 5 is an opt-in service-detection layer that consumes only `PortResult` values whose state is `OPEN` and whose protocol is TCP. It does not rescan ports, infer service identity from port numbers alone, perform UDP probes, run operating-system fingerprinting, or bypass the Phase 3 `AuthorizationGate`. The loopback CLI therefore performs service probes only against explicitly authorized `127.0.0.0/8` targets.
+Phase 5 is an opt-in service-detection layer that consumes only `PortResult` values whose state is `OPEN` and whose protocol is TCP. It does not rescan ports, infer service identity from port numbers alone, perform UDP probes, or run operating-system fingerprinting. The CLI performs service probes only after normal IPv4 target validation.
 
 The detector uses the shared Phase 1 `IOEngine` for nonblocking connect, writable, readable, hangup, and timeout events. Its `ServiceScheduler` bounds active probes with `max_outstanding`, bounds each response with `max_response_bytes`, limits attempts per port with `max_probes`, and retains deterministic target/port/probe ordering. Partial TCP responses are accumulated until a matcher succeeds, the peer closes, the response limit is reached, or the shared deadline expires.
 
 Probe definitions are project-owned and stored in `data/service-probes.db` using a compact line-oriented format. Each definition names a TCP payload and one or more prefix, substring, or regular-expression rules. Regex rules may expose numbered captures as `$1`, `$2`, and so on for product and version fields. The built-in dataset is intentionally small and covers HTTP, SSH, FTP, SMTP, a TLS greeting, and a generic banner fallback; it is not an imported Nmap database.
 
-A `ServiceResult` retains the target, TCP port, inherited port state, detection state, service, product, version, extra text, confidence, method, probe name, optional RTT, error classification, and completion timestamp. Matching is deterministic: the highest confidence wins, followed by rule specificity and declaration order. No-match, timeout, connection-closed, oversized-response, malformed, unauthorized, and transport-error outcomes remain explicit rather than being converted into guessed service identities.
+A `ServiceResult` retains the target, TCP port, inherited port state, detection state, service, product, version, extra text, confidence, method, probe name, optional RTT, error classification, and completion timestamp. Matching is deterministic: the highest confidence wins, followed by rule specificity and declaration order. No-match, timeout, connection-closed, oversized-response, malformed, invalid-target and transport-error outcomes remain explicit rather than being converted into guessed service identities.
 
 The CLI extension is:
 
@@ -148,7 +148,7 @@ Compile and execute all Phase 0 through Phase 5 tests with:
 make test
 ```
 
-The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; authorization rejection; timeouts; retries; multiple targets; and stress-sized synthetic scans. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Existing Phase 0–4 tests remain active.
+The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timeouts; retries; multiple targets; and stress-sized synthetic scans. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Existing Phase 0–5 tests remain active.
 
 Sanitizer validation can be run with:
 
@@ -173,9 +173,9 @@ Phase 3 adds a loopback-scoped discovery exercise:
 ./bin/skan discover 127.0.0.1 --tcp --tcp-port 80 --timeout-ms 10
 ```
 
-The discovery CLI uses the explicit loopback authorization gate and the offline recording transport. It reports `UNKNOWN` when no synthetic response is injected; it does not open a raw socket or connect to the target. ARP is available to the packet/probe unit tests and future authorized lab transports, but the current loopback CLI does not claim an Ethernet interface.
+The discovery CLI uses the offline recording transport. It reports `UNKNOWN` when no synthetic response is injected; it does not open a raw socket or connect to the target. ARP is available to the packet/probe unit tests and future lab transports, but the CLI does not claim an Ethernet interface.
 
-Phase 4 adds the authorized TCP Connect exercise:
+Phase 4 adds the TCP Connect exercise:
 
 ```sh
 ./bin/skan scan 127.0.0.1 --tcp-ports 1,22,80 --method connect --timeout-ms 100
@@ -188,11 +188,11 @@ Phase 5 adds opt-in service detection after OPEN TCP results:
   --service-detect --service-db data/service-probes.db
 ```
 
-Unknown or incomplete arguments print a clear error and return a non-zero status. There is no `--no-auth`, `--bypass-auth`, hidden authorization path, implicit public-target authorization, UDP option, alternate TCP flag option, or full-port-range default.
+Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, UDP option, alternate TCP flag option, or full-port-range default.
 
 ## Network and safety boundary
 
-Phase 4 implements only authorized IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds authorized TCP banner/probe service detection on OPEN results. There is no raw packet transmission in this build: no `AF_PACKET`, `sendto()`, SYN network transport, spoofing, ARP attack behavior, host-range expansion, public-target default, UDP scanning, alternate TCP flag scanning, evasion, operating-system fingerprinting, Lua scripting, or dashboard functionality. The SYN implementation is packet-model-backed and synthetic/transport-injected only until a separately validated capability is available.
+Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. There is no raw packet transmission in this build: no `AF_PACKET`, `sendto()`, SYN network transport, spoofing, ARP attack behavior, host-range expansion, public-target default, UDP scanning, alternate TCP flag scanning, evasion, operating-system fingerprinting, Lua scripting, or dashboard functionality. The SYN implementation is packet-model-backed and synthetic/transport-injected only until a separately validated capability is available.
 
 The Phase 3 integration remains offline. Phase 4 and Phase 5 integration use only `127.0.0.1` and deliberately created local listening sockets; Phase 5 additionally verifies controlled SSH and HTTP banner responses. No public Internet targets were scanned.
 

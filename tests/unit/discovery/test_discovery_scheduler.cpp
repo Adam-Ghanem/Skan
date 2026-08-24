@@ -47,7 +47,7 @@ int main()
     config.probes = {ProbeType::IcmpEcho, ProbeType::Tcp};
     config.timeout = std::chrono::milliseconds{5};
     config.max_outstanding = 4U;
-    DiscoveryScheduler scheduler(io_engine, AuthorizationGate::loopback_only(), config, transport);
+    DiscoveryScheduler scheduler(io_engine, config, transport);
     const skan::core::Target target{"local", {make_host("127.0.0.1")}};
 
     assert(scheduler.submit(target) == skan::core::StatusCode::Ok);
@@ -77,8 +77,7 @@ int main()
     timeout_config.max_outstanding = 2U;
     RecordingTransport timeout_transport;
     skan::io::IOEngine timeout_io;
-    DiscoveryScheduler timeout_scheduler(
-        timeout_io, AuthorizationGate::loopback_only(), timeout_config, timeout_transport);
+    DiscoveryScheduler timeout_scheduler(timeout_io, timeout_config, timeout_transport);
     assert(timeout_scheduler.submit(target) == skan::core::StatusCode::Ok);
     const ProbeSubmission timed_out_submission = timeout_transport.submissions().front();
     assert(timeout_scheduler.run_once(50) == skan::core::StatusCode::Ok);
@@ -91,22 +90,9 @@ int main()
     assert(timeout_scheduler.late_response_count() == 1U);
     assert(timeout_scheduler.host_state("127.0.0.1") == HostState::Unknown);
 
-    RecordingTransport unauthorized_transport;
-    skan::io::IOEngine unauthorized_io;
-    DiscoveryScheduler unauthorized_scheduler(
-        unauthorized_io,
-        AuthorizationGate([](const skan::core::Target &, const skan::core::Host &) { return false; }),
-        timeout_config,
-        unauthorized_transport);
-    assert(unauthorized_scheduler.submit(target) == skan::core::StatusCode::PermissionDenied);
-    assert(unauthorized_scheduler.pending_count() == 0U);
-    assert(unauthorized_scheduler.results().size() == 1U);
-    assert(unauthorized_scheduler.results().front().reason == DiscoveryReason::UnauthorizedTarget);
-
     RecordingTransport invalid_transport;
     skan::io::IOEngine invalid_io;
-    DiscoveryScheduler invalid_scheduler(
-        invalid_io, AuthorizationGate::loopback_only(), timeout_config, invalid_transport);
+    DiscoveryScheduler invalid_scheduler(invalid_io, timeout_config, invalid_transport);
     const skan::core::Target empty_target{"empty", {}};
     assert(invalid_scheduler.submit(empty_target) == skan::core::StatusCode::InvalidArgument);
     const skan::core::Target malformed_target{"malformed", {make_host("127.0.0")}};
@@ -118,8 +104,7 @@ int main()
     bounded_config.max_outstanding = 1U;
     RecordingTransport bounded_transport;
     skan::io::IOEngine bounded_io;
-    DiscoveryScheduler bounded_scheduler(
-        bounded_io, AuthorizationGate::loopback_only(), bounded_config, bounded_transport);
+    DiscoveryScheduler bounded_scheduler(bounded_io, bounded_config, bounded_transport);
     assert(bounded_scheduler.submit(target) == skan::core::StatusCode::IoError);
     assert(bounded_scheduler.pending_count() == 0U);
 
@@ -128,17 +113,16 @@ int main()
     malformed_config.timeout = std::chrono::milliseconds{20};
     RecordingTransport malformed_transport;
     skan::io::IOEngine malformed_io;
-    DiscoveryScheduler malformed_scheduler(
-        malformed_io, AuthorizationGate::loopback_only(), malformed_config, malformed_transport);
+    DiscoveryScheduler malformed_scheduler(malformed_io, malformed_config, malformed_transport);
     assert(malformed_scheduler.submit(target) == skan::core::StatusCode::Ok);
     const ProbeSubmission malformed_submission = malformed_transport.submissions().front();
     assert(malformed_scheduler.receive(DiscoveryResponse{
-        malformed_submission.id, malformed_submission.target, {0x08U, 0x00U}, DiscoveryClock::now()}) ==
+               malformed_submission.id, malformed_submission.target, {0x08U, 0x00U}, DiscoveryClock::now()}) ==
            skan::core::StatusCode::ParseError);
     assert(malformed_scheduler.complete());
     assert(malformed_scheduler.results().back().reason == DiscoveryReason::MalformedResponse);
     assert(malformed_scheduler.receive(DiscoveryResponse{
-        malformed_submission.id, malformed_submission.target, {0x08U, 0x00U}, DiscoveryClock::now()}) ==
+               malformed_submission.id, malformed_submission.target, {0x08U, 0x00U}, DiscoveryClock::now()}) ==
            skan::core::StatusCode::Ok);
     assert(malformed_scheduler.duplicate_response_count() == 1U);
 
@@ -148,8 +132,7 @@ int main()
     multi_config.max_outstanding = 4U;
     RecordingTransport multi_transport;
     skan::io::IOEngine multi_io;
-    DiscoveryScheduler multi_scheduler(
-        multi_io, AuthorizationGate::loopback_only(), multi_config, multi_transport);
+    DiscoveryScheduler multi_scheduler(multi_io, multi_config, multi_transport);
     const skan::core::Target multiple_targets{
         "loopback-pair", {make_host("127.0.0.1"), make_host("127.0.0.2")}};
     assert(multi_scheduler.submit(multiple_targets) == skan::core::StatusCode::Ok);

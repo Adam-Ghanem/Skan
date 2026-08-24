@@ -12,7 +12,6 @@
 #include "detect/service_db.hpp"
 #include "detect/service_matcher.hpp"
 #include "detect/service_probe.hpp"
-#include "discovery/discovery_types.hpp"
 #include "io/io_engine.hpp"
 #include "portscan/port_result.hpp"
 
@@ -24,7 +23,6 @@ public:
         io::IOEngine &engine,
         ServiceTransport &transport,
         const ServiceProbeDatabase &database,
-        discovery::AuthorizationGate authorization,
         ServiceDetectionConfig config);
     ~ServiceScheduler();
 
@@ -80,7 +78,6 @@ private:
     io::IOEngine &engine_;
     ServiceTransport &transport_;
     const ServiceProbeDatabase &database_;
-    discovery::AuthorizationGate authorization_;
     ServiceDetectionConfig config_;
     ServiceMatcher matcher_;
     std::deque<WorkItem> queue_;

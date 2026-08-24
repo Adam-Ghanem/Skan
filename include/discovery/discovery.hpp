@@ -14,7 +14,6 @@ class Discovery final {
 public:
     Discovery(
         io::IOEngine &io_engine,
-        AuthorizationGate authorization,
         DiscoveryConfig config,
         DiscoveryTransport &transport);
 

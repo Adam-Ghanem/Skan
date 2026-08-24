@@ -87,7 +87,6 @@ int main()
     skan::detect::ServiceDetector detector(
         engine,
         transport,
-        skan::discovery::AuthorizationGate::loopback_only(),
         skan::detect::ServiceDetectionConfig{2U, std::chrono::milliseconds{500}, 4096U, 1U});
     assert(detector.submit({open_result(ssh_port), open_result(http_port)}) == skan::core::StatusCode::Ok);
     assert(detector.run() == skan::core::StatusCode::Ok);

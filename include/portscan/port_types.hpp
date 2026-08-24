@@ -37,7 +37,6 @@ enum class ScanReason {
     SocketError,
     MalformedResponse,
     UnrelatedResponse,
-    UnauthorizedTarget,
     InvalidTarget,
     InvalidPort,
     UnsupportedMethod,

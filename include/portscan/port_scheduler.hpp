@@ -20,7 +20,6 @@ public:
     PortScanScheduler(
         io::IOEngine &engine,
         PortScanTransport &transport,
-        discovery::AuthorizationGate authorization,
         PortScanConfig config);
     ~PortScanScheduler();
 
@@ -72,7 +71,6 @@ private:
 
     io::IOEngine &engine_;
     PortScanTransport &transport_;
-    discovery::AuthorizationGate authorization_;
     PortScanConfig config_;
     std::unique_ptr<PortProbe> probe_;
     std::deque<WorkItem> queue_;

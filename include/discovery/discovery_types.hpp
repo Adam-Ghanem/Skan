@@ -3,7 +3,6 @@
 
 #include <chrono>
 #include <cstdint>
-#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -36,7 +35,6 @@ enum class DiscoveryReason {
     TcpRst,
     ArpReply,
     Timeout,
-    UnauthorizedTarget,
     InvalidTarget,
     UnsupportedInterface,
     SocketFailure,
@@ -74,26 +72,6 @@ struct DiscoveryResponse final {
     std::string source_address;
     std::vector<std::uint8_t> bytes;
     DiscoveryTimePoint received_at{};
-};
-
-using AuthorizationCallback = std::function<bool(const core::Target &, const core::Host &)>;
-
-/**
- * Explicit authorization boundary for discovery. There is no implicit allow-all path: callers
- * supply the repository-approved scope callback before submitting any target.
- */
-class AuthorizationGate final {
-public:
-    explicit AuthorizationGate(AuthorizationCallback callback);
-
-    bool authorize(const core::Target &target, const core::Host &host) const;
-    bool configured() const noexcept;
-
-    /** Conservative helper for local-only CLI and integration use. */
-    static AuthorizationGate loopback_only();
-
-private:
-    AuthorizationCallback callback_;
 };
 
 const char *host_state_name(HostState state) noexcept;

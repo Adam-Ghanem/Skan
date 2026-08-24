@@ -15,7 +15,7 @@ int main()
     config.probes = {ProbeType::IcmpEcho};
     config.timeout = std::chrono::milliseconds{10};
     config.max_outstanding = 4U;
-    Discovery discovery(io_engine, AuthorizationGate::loopback_only(), config, transport);
+    Discovery discovery(io_engine, config, transport);
     const skan::core::Target target{"localhost", {skan::core::Host{"127.0.0.1", std::nullopt, false}}};
 
     assert(discovery.submit(target) == skan::core::StatusCode::Ok);
@@ -42,7 +42,7 @@ int main()
     DiscoveryConfig timeout_config = config;
     timeout_config.timeout = std::chrono::milliseconds{1};
     Discovery timeout_discovery(
-        timeout_io, AuthorizationGate::loopback_only(), timeout_config, timeout_transport);
+        timeout_io, timeout_config, timeout_transport);
     assert(timeout_discovery.submit(target) == skan::core::StatusCode::Ok);
     assert(timeout_discovery.run_once(50) == skan::core::StatusCode::Ok);
     assert(timeout_discovery.complete());

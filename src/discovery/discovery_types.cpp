@@ -1,32 +1,8 @@
 #include "discovery/discovery_types.hpp"
 
 #include <charconv>
-#include <utility>
 
 namespace skan::discovery {
-
-AuthorizationGate::AuthorizationGate(AuthorizationCallback callback)
-    : callback_(std::move(callback))
-{
-}
-
-bool AuthorizationGate::authorize(const core::Target &target, const core::Host &host) const
-{
-    return callback_ != nullptr && callback_(target, host);
-}
-
-bool AuthorizationGate::configured() const noexcept
-{
-    return callback_ != nullptr;
-}
-
-AuthorizationGate AuthorizationGate::loopback_only()
-{
-    return AuthorizationGate([](const core::Target &, const core::Host &host) {
-        const auto address = parse_ipv4_address(host.address);
-        return address.has_value() && ((*address >> 24U) == 127U);
-    });
-}
 
 const char *host_state_name(HostState state) noexcept
 {
@@ -71,8 +47,6 @@ const char *discovery_reason_name(DiscoveryReason reason) noexcept
         return "ARP_REPLY";
     case DiscoveryReason::Timeout:
         return "TIMEOUT";
-    case DiscoveryReason::UnauthorizedTarget:
-        return "UNAUTHORIZED_TARGET";
     case DiscoveryReason::InvalidTarget:
         return "INVALID_TARGET";
     case DiscoveryReason::UnsupportedInterface:

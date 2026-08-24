@@ -45,8 +45,7 @@ int main()
         RecordingServiceTransport transport;
         ServiceDetectionConfig config{2U, std::chrono::milliseconds{100}, 32U, 2U};
         const ServiceProbeDatabase database = demo_database();
-        ServiceScheduler scheduler(
-            engine, transport, database, skan::discovery::AuthorizationGate::loopback_only(), config);
+        ServiceScheduler scheduler(engine, transport, database, config);
         const auto port = open_port("127.0.0.1", 80U);
         assert(scheduler.submit({port}) == skan::core::StatusCode::Ok);
         assert(scheduler.pending_count() == 1U);
@@ -79,8 +78,7 @@ int main()
         RecordingServiceTransport transport;
         ServiceDetectionConfig config{1U, std::chrono::milliseconds{2}, 32U, 1U};
         const ServiceProbeDatabase database = ServiceProbeDatabase::built_in();
-        ServiceScheduler scheduler(
-            engine, transport, database, skan::discovery::AuthorizationGate::loopback_only(), config);
+        ServiceScheduler scheduler(engine, transport, database, config);
         assert(scheduler.submit({open_port("127.0.0.1", 80U), open_port("127.0.0.1", 22U)}) ==
                skan::core::StatusCode::Ok);
         assert(scheduler.pending_count() == 1U);
@@ -97,8 +95,7 @@ int main()
         RecordingServiceTransport transport;
         ServiceDetectionConfig config{1U, std::chrono::milliseconds{100}, 2U, 1U};
         const ServiceProbeDatabase database = demo_database();
-        ServiceScheduler scheduler(
-            engine, transport, database, skan::discovery::AuthorizationGate::loopback_only(), config);
+        ServiceScheduler scheduler(engine, transport, database, config);
         assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
         const auto submission = transport.submissions().front();
         transport.deliver({submission.id, submission.target, ServiceResponseKind::Data,
@@ -113,20 +110,7 @@ int main()
         skan::io::IOEngine engine;
         RecordingServiceTransport transport;
         const ServiceProbeDatabase database = ServiceProbeDatabase::built_in();
-        ServiceScheduler scheduler(
-            engine, transport, database, skan::discovery::AuthorizationGate::loopback_only(), {});
-        assert(scheduler.submit({open_port("192.0.2.1", 80U)}) == skan::core::StatusCode::PermissionDenied);
-        assert(scheduler.results().size() == 1U);
-        assert(scheduler.results().front().state == DetectionState::Unauthorized);
-        assert(transport.submissions().empty());
-    }
-
-    {
-        skan::io::IOEngine engine;
-        RecordingServiceTransport transport;
-        const ServiceProbeDatabase database = ServiceProbeDatabase::built_in();
-        ServiceScheduler scheduler(
-            engine, transport, database, skan::discovery::AuthorizationGate::loopback_only(), {});
+        ServiceScheduler scheduler(engine, transport, database, {});
         auto closed = open_port("127.0.0.1", 80U);
         closed.state = skan::portscan::PortState::Closed;
         assert(scheduler.submit({closed}) == skan::core::StatusCode::Ok);

@@ -21,7 +21,6 @@ class DiscoveryScheduler final {
 public:
     DiscoveryScheduler(
         io::IOEngine &io_engine,
-        AuthorizationGate authorization,
         DiscoveryConfig config,
         DiscoveryTransport &transport);
     ~DiscoveryScheduler();
@@ -69,7 +68,6 @@ private:
     void pump() noexcept;
 
     io::IOEngine &io_engine_;
-    AuthorizationGate authorization_;
     DiscoveryConfig config_;
     DiscoveryTransport &transport_;
     std::vector<std::unique_ptr<DiscoveryProbe>> probes_;

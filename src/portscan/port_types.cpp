@@ -162,8 +162,6 @@ const char *scan_reason_name(ScanReason reason) noexcept
         return "MALFORMED_RESPONSE";
     case ScanReason::UnrelatedResponse:
         return "UNRELATED_RESPONSE";
-    case ScanReason::UnauthorizedTarget:
-        return "UNAUTHORIZED_TARGET";
     case ScanReason::InvalidTarget:
         return "INVALID_TARGET";
     case ScanReason::InvalidPort:

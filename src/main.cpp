@@ -46,8 +46,8 @@ void print_help()
               << "  Phase 2 — Packet Layer\n"
               << "  Phase 3 — Host Discovery\n"
               << "  Phase 4 — TCP Port Scan (scoped)\n"
-              << "\nDiscovery CLI mode is loopback-scoped and uses an offline recording transport.\n"
-              << "Scan CLI mode is loopback-scoped and uses real nonblocking TCP Connect sockets.\n"
+              << "\nDiscovery CLI mode uses an offline recording transport.\n"
+              << "Scan CLI mode uses real nonblocking TCP Connect sockets.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n";
 }
 
@@ -115,10 +115,10 @@ int run_discover(int argc, char **argv)
     }
     skan::discovery::RecordingTransport transport;
     skan::discovery::Discovery discovery(
-        io_engine, skan::discovery::AuthorizationGate::loopback_only(), config, transport);
+        io_engine, config, transport);
     const skan::core::StatusCode submit_status = discovery.submit(target);
     if (submit_status != skan::core::StatusCode::Ok) {
-        std::cerr << "Error: discovery submission failed for the supplied target: "
+        std::cerr << "Error: discovery submission failed: "
                   << skan::core::status_to_string(submit_status) << '\n';
         return EXIT_FAILURE;
     }
@@ -235,11 +235,10 @@ int run_scan(int argc, char **argv)
     skan::portscan::PortScanScheduler scanner(
         io_engine,
         transport,
-        skan::discovery::AuthorizationGate::loopback_only(),
         config);
     const skan::core::StatusCode submit_status = scanner.submit(target, ports);
     if (submit_status != skan::core::StatusCode::Ok) {
-        std::cerr << "Error: scan submission denied or failed: "
+        std::cerr << "Error: scan submission failed: "
                   << skan::core::status_to_string(submit_status) << '\n';
         return EXIT_FAILURE;
     }
@@ -278,7 +277,6 @@ int run_scan(int argc, char **argv)
         skan::detect::ServiceDetector detector(
             io_engine,
             service_transport,
-            skan::discovery::AuthorizationGate::loopback_only(),
             service_config,
             std::move(database));
         const skan::core::StatusCode detection_submit = detector.submit(scanner.results());

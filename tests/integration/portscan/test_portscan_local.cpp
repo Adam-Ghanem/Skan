@@ -61,11 +61,7 @@ int main()
     skan::io::IOEngine engine;
     TcpConnectTransport transport(engine);
     PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{500}, 2U};
-    PortScanScheduler scheduler(
-        engine,
-        transport,
-        skan::discovery::AuthorizationGate::loopback_only(),
-        config);
+    PortScanScheduler scheduler(engine, transport, config);
     const skan::core::Target target{"local-service", {{"127.0.0.1", std::nullopt, true}}};
     assert(scheduler.submit(
                target,
@@ -89,17 +85,5 @@ int main()
     assert(saw_closed);
     assert(::close(listener) == 0);
 
-    skan::io::IOEngine denied_engine;
-    TcpConnectTransport denied_transport(denied_engine);
-    PortScanScheduler denied_scheduler(
-        denied_engine,
-        denied_transport,
-        skan::discovery::AuthorizationGate::loopback_only(),
-        config);
-    const skan::core::Target denied_target{"not-local", {{"192.0.2.1", std::nullopt, false}}};
-    assert(denied_scheduler.submit(denied_target, {{80U, Protocol::Tcp}}) ==
-           skan::core::StatusCode::PermissionDenied);
-    assert(denied_scheduler.results().size() == 1U);
-    assert(denied_scheduler.results().front().reason == ScanReason::UnauthorizedTarget);
     return 0;
 }

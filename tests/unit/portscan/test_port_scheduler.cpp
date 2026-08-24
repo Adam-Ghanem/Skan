@@ -33,7 +33,7 @@ int main()
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
         PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{100}, 1U};
-        PortScanScheduler scheduler(engine, transport, skan::discovery::AuthorizationGate::loopback_only(), config);
+        PortScanScheduler scheduler(engine, transport, config);
         const auto ports = ports_from(1000U, 5U);
         assert(scheduler.submit(loopback_target(), ports) == skan::core::StatusCode::Ok);
         assert(scheduler.pending_count() == 1U);
@@ -63,7 +63,7 @@ int main()
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
         PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{2}, 2U};
-        PortScanScheduler scheduler(engine, transport, skan::discovery::AuthorizationGate::loopback_only(), config);
+        PortScanScheduler scheduler(engine, transport, config);
         assert(scheduler.submit(loopback_target(), ports_from(2000U, 3U)) == skan::core::StatusCode::Ok);
         assert(scheduler.run() == skan::core::StatusCode::Ok);
         assert(scheduler.complete());
@@ -78,7 +78,7 @@ int main()
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
         PortScanConfig config{ScanProbeType::TcpSyn, std::chrono::milliseconds{100}, 1U};
-        PortScanScheduler scheduler(engine, transport, skan::discovery::AuthorizationGate::loopback_only(), config);
+        PortScanScheduler scheduler(engine, transport, config);
         assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
         assert(scheduler.pending_count() == 1U);
         const PortSubmission &submission = transport.submissions().front();
@@ -95,26 +95,8 @@ int main()
     {
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
-        PortScanScheduler scheduler(
-            engine,
-            transport,
-            skan::discovery::AuthorizationGate::loopback_only(),
-            PortScanConfig{});
-        const skan::core::Target mixed{
-            "mixed",
-            {{"127.0.0.1", std::nullopt, true}, {"192.0.2.1", std::nullopt, false}}};
-        assert(scheduler.submit(mixed, {{80U, Protocol::Tcp}}) == skan::core::StatusCode::PermissionDenied);
-        assert(scheduler.results().size() == 1U);
-        assert(scheduler.results().front().target == "192.0.2.1");
-        assert(scheduler.results().front().reason == ScanReason::UnauthorizedTarget);
-        assert(transport.submissions().empty());
-    }
-
-    {
-        skan::io::IOEngine engine;
-        RecordingPortScanTransport transport;
         PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{100}, 4U};
-        PortScanScheduler scheduler(engine, transport, skan::discovery::AuthorizationGate::loopback_only(), config);
+        PortScanScheduler scheduler(engine, transport, config);
         const skan::core::Target targets{
             "loopbacks",
             {{"127.0.0.1", std::nullopt, true}, {"127.0.0.2", std::nullopt, true}}};

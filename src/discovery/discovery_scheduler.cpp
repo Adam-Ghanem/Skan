@@ -26,11 +26,9 @@ DiscoveryReason reason_for_status(core::StatusCode status) noexcept
 
 DiscoveryScheduler::DiscoveryScheduler(
     io::IOEngine &io_engine,
-    AuthorizationGate authorization,
     DiscoveryConfig config,
     DiscoveryTransport &transport)
     : io_engine_(io_engine),
-      authorization_(std::move(authorization)),
       config_(std::move(config)),
       transport_(transport)
 {
@@ -69,18 +67,7 @@ const DiscoveryProbe *DiscoveryScheduler::probe_for(ProbeType type) const noexce
 core::StatusCode DiscoveryScheduler::submit(const core::Target &target)
 {
     if (target.resolved_hosts.empty() || probes_.empty() || config_.timeout.count() <= 0 ||
-        config_.max_outstanding == 0U || !authorization_.configured()) {
-        if (!authorization_.configured() && !target.resolved_hosts.empty()) {
-            append_result(DiscoveryResult{
-                target.resolved_hosts.front().address,
-                HostState::Unknown,
-                probes_.empty() ? ProbeType::IcmpEcho : probes_.front()->type(),
-                false,
-                std::nullopt,
-                DiscoveryClock::now(),
-                DiscoveryReason::UnauthorizedTarget});
-            return core::StatusCode::PermissionDenied;
-        }
+        config_.max_outstanding == 0U) {
         return core::StatusCode::InvalidArgument;
     }
 
@@ -107,23 +94,6 @@ core::StatusCode DiscoveryScheduler::submit_host(const core::Target &target, con
             DiscoveryClock::now(),
             DiscoveryReason::InvalidTarget});
         return core::StatusCode::InvalidArgument;
-    }
-    bool authorized = false;
-    try {
-        authorized = authorization_.configured() && authorization_.authorize(target, host);
-    } catch (...) {
-        return core::StatusCode::InternalError;
-    }
-    if (!authorized) {
-        append_result(DiscoveryResult{
-            host.address,
-            HostState::Unknown,
-            probes_.empty() ? ProbeType::IcmpEcho : probes_.front()->type(),
-            false,
-            std::nullopt,
-            DiscoveryClock::now(),
-            DiscoveryReason::UnauthorizedTarget});
-        return core::StatusCode::PermissionDenied;
     }
     if (probes_.empty() || config_.timeout.count() <= 0 || config_.max_outstanding == 0U) {
         return core::StatusCode::InvalidArgument;

@@ -39,11 +39,9 @@ ScanReason submission_failure_reason(core::StatusCode status) noexcept
 PortScanScheduler::PortScanScheduler(
     io::IOEngine &engine,
     PortScanTransport &transport,
-    discovery::AuthorizationGate authorization,
     PortScanConfig config)
     : engine_(engine),
       transport_(transport),
-      authorization_(std::move(authorization)),
       config_(config)
 {
     if (config_.method == ScanProbeType::TcpConnect) {
@@ -100,22 +98,18 @@ core::StatusCode PortScanScheduler::submit(
     }
 
     submitted_ = true;
-    bool denied = false;
     try {
         for (const core::Host &host : target.resolved_hosts) {
             const bool valid_ipv4 = discovery::parse_ipv4_address(host.address).has_value();
-            if (!valid_ipv4 || !authorization_.authorize(target, host)) {
-                denied = true;
+            if (!valid_ipv4) {
                 for (const Port &port : ports) {
                     append_terminal_result(
                         WorkItem{host, port},
                         config_.method,
                         PortState::Unknown,
-                        valid_ipv4 ? ScanReason::UnauthorizedTarget : ScanReason::InvalidTarget);
+                        ScanReason::InvalidTarget);
                 }
-                if (!valid_ipv4) {
-                    status_ = core::StatusCode::InvalidArgument;
-                }
+                status_ = core::StatusCode::InvalidArgument;
                 continue;
             }
             for (const Port &port : ports) {
@@ -126,9 +120,6 @@ core::StatusCode PortScanScheduler::submit(
         status_ = core::StatusCode::MemoryError;
         queue_.clear();
         return status_;
-    }
-    if (denied && status_ == core::StatusCode::Ok) {
-        status_ = core::StatusCode::PermissionDenied;
     }
     if (status_ == core::StatusCode::Ok) {
         pump();

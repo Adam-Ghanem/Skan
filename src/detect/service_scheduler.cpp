@@ -12,7 +12,7 @@ DetectionError error_for_status(core::StatusCode status) noexcept
 {
     switch (status) {
     case core::StatusCode::PermissionDenied:
-        return DetectionError::UnauthorizedTarget;
+        return DetectionError::TransportFailure;
     case core::StatusCode::InvalidArgument:
         return DetectionError::InvalidTarget;
     case core::StatusCode::IoError:
@@ -40,12 +40,10 @@ ServiceScheduler::ServiceScheduler(
     io::IOEngine &engine,
     ServiceTransport &transport,
     const ServiceProbeDatabase &database,
-    discovery::AuthorizationGate authorization,
     ServiceDetectionConfig config)
     : engine_(engine),
       transport_(transport),
       database_(database),
-      authorization_(std::move(authorization)),
       config_(config),
       matcher_(database)
 {
@@ -87,7 +85,6 @@ core::StatusCode ServiceScheduler::submit(const std::vector<portscan::PortResult
         return status_;
     }
     submitted_ = true;
-    bool denied = false;
     std::vector<std::pair<std::string, std::uint16_t>> seen;
     try {
         for (const portscan::PortResult &port_result : open_ports) {
@@ -109,19 +106,6 @@ core::StatusCode ServiceScheduler::submit(const std::vector<portscan::PortResult
                 continue;
             }
             seen.emplace_back(port_result.target, port_result.port.number);
-            const core::Target target{
-                port_result.target,
-                {core::Host{port_result.target, std::nullopt, true}}};
-            if (!authorization_.authorize(target, target.resolved_hosts.front())) {
-                denied = true;
-                append_result(
-                    port_result,
-                    nullptr,
-                    DetectionState::Unauthorized,
-                    DetectionError::UnauthorizedTarget,
-                    nullptr);
-                continue;
-            }
             WorkItem work;
             work.port_result = port_result;
             work.probe_indices = database_.ordered_probe_indices(
@@ -142,9 +126,6 @@ core::StatusCode ServiceScheduler::submit(const std::vector<portscan::PortResult
         status_ = core::StatusCode::MemoryError;
         queue_.clear();
         return status_;
-    }
-    if (denied && status_ == core::StatusCode::Ok) {
-        status_ = core::StatusCode::PermissionDenied;
     }
     if (status_ == core::StatusCode::Ok) {
         pump();

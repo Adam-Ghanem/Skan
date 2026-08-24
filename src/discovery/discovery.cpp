@@ -6,10 +6,9 @@ namespace skan::discovery {
 
 Discovery::Discovery(
     io::IOEngine &io_engine,
-    AuthorizationGate authorization,
     DiscoveryConfig config,
     DiscoveryTransport &transport)
-    : scheduler_(io_engine, std::move(authorization), std::move(config), transport)
+    : scheduler_(io_engine, std::move(config), transport)
 {
 }
 

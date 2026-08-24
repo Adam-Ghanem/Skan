@@ -7,7 +7,6 @@ namespace skan::detect {
 ServiceDetector::ServiceDetector(
     io::IOEngine &engine,
     ServiceTransport &transport,
-    discovery::AuthorizationGate authorization,
     ServiceDetectionConfig config,
     ServiceProbeDatabase database)
     : database_(std::move(database))
@@ -16,7 +15,6 @@ ServiceDetector::ServiceDetector(
         engine,
         transport,
         database_,
-        std::move(authorization),
         config);
 }
 

@@ -23,16 +23,5 @@ int main()
     assert(config.tcp_port == kDefaultTcpDiscoveryPort);
     assert(config.timeout == kDefaultDiscoveryTimeout);
     assert(config.max_outstanding == kDefaultMaxOutstanding);
-
-    skan::core::Target target{"local", {skan::core::Host{"127.0.0.1", std::nullopt, false}}};
-    const AuthorizationGate gate = AuthorizationGate::loopback_only();
-    assert(gate.configured());
-    assert(gate.authorize(target, target.resolved_hosts.front()));
-    const skan::core::Host outside{"192.0.2.1", std::nullopt, false};
-    assert(!gate.authorize(target, outside));
-
-    const AuthorizationGate missing_gate(AuthorizationCallback{});
-    assert(!missing_gate.configured());
-    assert(!missing_gate.authorize(target, target.resolved_hosts.front()));
     return 0;
 }

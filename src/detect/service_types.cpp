@@ -15,8 +15,6 @@ const char *detection_state_name(DetectionState state) noexcept
         return "CONNECTION_CLOSED";
     case DetectionState::ResponseTooLarge:
         return "RESPONSE_TOO_LARGE";
-    case DetectionState::Unauthorized:
-        return "UNAUTHORIZED";
     case DetectionState::InvalidTarget:
         return "INVALID_TARGET";
     case DetectionState::Error:
@@ -37,8 +35,6 @@ const char *detection_error_name(DetectionError error) noexcept
         return "CONNECTION_CLOSED";
     case DetectionError::ResponseTooLarge:
         return "RESPONSE_TOO_LARGE";
-    case DetectionError::UnauthorizedTarget:
-        return "UNAUTHORIZED_TARGET";
     case DetectionError::InvalidTarget:
         return "INVALID_TARGET";
     case DetectionError::TransportFailure:

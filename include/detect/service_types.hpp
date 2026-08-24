@@ -27,7 +27,6 @@ enum class DetectionState {
     Timeout,
     ConnectionClosed,
     ResponseTooLarge,
-    Unauthorized,
     InvalidTarget,
     Error
 };
@@ -37,7 +36,6 @@ enum class DetectionError {
     Timeout,
     ConnectionClosed,
     ResponseTooLarge,
-    UnauthorizedTarget,
     InvalidTarget,
     TransportFailure,
     MalformedResponse,

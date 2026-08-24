@@ -11,7 +11,6 @@ int main()
     ServiceDetector detector(
         engine,
         transport,
-        skan::discovery::AuthorizationGate::loopback_only(),
         ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 1024U, 1U});
     assert(detector.database().status() == skan::core::StatusCode::Ok);
 

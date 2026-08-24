@@ -14,7 +14,6 @@ public:
     ServiceDetector(
         io::IOEngine &engine,
         ServiceTransport &transport,
-        discovery::AuthorizationGate authorization,
         ServiceDetectionConfig config,
         ServiceProbeDatabase database = ServiceProbeDatabase::built_in());
     ~ServiceDetector();
