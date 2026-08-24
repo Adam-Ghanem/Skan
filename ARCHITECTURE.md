@@ -42,7 +42,7 @@ The Phase 1 I/O Engine is independent infrastructure. Phase 3 uses it through it
 
 | Language | Responsibility | Status |
 | --- | --- | --- |
-| C++20 | Core, I/O engine, packet representation, discovery, future orchestration, detection, data, output, and CLI | Phase 0–3 implemented where applicable |
+| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, and CLI | Phase 0–5 implemented where applicable |
 | C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
 | Lua 5.4 | Future scripting layer | Planned |
 | TypeScript/React | Future dashboard | Planned |
@@ -58,6 +58,8 @@ The Phase 1 I/O Engine is independent infrastructure. Phase 3 uses it through it
 **Phase 3 — Host Discovery** provides a bounded scheduler, explicit authorization callback, common probe abstraction, ICMP Echo correlation, TCP SYN/ACK and RST evidence classification, minimal ARP request/reply representation, monotonic timeouts, RTT calculation, duplicate and late response handling, deterministic host-state aggregation, and a safe recording transport for offline tests.
 
 **Phase 4 — Scoped TCP Port Scan** provides TCP-only port selection and results, a bounded scheduler over the Phase 1 reactor, real nonblocking IPv4 TCP Connect transport, and an offline packet-model-backed TCP SYN probe. It is authorization-gated for every host and does not implement a raw SYN transport in this build.
+
+**Phase 5 — Service Detection** provides an opt-in, TCP-only detector that consumes OPEN Phase 4 results, performs bounded nonblocking banner/probe exchanges through the same reactor, matches responses against a compact project-owned database, and emits deterministic structured `ServiceResult` values. It is complete for this bounded scope; it does not implement UDP detection, OS fingerprinting, credential handling, or service exploitation.
 
 ## Target and authorization integration
 
@@ -143,6 +145,42 @@ PortResult (target, TCP port, state, probe, reason, optional RTT)
 
 Port selection accepts single values, comma-separated lists, and inclusive ranges. Values outside `1..65535`, malformed tokens, and descending ranges are rejected. The default is the small deterministic set `{22, 80, 443}`; no implicit full-port enumeration exists.
 
+## Service-detection architecture
+
+The Phase 5 execution model is:
+
+```text
+Phase 4 PortResult values
+          ↓
+filter OPEN/TCP results
+          ↓
+AuthorizationGate::authorize(target, host)
+          ↓
+ServiceScheduler
+          ↓
+bounded target × port × probe queue
+          ↓
+ServiceProbe::build()
+          ↓
+ServiceTransport::submit()
+       ↙                         ↘
+RecordingServiceTransport       ServiceTcpTransport
+       ↓                         ↓
+synthetic callbacks       Phase 1 IOEngine events
+          ↘                         ↙
+bounded response accumulation
+          ↓
+ServiceMatcher
+          ↓
+ServiceResult
+```
+
+`ServiceScheduler` owns the bounded work queue, pending correlation map, retry index, and one-shot `IOEngine` timers. `ServiceTcpTransport` owns nonblocking IPv4 stream sockets, borrowed reactor events, response buffers, and descriptor cleanup. It sends only the payload associated with the selected project-owned probe and never opens a connection for a non-OPEN port result. The recording transport supports deterministic multi-chunk, malformed, oversized, timeout, duplicate, and late-response tests without network access.
+
+The database parser accepts `Probe TCP`, `send`, and `match` records. Match rules are prefix, substring, or ECMAScript regular expression rules with a confidence in `[0,1]`; regular-expression captures can populate product and version templates. Probe ordering prefers a matching port hint, then lower rarity, then generic probes for ports without hints, and finally declaration order. `max_probes` bounds retry depth for each OPEN port.
+
+A successful match produces a `DETECTED` result with service identity, optional product/version/extra fields, confidence, method, probe name, and RTT. A missing response, timeout, connection close without a match, response limit, malformed response, unauthorized target, invalid target, or transport failure produces an explicit non-success state. No service identity is inferred solely from a port number.
+
 ## Correlation and response lifecycle
 
 Each outbound submission contains a monotonically assigned `ProbeId`, target address, probe type, serialized packet, and protocol-specific correlation metadata. The scheduler stores the sent monotonic timestamp and deadline in its pending entry.
@@ -177,25 +215,27 @@ The public discovery and port-scan APIs accept an existing `io::IOEngine&`. Prob
 
 ## CLI boundary
 
-The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 4 adds only:
+The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 4 adds the scoped TCP scan, and Phase 5 adds opt-in service detection:
 
 ```text
 skan scan <ipv4-address> [--tcp-ports <single,list,range>]
           [--method <connect|syn>] [--timeout-ms <ms>]
-          [--max-outstanding <n>]
+          [--max-outstanding <n>] [--service-detect]
+          [--service-db <path>] [--max-response-bytes <n>]
+          [--max-probes <n>]
 ```
 
-Both commands use `AuthorizationGate::loopback_only()` and therefore accept only explicit IPv4 loopback targets. `scan --method connect` uses real nonblocking stream sockets. `scan --method syn` exits with a capability-unavailable error in this build; synthetic SYN behavior is covered through the library transport seam. There are no UDP, alternate TCP flag, service-detection, fingerprinting, evasion, range-expansion, or authorization-bypass options.
+Both commands use `AuthorizationGate::loopback_only()` and therefore accept only explicit IPv4 loopback targets. `scan --method connect` uses real nonblocking stream sockets. `scan --method syn` exits with a capability-unavailable error in this build; synthetic SYN behavior is covered through the library transport seam. `--service-detect` runs only after the scan and only for OPEN TCP results. There are no UDP, alternate TCP flag, fingerprinting, evasion, range-expansion, or authorization-bypass options.
 
 ## Error model
 
-Discovery maps invalid IPv4 input to `InvalidArgument` and `INVALID_TARGET`, missing or rejecting authorization to `PermissionDenied` and `UNAUTHORIZED_TARGET`, transport I/O failure to `IoError` and `SOCKET_FAILURE`, parser rejection to `ParseError` and `MALFORMED_RESPONSE`, timer or internal construction failures to `InternalError`, and late responses to `NotFound` without corrupting state. Port scanning maps Connect success to `OPEN/IMMEDIATE_SUCCESS`, refusal to `CLOSED/CONNECTION_REFUSED`, deadline expiry to `FILTERED/TIMEOUT`, and other local socket failures to `UNKNOWN/SOCKET_ERROR`. SYN capability absence is explicit `PermissionDenied`/`CAPABILITY_UNAVAILABLE`; malformed and unrelated synthetic responses leave pending state unchanged.
+Discovery maps invalid IPv4 input to `InvalidArgument` and `INVALID_TARGET`, missing or rejecting authorization to `PermissionDenied` and `UNAUTHORIZED_TARGET`, transport I/O failure to `IoError` and `SOCKET_FAILURE`, parser rejection to `ParseError` and `MALFORMED_RESPONSE`, timer or internal construction failures to `InternalError`, and late responses to `NotFound` without corrupting state. Port scanning maps Connect success to `OPEN/IMMEDIATE_SUCCESS`, refusal to `CLOSED/CONNECTION_REFUSED`, deadline expiry to `FILTERED/TIMEOUT`, and other local socket failures to `UNKNOWN/SOCKET_ERROR`. SYN capability absence is explicit `PermissionDenied`/`CAPABILITY_UNAVAILABLE`; malformed and unrelated synthetic responses leave pending state unchanged. Service detection maps timeout, close, oversized response, malformed response, unauthorized target, no match, and transport failure to explicit `DetectionError` values without fabricating a service identity.
 
 ## Platform and network boundary
 
 Phase 3 is Linux-first because Phase 1 uses Linux `epoll`, and any future ARP transport would require Linux interface capabilities. Current tests and the CLI do not require network privileges, external hosts, or public Internet access.
 
-The repository contains no packet transmission, `AF_PACKET`, raw-socket send path, `sendto()`, TCP SYN network transport, UDP scanner, alternate TCP flag scan, service detection, OS fingerprinting, Lua, evasion, dashboard, or authorization bypass. Phase 4 does contain a scoped IPv4 TCP Connect transport and deterministic TCP port enumeration only after authorization. Future network transports must remain above the explicit `PortScanTransport` and `AuthorizationGate` boundaries.
+The repository contains no packet transmission, `AF_PACKET`, raw-socket send path, `sendto()`, TCP SYN network transport, UDP scanner, alternate TCP flag scan, OS fingerprinting, Lua, evasion, dashboard, or authorization bypass. Phase 4 contains a scoped IPv4 TCP Connect transport and deterministic TCP port enumeration only after authorization. Phase 5 contains only authorized TCP stream banner/probe detection on OPEN results through `ServiceTransport`; it does not perform service exploitation, credential exchange, or Internet-wide scanning.
 
 ## Module status
 
@@ -207,10 +247,10 @@ The repository contains no packet transmission, `AF_PACKET`, raw-socket send pat
 | Host Discovery | Authorized, bounded, asynchronous ICMP/TCP/ARP probe scheduling and response aggregation | Implemented in Phase 3 |
 | Scan Engine | Scan-job coordination and lifecycle management | Phase 4 scheduler implemented |
 | Port Scanning | TCP port selection, Connect transport, SYN probe seam, state/result collection | Implemented in Phase 4; raw SYN transport unavailable |
-| Detection | Service and operating-system detection | Planned |
-| Data Layer | Persistence and serialization of scan results | Planned |
+| Detection | Bounded TCP banner/probe service detection and deterministic matching | Implemented in Phase 5 |
+| Data Layer | Project-owned service probe database plus future persistence and serialization | Phase 5 compact dataset implemented; persistence planned |
 | Lua Scripting | Optional user-defined scripting extensions | Planned |
 | Output | Human-readable and machine-readable result formats | Phase 3 result formatting only |
 | Evasion | Future traffic and timing controls | Planned |
-| CLI | Version/help bootstrap, discovery exercise, and loopback-scoped TCP Connect scan | Phase 4 minimal integration |
+| CLI | Version/help bootstrap, discovery exercise, loopback-scoped TCP scan, and opt-in service detection | Phase 5 minimal integration |
 | Dashboard | Future TypeScript/React visualization and management interface | Planned |

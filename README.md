@@ -4,7 +4,7 @@ Skan is an original, modular Linux network-scanning platform under development. 
 
 ## Project goals
 
-Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, and the Phase 4 TCP port-scan foundation; it does not implement a full network-scanning workflow.
+Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, the Phase 4 TCP port-scan foundation, and the Phase 5 service-detection layer; it does not implement a full network-scanning workflow.
 
 ## Language and platform
 
@@ -21,9 +21,10 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 2 — Packet Layer | **COMPLETE** |
 | Phase 3 — Host Discovery | **COMPLETE** |
 | Phase 4 — Scoped TCP Port Scan | **COMPLETE** |
-| Phase 5 and later | Planned |
+| Phase 5 — Service Detection | **COMPLETE** |
+| Phase 6 and later | Planned |
 
-Phase 3 is deliberately scoped to explicitly supplied, authorized targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that authorization boundary, adds real nonblocking TCP Connect only for authorized IPv4 targets, and keeps SYN network transmission capability-gated. No public Internet target is used by the test suite.
+Phase 3 is deliberately scoped to explicitly supplied, authorized targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that authorization boundary, adds real nonblocking TCP Connect only for authorized IPv4 targets, and keeps SYN network transmission capability-gated. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same authorization boundary and Phase 1 reactor, and uses a small project-owned database. No public Internet target is used by the test suite.
 
 ## Phase 3 Host Discovery
 
@@ -84,7 +85,27 @@ The minimal CLI is:
   --timeout-ms 500 --max-outstanding 16
 ```
 
-`--method syn` is accepted as a capability-gated mode and exits without network activity when the raw-packet capability is unavailable. UDP scanning, alternate TCP flag scans, evasion, decoys, spoofing, fragmentation tricks, service/version detection, OS fingerprinting, scripting, dashboards, and authorization bypasses are outside Phase 4.
+`--method syn` is accepted as a capability-gated mode and exits without network activity when the raw-packet capability is unavailable. UDP scanning, alternate TCP flag scans, evasion, decoys, spoofing, fragmentation tricks, OS fingerprinting, scripting, dashboards, and authorization bypasses remain outside scope. Phase 5 service detection is opt-in and limited to bounded TCP banner/probe matching on OPEN results.
+
+## Phase 5 Service Detection
+
+Phase 5 is an opt-in service-detection layer that consumes only `PortResult` values whose state is `OPEN` and whose protocol is TCP. It does not rescan ports, infer service identity from port numbers alone, perform UDP probes, run operating-system fingerprinting, or bypass the Phase 3 `AuthorizationGate`. The loopback CLI therefore performs service probes only against explicitly authorized `127.0.0.0/8` targets.
+
+The detector uses the shared Phase 1 `IOEngine` for nonblocking connect, writable, readable, hangup, and timeout events. Its `ServiceScheduler` bounds active probes with `max_outstanding`, bounds each response with `max_response_bytes`, limits attempts per port with `max_probes`, and retains deterministic target/port/probe ordering. Partial TCP responses are accumulated until a matcher succeeds, the peer closes, the response limit is reached, or the shared deadline expires.
+
+Probe definitions are project-owned and stored in `data/service-probes.db` using a compact line-oriented format. Each definition names a TCP payload and one or more prefix, substring, or regular-expression rules. Regex rules may expose numbered captures as `$1`, `$2`, and so on for product and version fields. The built-in dataset is intentionally small and covers HTTP, SSH, FTP, SMTP, a TLS greeting, and a generic banner fallback; it is not an imported Nmap database.
+
+A `ServiceResult` retains the target, TCP port, inherited port state, detection state, service, product, version, extra text, confidence, method, probe name, optional RTT, error classification, and completion timestamp. Matching is deterministic: the highest confidence wins, followed by rule specificity and declaration order. No-match, timeout, connection-closed, oversized-response, malformed, unauthorized, and transport-error outcomes remain explicit rather than being converted into guessed service identities.
+
+The CLI extension is:
+
+```sh
+./bin/skan scan 127.0.0.1 --tcp-ports 22,80 --method connect \
+  --timeout-ms 500 --max-outstanding 16 --service-detect \
+  --max-response-bytes 8192 --max-probes 2
+```
+
+An explicit project-owned database may be selected with `--service-db data/service-probes.db`. Service detection is performed only after the port scan completes, and only OPEN TCP results enter the service scheduler. The current implementation intentionally does not claim protocol-complete identification, TLS negotiation, credential handling, service exploitation, UDP detection, OS fingerprinting, or Internet-wide scanning. Phase 5 is complete for this bounded banner/probe scope.
 
 ## Phase 2 Packet Layer
 
@@ -121,13 +142,13 @@ make debug
 
 ## Tests
 
-Compile and execute all Phase 0, Phase 1, Phase 2, and Phase 3 tests with:
+Compile and execute all Phase 0 through Phase 5 tests with:
 
 ```sh
 make test
 ```
 
-The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; malformed and unrelated responses; authorization rejection; bounded port-scan scheduling; duplicate and late response handling; RTT; timeouts; multiple targets; and stress-sized synthetic scans. The controlled Phase 4 integration test opens a local loopback listener and verifies real TCP Connect `OPEN` and `CLOSED` results without using public targets. Existing Phase 0–3 tests remain active.
+The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; authorization rejection; timeouts; retries; multiple targets; and stress-sized synthetic scans. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Existing Phase 0–4 tests remain active.
 
 Sanitizer validation can be run with:
 
@@ -160,13 +181,20 @@ Phase 4 adds the authorized TCP Connect exercise:
 ./bin/skan scan 127.0.0.1 --tcp-ports 1,22,80 --method connect --timeout-ms 100
 ```
 
-Unknown or incomplete arguments print a clear error and return a non-zero status. There is no `--no-auth`, `--bypass-auth`, hidden authorization path, implicit public-target authorization, UDP option, service-detection option, or full-port-range default.
+Phase 5 adds opt-in service detection after OPEN TCP results:
+
+```sh
+./bin/skan scan 127.0.0.1 --tcp-ports 22,80 --method connect \
+  --service-detect --service-db data/service-probes.db
+```
+
+Unknown or incomplete arguments print a clear error and return a non-zero status. There is no `--no-auth`, `--bypass-auth`, hidden authorization path, implicit public-target authorization, UDP option, alternate TCP flag option, or full-port-range default.
 
 ## Network and safety boundary
 
-Phase 4 implements only authorized IPv4 TCP Connect transport through nonblocking stream sockets. It does not implement raw packet transmission in this build: there is no `AF_PACKET`, `sendto()`, SYN network transport, spoofing, ARP attack behavior, host-range expansion, public-target default, UDP scanning, alternate TCP flag scanning, evasion, service detection, operating-system fingerprinting, Lua scripting, or dashboard functionality. The SYN implementation is packet-model-backed and synthetic/transport-injected only until a separately validated capability is available.
+Phase 4 implements only authorized IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds authorized TCP banner/probe service detection on OPEN results. There is no raw packet transmission in this build: no `AF_PACKET`, `sendto()`, SYN network transport, spoofing, ARP attack behavior, host-range expansion, public-target default, UDP scanning, alternate TCP flag scanning, evasion, operating-system fingerprinting, Lua scripting, or dashboard functionality. The SYN implementation is packet-model-backed and synthetic/transport-injected only until a separately validated capability is available.
 
-The Phase 3 integration remains offline. Phase 4 integration uses only `127.0.0.1` and a deliberately created local listening socket plus a closed local port. No public Internet targets were scanned.
+The Phase 3 integration remains offline. Phase 4 and Phase 5 integration use only `127.0.0.1` and deliberately created local listening sockets; Phase 5 additionally verifies controlled SSH and HTTP banner responses. No public Internet targets were scanned.
 
 ## License
 

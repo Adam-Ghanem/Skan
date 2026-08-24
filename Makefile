@@ -37,6 +37,12 @@ CPP_SOURCES := \
 		src/portscan/tcp_connect.cpp \
 		src/portscan/tcp_syn.cpp \
 		src/portscan/port_scheduler.cpp \
+		src/detect/service_types.cpp \
+		src/detect/service_db.cpp \
+		src/detect/service_matcher.cpp \
+		src/detect/service_probe.cpp \
+		src/detect/service_scheduler.cpp \
+		src/detect/service_detector.cpp \
 		src/main.cpp
 
 C_SOURCES := src/c_api/status.c
@@ -52,6 +58,9 @@ PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packe
 PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o \
 	$(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o \
 	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/port_scheduler.o
+DETECT_OBJECTS := $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/detect/service_db.o \
+	$(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/service_probe.o \
+	$(BUILD_DIR)/detect/service_scheduler.o $(BUILD_DIR)/detect/service_detector.o
 
 TEST_SOURCES := \
 	tests/unit/core/test_types.cpp \
@@ -75,7 +84,14 @@ TEST_SOURCES := \
 	tests/unit/portscan/test_port_types.cpp \
 	tests/unit/portscan/test_port_probe.cpp \
 	tests/unit/portscan/test_port_scheduler.cpp \
-	tests/integration/portscan/test_portscan_local.cpp
+	tests/integration/portscan/test_portscan_local.cpp \
+	tests/unit/detect/test_service_types.cpp \
+	tests/unit/detect/test_service_db.cpp \
+	tests/unit/detect/test_service_probe.cpp \
+	tests/unit/detect/test_service_matcher.cpp \
+	tests/unit/detect/test_service_scheduler.cpp \
+	tests/unit/detect/test_service_detector.cpp \
+	tests/integration/detect/test_service_detection_local.cpp
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
 	$(BUILD_DIR)/test_types \
@@ -99,7 +115,14 @@ TEST_BINARIES := \
 		$(BUILD_DIR)/test_port_types \
 		$(BUILD_DIR)/test_port_probe \
 		$(BUILD_DIR)/test_port_scheduler \
-		$(BUILD_DIR)/test_portscan_local
+		$(BUILD_DIR)/test_portscan_local \
+		$(BUILD_DIR)/test_service_types \
+		$(BUILD_DIR)/test_service_db \
+		$(BUILD_DIR)/test_service_probe \
+		$(BUILD_DIR)/test_service_matcher \
+		$(BUILD_DIR)/test_service_scheduler \
+		$(BUILD_DIR)/test_service_detector \
+		$(BUILD_DIR)/test_service_detection_local
 
 .PHONY: all debug test clean
 
@@ -178,6 +201,27 @@ $(BUILD_DIR)/test_port_scheduler: $(BUILD_DIR)/tests/unit/portscan/test_port_sch
 $(BUILD_DIR)/test_portscan_local: $(BUILD_DIR)/tests/integration/portscan/test_portscan_local.o $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+$(BUILD_DIR)/test_service_types: $(BUILD_DIR)/tests/unit/detect/test_service_types.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_service_db: $(BUILD_DIR)/tests/unit/detect/test_service_db.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_service_probe: $(BUILD_DIR)/tests/unit/detect/test_service_probe.o $(BUILD_DIR)/detect/service_probe.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_service_matcher: $(BUILD_DIR)/tests/unit/detect/test_service_matcher.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_service_scheduler: $(BUILD_DIR)/tests/unit/detect/test_service_scheduler.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_service_detector: $(BUILD_DIR)/tests/unit/detect/test_service_detector.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_service_detection_local: $(BUILD_DIR)/tests/integration/detect/test_service_detection_local.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
@@ -225,6 +269,13 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_port_probe
 	./$(BUILD_DIR)/test_port_scheduler
 	./$(BUILD_DIR)/test_portscan_local
+	./$(BUILD_DIR)/test_service_types
+	./$(BUILD_DIR)/test_service_db
+	./$(BUILD_DIR)/test_service_probe
+	./$(BUILD_DIR)/test_service_matcher
+	./$(BUILD_DIR)/test_service_scheduler
+	./$(BUILD_DIR)/test_service_detector
+	./$(BUILD_DIR)/test_service_detection_local
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

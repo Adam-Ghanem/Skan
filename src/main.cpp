@@ -11,6 +11,7 @@
 
 #include "core/constants.hpp"
 #include "core/status.hpp"
+#include "detect/service_detector.hpp"
 #include "discovery/discovery.hpp"
 #include "portscan/portscan.hpp"
 
@@ -34,7 +35,11 @@ void print_help()
               << "  --timeout-ms <ms>      Set the asynchronous probe timeout\n"
               << "  --tcp-ports <spec>     TCP ports: single, list, or range\n"
               << "  --method <connect|syn> TCP Connect or capability-gated SYN\n"
-              << "  --max-outstanding <n>  Bound concurrent port probes\n\n"
+              << "  --max-outstanding <n>  Bound concurrent port probes\n"
+              << "  --service-detect       Detect services on OPEN TCP ports\n"
+              << "  --service-db <path>    Use a project-owned service probe database\n"
+              << "  --max-response-bytes <n> Bound service response bytes\n"
+              << "  --max-probes <n>       Bound probes per OPEN port\n\n"
               << "Status:\n"
               << "  Phase 0 — Foundation\n"
               << "  Phase 1 — Async I/O Engine\n"
@@ -42,7 +47,8 @@ void print_help()
               << "  Phase 3 — Host Discovery\n"
               << "  Phase 4 — TCP Port Scan (scoped)\n"
               << "\nDiscovery CLI mode is loopback-scoped and uses an offline recording transport.\n"
-              << "Scan CLI mode is loopback-scoped and uses real nonblocking TCP Connect sockets.\n";
+              << "Scan CLI mode is loopback-scoped and uses real nonblocking TCP Connect sockets.\n"
+              << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n";
 }
 
 bool parse_unsigned(std::string_view text, unsigned int &value)
@@ -143,6 +149,9 @@ int run_scan(int argc, char **argv)
     skan::portscan::PortScanConfig config;
     std::vector<skan::portscan::Port> ports;
     bool explicit_ports = false;
+    bool service_detect = false;
+    std::string service_database_path;
+    skan::detect::ServiceDetectionConfig service_config;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "--tcp-ports" && index + 1 < argc) {
@@ -178,6 +187,28 @@ int run_scan(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             config.max_outstanding = static_cast<std::size_t>(max_outstanding);
+        } else if (argument == "--service-detect") {
+            service_detect = true;
+        } else if (argument == "--service-db" && index + 1 < argc) {
+            service_database_path = argv[++index];
+            if (service_database_path.empty()) {
+                std::cerr << "Error: service database path cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argument == "--max-response-bytes" && index + 1 < argc) {
+            unsigned int max_response_bytes = 0U;
+            if (!parse_unsigned(argv[++index], max_response_bytes) || max_response_bytes == 0U) {
+                std::cerr << "Error: invalid max response byte count.\n";
+                return EXIT_FAILURE;
+            }
+            service_config.max_response_bytes = static_cast<std::size_t>(max_response_bytes);
+        } else if (argument == "--max-probes" && index + 1 < argc) {
+            unsigned int max_probes = 0U;
+            if (!parse_unsigned(argv[++index], max_probes) || max_probes == 0U) {
+                std::cerr << "Error: invalid max probes value.\n";
+                return EXIT_FAILURE;
+            }
+            service_config.max_probes_per_port = static_cast<std::size_t>(max_probes);
         } else {
             std::cerr << "Error: unknown or incomplete scan option. Use --help for usage.\n";
             return EXIT_FAILURE;
@@ -227,6 +258,58 @@ int run_scan(int argc, char **argv)
             std::cout << " rtt_ms=" << *result.rtt_ms;
         }
         std::cout << '\n';
+    }
+    if (service_detect) {
+        service_config.timeout = config.timeout;
+        skan::core::StatusCode database_status = skan::core::StatusCode::Ok;
+        skan::detect::ServiceProbeDatabase database = service_database_path.empty()
+                                                           ? skan::detect::ServiceProbeDatabase::built_in()
+                                                           : skan::detect::ServiceProbeDatabase::load_file(
+                                                                 service_database_path, database_status);
+        if (service_database_path.empty()) {
+            database_status = database.status();
+        }
+        if (database_status != skan::core::StatusCode::Ok) {
+            std::cerr << "Error: unable to load service probe database: "
+                      << skan::core::status_to_string(database_status) << '\n';
+            return EXIT_FAILURE;
+        }
+        skan::detect::ServiceTcpTransport service_transport(io_engine);
+        skan::detect::ServiceDetector detector(
+            io_engine,
+            service_transport,
+            skan::discovery::AuthorizationGate::loopback_only(),
+            service_config,
+            std::move(database));
+        const skan::core::StatusCode detection_submit = detector.submit(scanner.results());
+        if (detection_submit != skan::core::StatusCode::Ok) {
+            std::cerr << "Error: service detection submission failed: "
+                      << skan::core::status_to_string(detection_submit) << '\n';
+            return EXIT_FAILURE;
+        }
+        const skan::core::StatusCode detection_run = detector.run();
+        if (detection_run != skan::core::StatusCode::Ok) {
+            std::cerr << "Error: service detection failed: "
+                      << skan::core::status_to_string(detection_run) << '\n';
+            return EXIT_FAILURE;
+        }
+        for (const skan::detect::ServiceResult &result : detector.results()) {
+            std::cout << result.target << ':' << result.port.number << '/'
+                      << skan::portscan::protocol_name(result.protocol)
+                      << " port_state=" << skan::portscan::port_state_name(result.port_state)
+                      << " state=" << skan::detect::detection_state_name(result.state)
+                      << " service=" << (result.service.empty() ? "unknown" : result.service)
+                      << " product=" << (result.product.empty() ? "unknown" : result.product)
+                      << " version=" << (result.version.empty() ? "unknown" : result.version)
+                      << " method=" << skan::detect::detection_method_name(result.method)
+                      << " probe=" << result.probe_name
+                      << " confidence=" << result.confidence
+                      << " error=" << skan::detect::detection_error_name(result.error);
+            if (result.rtt_ms.has_value()) {
+                std::cout << " rtt_ms=" << *result.rtt_ms;
+            }
+            std::cout << '\n';
+        }
     }
     return EXIT_SUCCESS;
 }

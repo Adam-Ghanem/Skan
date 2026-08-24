@@ -1,0 +1,31 @@
+# Skan-owned compact service probe database. This is not the Nmap database.
+Probe TCP HTTPGet rarity=1 ports=80,8000,8080
+send "GET / HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^[Hh][Tt][Tt][Pp]/([0-9.]+)" service=http product=HTTP version="$1" confidence=0.82
+match type=regex pattern="^[Ss]erver: ([A-Za-z0-9._-]+)/([0-9.]+)" service=http product="$1" version="$2" confidence=0.88
+match type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.72
+
+Probe TCP SSHBanner rarity=1 ports=22
+send "\r\n"
+match type=regex pattern="^SSH-[0-9.]+-OpenSSH_([0-9.]+)" service=ssh product=OpenSSH version="$1" confidence=0.92
+match type=prefix pattern="SSH-" service=ssh product=SSH confidence=0.78
+
+Probe TCP FTPBanner rarity=1 ports=21
+send "\r\n"
+match type=prefix pattern="220" service=ftp product=FTP confidence=0.80
+
+Probe TCP SMTPBanner rarity=1 ports=25,587
+send "\r\n"
+match type=prefix pattern="220" service=smtp product=SMTP confidence=0.80
+
+Probe TCP TLSGreeting rarity=2 ports=443
+send "\x16\x03\x01\x00\x00"
+match type=prefix pattern="\x16\x03" service=https product=TLS confidence=0.76
+
+Probe TCP GenericBanner rarity=3
+send "\r\n"
+match type=regex pattern="^SSH-[0-9.]+-OpenSSH_([0-9.]+)" service=ssh product=OpenSSH version="$1" confidence=0.75
+match type=regex pattern="^[Hh][Tt][Tt][Pp]/([0-9.]+)" service=http product=HTTP version="$1" confidence=0.74
+match type=prefix pattern="SSH-" service=ssh product=SSH confidence=0.60
+match type=prefix pattern="220" service=banner product=TextBanner confidence=0.45
+match type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.60
