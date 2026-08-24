@@ -16,6 +16,7 @@
 #include "osdetect/os_matcher.hpp"
 #include "osdetect/os_probe.hpp"
 #include "portscan/port_result.hpp"
+#include "scanengine/scan_engine.hpp"
 
 namespace skan::osdetect {
 
@@ -24,6 +25,8 @@ struct OSSchedulerConfig final {
     std::size_t max_outstanding{8U};
     std::uint16_t probe_port{80U};
     std::size_t max_results{3U};
+    bool adaptive_timing{false};
+    scanengine::TimingProfile timing_profile{};
 };
 
 class OSScheduler final {
@@ -50,12 +53,14 @@ public:
     std::size_t pending_count() const noexcept;
     core::StatusCode status() const noexcept;
     const std::optional<OSDetectionResult> &result() const noexcept;
+    const scanengine::TimingController *timing_controller() const noexcept;
 
 private:
     struct WorkItem final {
         core::Host host;
         portscan::Port port;
         OSProbeType type{OSProbeType::TcpSynStandard};
+        std::size_t retry_count{0U};
     };
 
     struct Pending final {
@@ -85,6 +90,7 @@ private:
     const db::OSFingerprintDatabase &database_;
     OSSchedulerConfig config_;
     OSMatcher matcher_;
+    std::unique_ptr<scanengine::TimingController> timing_;
     std::vector<std::unique_ptr<OSProbe>> probes_;
     std::deque<WorkItem> queue_;
     std::unordered_map<OSProbeId, Pending> pending_;

@@ -23,6 +23,7 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 4 — Scoped TCP Port Scan | **COMPLETE** |
 | Phase 5 — Service Detection | **COMPLETE** |
 | Phase 6 — OS Fingerprinting Architecture | **COMPLETE** |
+| Phase 7 — Adaptive Timing + Scan Engine | **COMPLETE** |
 
 Phase 3 is deliberately scoped to explicitly supplied targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect only for supplied IPv4 targets, and keeps SYN network transmission capability-gated. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 6 is complete for this synthetic/injected scope. No public Internet target is used by the test suite.
 
@@ -151,6 +152,30 @@ The minimal CLI form is:
 ```
 
 In this build that command validates options and database loading, then honestly reports that the live transport is unavailable and sends no probes. The library transport seam is the supported deterministic test path.
+
+## Phase 7 Adaptive Timing + Scan Engine
+
+Phase 7 adds Skan’s own protocol-agnostic, event-driven adaptive timing layer. The validated implementation is complete for the offline and opt-in integration scope described here. It is implemented in `scanengine` and controls scheduling policy rather than TCP, ICMP, UDP, service, or OS packet formats. `TimingProfile` provides named Skan profiles `T0` through `T5`, with `T3` as the stable default. Each profile defines minimum, maximum, and initial parallelism, timeout bounds, RTT multiplier, timeout backoff threshold, recovery threshold, EWMA loss alpha, and bounded retries.
+
+`RttEstimator` accepts only valid correlated response samples. Its first sample initializes `SRTT = RTT` and `RTTVAR = RTT / 2`; later samples use configurable alpha and beta EWMA updates, and `RTO = SRTT + multiplier × RTTVAR`. RTO values are clamped to the profile’s configured timeout bounds. Timeouts, duplicates, late responses, and malformed responses affect lifecycle or congestion accounting but do not create RTT samples.
+
+`CongestionController` tracks bounded current parallelism, response and timeout counts, consecutive outcomes, backoff count, and an EWMA drop estimate. Repeated timeouts reduce parallelism by the configured backoff factor after the configured threshold. Repeated successes increase it by one after the recovery threshold. All changes remain within the configured minimum and maximum; a single timeout does not necessarily halve concurrency.
+
+`ScanGroup` owns an independent generic queue of `ScanWorkItem` values. Work items contain an ID, target string, protocol metadata, timestamps, deadline, retry count, and one of `QUEUED`, `SUBMITTED`, `COMPLETED`, `TIMED_OUT`, `CANCELLED`, or `FAILED`. `AdaptiveScheduler` borrows an existing Phase 1 `IOEngine`, uses one-shot shared timers, maintains a bounded pending map, and accepts an injected protocol-agnostic `ScanTransport`. It handles completion, timeout, retry, cancellation, shutdown, duplicate, late, malformed, and transport-failure events without threads, sleeps, busy loops, or a second reactor.
+
+`TimingController` is the integration seam used by Phase 4 TCP port scanning, Phase 5 service detection, and Phase 6 OS detection when their new `adaptive_timing` configuration flag is enabled. The original static timeout, concurrency, retry, and transport defaults remain unchanged when the flag is false. TCP Connect transport remains nonblocking and unchanged at the transport layer; TCP SYN remains capability-limited/injected; service matching and OS evidence matching remain protocol-specific. The adaptive layer supplies concurrency, timeout calculation, RTT feedback, bounded retries, and metrics without inferring protocol results.
+
+The scan CLI exposes the controls on `scan` without expanding target scope:
+
+```sh
+./bin/skan scan 127.0.0.1 --tcp-ports 22,80,443 \\
+  --method connect --timing T3 --max-outstanding 64 \\
+  --min-parallelism 2 --max-parallelism 32 --retries 1
+```
+
+Invalid profile, parallelism, timeout, or retry values are rejected. `--retries 0` is valid and remains the conservative default. There is still no implicit `1–65535` port scan. The OS detection command retains its capability-honest unavailable behavior and does not require or imply live raw-packet support.
+
+`ScanMetrics` records queued work, submitted attempts, completed/timed-out/failed/cancelled work, duplicate/late/malformed responses, current and maximum observed parallelism, current/minimum/maximum/average RTT, timeout and retry counts, EWMA drop rate, and elapsed time. Deterministic tests cover the RTT equations and bounds, congestion backoff/recovery, queue and state transitions, retries, cancellation, shared IOEngine timers, multi-group independence, Phase 4 scheduler integration, and a 1000-item offline stress run. No network traffic is generated by the Phase 7 tests.
 
 ## Phase 2 Packet Layer
 

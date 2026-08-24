@@ -47,6 +47,9 @@ ServiceScheduler::ServiceScheduler(
       config_(config),
       matcher_(database)
 {
+    if (config_.adaptive_timing) {
+        timing_ = std::make_unique<scanengine::TimingController>(config_.timing_profile);
+    }
 }
 
 ServiceScheduler::~ServiceScheduler()
@@ -68,7 +71,8 @@ core::StatusCode ServiceScheduler::validate_config() const noexcept
         return database_.status();
     }
     if (config_.max_outstanding == 0U || config_.timeout.count() <= 0 ||
-        config_.max_response_bytes == 0U || config_.max_probes_per_port == 0U) {
+        config_.max_response_bytes == 0U || config_.max_probes_per_port == 0U ||
+        (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
         return core::StatusCode::InvalidArgument;
     }
     return core::StatusCode::Ok;
@@ -158,6 +162,11 @@ core::StatusCode ServiceScheduler::run_once(int timeout_ms) noexcept
         status_ = run_status;
     }
     return status_;
+}
+
+const scanengine::TimingController *ServiceScheduler::timing_controller() const noexcept
+{
+    return timing_.get();
 }
 
 void ServiceScheduler::receive(const ServiceResponse &response) noexcept
@@ -297,8 +306,9 @@ core::StatusCode ServiceScheduler::status() const noexcept
 
 void ServiceScheduler::pump() noexcept
 {
-    while (status_ == core::StatusCode::Ok && !queue_.empty() &&
-           pending_.size() < config_.max_outstanding) {
+    const std::size_t limit = timing_ == nullptr ? config_.max_outstanding
+                                                    : timing_->parallelism_limit(config_.max_outstanding);
+    while (status_ == core::StatusCode::Ok && !queue_.empty() && pending_.size() < limit) {
         WorkItem work = std::move(queue_.front());
         queue_.pop_front();
         start_or_retry(std::move(work));
@@ -344,7 +354,8 @@ void ServiceScheduler::start_or_retry(WorkItem work) noexcept
     pending.started_at = DetectionClock::now();
     io::TimerId timer_id = 0U;
     try {
-        timer_id = engine_.schedule(config_.timeout, [this, id]() { on_timeout(id); });
+        const std::chrono::milliseconds timeout = timing_ == nullptr ? config_.timeout : timing_->timeout();
+        timer_id = engine_.schedule(timeout, [this, id]() { on_timeout(id); });
         pending.timer_id = timer_id;
         const auto inserted = pending_.emplace(id, std::move(pending));
         if (!inserted.second) {
@@ -357,6 +368,9 @@ void ServiceScheduler::start_or_retry(WorkItem work) noexcept
         const core::StatusCode submit_status = transport_.submit(
             inserted.first->second.submission,
             [this](const ServiceResponse &response) { receive(response); });
+        if (submit_status == core::StatusCode::Ok && timing_ != nullptr) {
+            timing_->on_submitted(pending_.size());
+        }
         if (submit_status != core::StatusCode::Ok) {
             const io::TimerId inserted_timer_id = inserted.first->second.timer_id;
             (void)engine_.cancel(inserted_timer_id);
@@ -409,6 +423,10 @@ void ServiceScheduler::complete_pending(
         error,
         match,
         rtt_ms);
+    if (timing_ != nullptr) {
+        timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt_ms)});
+        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+    }
     pump();
 }
 
@@ -421,6 +439,22 @@ void ServiceScheduler::on_timeout(ServiceProbeId id) noexcept
     Pending pending = std::move(iterator->second);
     (void)transport_.cancel(id);
     pending_.erase(iterator);
+    if (timing_ != nullptr) {
+        timing_->on_timeout();
+        if (timing_->should_retry(pending.work.retry_count)) {
+            ++pending.work.retry_count;
+            try {
+                queue_.push_front(std::move(pending.work));
+                ++timing_->metrics().retry_count;
+                timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+                pump();
+                return;
+            } catch (const std::bad_alloc &) {
+                status_ = core::StatusCode::MemoryError;
+            }
+        }
+        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+    }
     append_result(
         pending.work.port_result,
         &database_.probes()[pending.probe_index],

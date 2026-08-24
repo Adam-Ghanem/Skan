@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/status.hpp"
+#include "scanengine/timing_profile.hpp"
 
 namespace skan::portscan {
 
@@ -67,6 +68,8 @@ struct PortScanConfig final {
     ScanProbeType method{ScanProbeType::TcpConnect};
     std::chrono::milliseconds timeout{kDefaultPortTimeout};
     std::size_t max_outstanding{kDefaultMaxOutstanding};
+    bool adaptive_timing{false};
+    scanengine::TimingProfile timing_profile{};
 };
 
 struct PortSelection final {

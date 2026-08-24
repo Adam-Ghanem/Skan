@@ -51,6 +51,9 @@ OSScheduler::OSScheduler(
     OSSchedulerConfig config)
     : engine_(engine), transport_(transport), database_(database), config_(config), matcher_(database)
 {
+    if (config_.adaptive_timing) {
+        timing_ = std::make_unique<scanengine::TimingController>(config_.timing_profile);
+    }
 }
 
 OSScheduler::~OSScheduler()
@@ -81,7 +84,7 @@ core::StatusCode OSScheduler::submit(
         return status_;
     }
     if (config_.max_outstanding == 0U || config_.timeout.count() <= 0 || config_.probe_port == 0U ||
-        config_.max_results == 0U) {
+        config_.max_results == 0U || (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
         status_ = core::StatusCode::InvalidArgument;
         emit_result(OSDetectionState::Failed, OSDetectionError::InvalidTarget);
         return status_;
@@ -213,9 +216,16 @@ const std::optional<OSDetectionResult> &OSScheduler::result() const noexcept
     return result_;
 }
 
+const scanengine::TimingController *OSScheduler::timing_controller() const noexcept
+{
+    return timing_.get();
+}
+
 void OSScheduler::pump() noexcept
 {
-    while (status_ == core::StatusCode::Ok && !queue_.empty() && pending_.size() < config_.max_outstanding) {
+    const std::size_t limit = timing_ == nullptr ? config_.max_outstanding
+                                                    : timing_->parallelism_limit(config_.max_outstanding);
+    while (status_ == core::StatusCode::Ok && !queue_.empty() && pending_.size() < limit) {
         WorkItem work = std::move(queue_.front());
         queue_.pop_front();
         start_or_retry(std::move(work));
@@ -256,7 +266,8 @@ void OSScheduler::start_or_retry(WorkItem work) noexcept
     pending.sent_at = OSProbeClock::now();
     io::TimerId timer_id = 0U;
     try {
-        timer_id = engine_.schedule(config_.timeout, [this, id]() { on_timeout(id); });
+        const std::chrono::milliseconds timeout = timing_ == nullptr ? config_.timeout : timing_->timeout();
+        timer_id = engine_.schedule(timeout, [this, id]() { on_timeout(id); });
         pending.timer_id = timer_id;
         const auto inserted = pending_.emplace(id, std::move(pending));
         if (!inserted.second) {
@@ -274,6 +285,9 @@ void OSScheduler::start_or_retry(WorkItem work) noexcept
             status_ = submit_status;
         } else {
             ++sent_count_;
+            if (timing_ != nullptr) {
+                timing_->on_submitted(pending_.size());
+            }
             append_terminal_status(inserted.first->second.work.type, OSProbeStatus::Sent);
         }
     } catch (const std::bad_alloc &) {
@@ -296,6 +310,22 @@ void OSScheduler::on_timeout(OSProbeId id) noexcept
     expired_ids_.insert(id);
     ++timeout_count_;
     append_terminal_status(pending.work.type, OSProbeStatus::Timeout);
+    if (timing_ != nullptr) {
+        timing_->on_timeout();
+        if (timing_->should_retry(pending.work.retry_count)) {
+            ++pending.work.retry_count;
+            try {
+                queue_.push_front(std::move(pending.work));
+                ++timing_->metrics().retry_count;
+                timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+                pump();
+                return;
+            } catch (const std::bad_alloc &) {
+                status_ = core::StatusCode::MemoryError;
+            }
+        }
+        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+    }
     pump();
 }
 
@@ -313,6 +343,10 @@ void OSScheduler::finish_probe(
     const double rtt_ms = std::max(0.0, std::chrono::duration<double, std::milli>(received_at - sent_at).count());
     rtt_sum_ms_ += rtt_ms;
     ++rtt_count_;
+    if (timing_ != nullptr) {
+        timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt_ms)});
+        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+    }
     completed_ids_.insert(id);
     pending_.erase(id);
     pump();

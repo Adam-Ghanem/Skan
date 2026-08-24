@@ -15,7 +15,14 @@ CPP_SOURCES := \
 	src/core/log.cpp \
 	src/io/event.cpp \
 	src/io/io_engine.cpp \
-	src/io/timer.cpp \
+			src/io/timer.cpp \
+		src/scanengine/timing_profile.cpp \
+		src/scanengine/rtt_estimator.cpp \
+		src/scanengine/congestion.cpp \
+		src/scanengine/scan_metrics.cpp \
+		src/scanengine/scan_group.cpp \
+		src/scanengine/adaptive_scheduler.cpp \
+				src/scanengine/scan_engine.cpp \
 	src/packet/packet_element.cpp \
 	src/packet/packet.cpp \
 	src/packet/ethernet.cpp \
@@ -62,6 +69,10 @@ CORE_OBJECTS := $(BUILD_DIR)/core/types.o $(BUILD_DIR)/core/status.o
 CORE_LOG_OBJECT := $(BUILD_DIR)/core/log.o
 C_API_OBJECTS := $(BUILD_DIR)/c_api/status.o
 IO_OBJECTS := $(BUILD_DIR)/io/event.o $(BUILD_DIR)/io/io_engine.o $(BUILD_DIR)/io/timer.o
+SCANENGINE_OBJECTS := $(BUILD_DIR)/scanengine/timing_profile.o $(BUILD_DIR)/scanengine/rtt_estimator.o \
+	$(BUILD_DIR)/scanengine/congestion.o $(BUILD_DIR)/scanengine/scan_metrics.o \
+	$(BUILD_DIR)/scanengine/scan_group.o $(BUILD_DIR)/scanengine/adaptive_scheduler.o \
+	$(BUILD_DIR)/scanengine/scan_engine.o
 PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packet.o \
 	$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/tcp.o \
 	$(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/icmp.o $(BUILD_DIR)/packet/checksum.o
@@ -111,7 +122,15 @@ TEST_SOURCES := \
 		tests/unit/osdetect/test_os_matcher.cpp \
 		tests/unit/osdetect/test_os_probe.cpp \
 		tests/unit/osdetect/test_os_scheduler.cpp \
-		tests/integration/osdetect/test_os_detection_injected.cpp
+			tests/integration/osdetect/test_os_detection_injected.cpp \
+		tests/unit/scanengine/test_timing_profile.cpp \
+		tests/unit/scanengine/test_rtt_estimator.cpp \
+		tests/unit/scanengine/test_congestion.cpp \
+		tests/unit/scanengine/test_scan_metrics.cpp \
+		tests/unit/scanengine/test_scan_group.cpp \
+		tests/unit/scanengine/test_adaptive_scheduler.cpp \
+		tests/unit/scanengine/test_scan_engine.cpp \
+		tests/integration/scanengine/test_scan_engine_io.cpp
 
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
@@ -148,7 +167,15 @@ TEST_BINARIES := \
 			$(BUILD_DIR)/test_os_matcher \
 			$(BUILD_DIR)/test_os_probe \
 			$(BUILD_DIR)/test_os_scheduler \
-			$(BUILD_DIR)/test_os_detection_injected
+				$(BUILD_DIR)/test_os_detection_injected \
+				$(BUILD_DIR)/test_timing_profile \
+				$(BUILD_DIR)/test_rtt_estimator \
+				$(BUILD_DIR)/test_congestion \
+				$(BUILD_DIR)/test_scan_metrics \
+				$(BUILD_DIR)/test_scan_group \
+				$(BUILD_DIR)/test_adaptive_scheduler \
+				$(BUILD_DIR)/test_scan_engine \
+				$(BUILD_DIR)/test_scan_engine_io
 
 .PHONY: all debug test clean
 
@@ -221,10 +248,10 @@ $(BUILD_DIR)/test_port_types: $(BUILD_DIR)/tests/unit/portscan/test_port_types.o
 $(BUILD_DIR)/test_port_probe: $(BUILD_DIR)/tests/unit/portscan/test_port_probe.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o $(BUILD_DIR)/portscan/tcp_syn.o $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_port_scheduler: $(BUILD_DIR)/tests/unit/portscan/test_port_scheduler.o $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_port_scheduler: $(BUILD_DIR)/tests/unit/portscan/test_port_scheduler.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_portscan_local: $(BUILD_DIR)/tests/integration/portscan/test_portscan_local.o $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_portscan_local: $(BUILD_DIR)/tests/integration/portscan/test_portscan_local.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_service_types: $(BUILD_DIR)/tests/unit/detect/test_service_types.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
@@ -239,16 +266,16 @@ $(BUILD_DIR)/test_service_probe: $(BUILD_DIR)/tests/unit/detect/test_service_pro
 $(BUILD_DIR)/test_service_matcher: $(BUILD_DIR)/tests/unit/detect/test_service_matcher.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_service_scheduler: $(BUILD_DIR)/tests/unit/detect/test_service_scheduler.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_service_scheduler: $(BUILD_DIR)/tests/unit/detect/test_service_scheduler.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_service_detector: $(BUILD_DIR)/tests/unit/detect/test_service_detector.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_service_detector: $(BUILD_DIR)/tests/unit/detect/test_service_detector.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_service_detection_local: $(BUILD_DIR)/tests/integration/detect/test_service_detection_local.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_service_detection_local: $(BUILD_DIR)/tests/integration/detect/test_service_detection_local.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-OS_TEST_OBJECTS := $(DB_OBJECTS) $(OSDETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
+OS_TEST_OBJECTS := $(DB_OBJECTS) $(OSDETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
 
 $(BUILD_DIR)/test_os_db: $(BUILD_DIR)/tests/unit/db/test_os_db.o $(DB_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
@@ -263,6 +290,32 @@ $(BUILD_DIR)/test_os_scheduler: $(BUILD_DIR)/tests/unit/osdetect/test_os_schedul
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_os_detection_injected: $(BUILD_DIR)/tests/integration/osdetect/test_os_detection_injected.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+SCANENGINE_TEST_OBJECTS := $(SCANENGINE_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
+
+$(BUILD_DIR)/test_timing_profile: $(BUILD_DIR)/tests/unit/scanengine/test_timing_profile.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_rtt_estimator: $(BUILD_DIR)/tests/unit/scanengine/test_rtt_estimator.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_congestion: $(BUILD_DIR)/tests/unit/scanengine/test_congestion.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_metrics: $(BUILD_DIR)/tests/unit/scanengine/test_scan_metrics.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_group: $(BUILD_DIR)/tests/unit/scanengine/test_scan_group.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_adaptive_scheduler: $(BUILD_DIR)/tests/unit/scanengine/test_adaptive_scheduler.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_engine: $(BUILD_DIR)/tests/unit/scanengine/test_scan_engine.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_engine_io: $(BUILD_DIR)/tests/integration/scanengine/test_scan_engine_io.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/%.o: src/%.cpp
@@ -323,7 +376,15 @@ test: $(TEST_BINARIES)
 		./$(BUILD_DIR)/test_os_matcher
 		./$(BUILD_DIR)/test_os_probe
 		./$(BUILD_DIR)/test_os_scheduler
-		./$(BUILD_DIR)/test_os_detection_injected
+			./$(BUILD_DIR)/test_os_detection_injected
+			./$(BUILD_DIR)/test_timing_profile
+			./$(BUILD_DIR)/test_rtt_estimator
+			./$(BUILD_DIR)/test_congestion
+			./$(BUILD_DIR)/test_scan_metrics
+			./$(BUILD_DIR)/test_scan_group
+			./$(BUILD_DIR)/test_adaptive_scheduler
+			./$(BUILD_DIR)/test_scan_engine
+			./$(BUILD_DIR)/test_scan_engine_io
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

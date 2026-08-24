@@ -121,5 +121,35 @@ int main()
         assert(scheduler.pending_count() == 0U);
         assert(scheduler.queued_count() == 0U);
     }
+
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{10}, 2U};
+        config.adaptive_timing = true;
+        config.timing_profile.min_parallelism = 1U;
+        config.timing_profile.max_parallelism = 2U;
+        config.timing_profile.initial_parallelism = 2U;
+        config.timing_profile.minimum_timeout = std::chrono::milliseconds{1};
+        config.timing_profile.maximum_timeout = std::chrono::milliseconds{20};
+        config.timing_profile.recovery_threshold = 1U;
+        config.timing_profile.timeout_threshold = 1U;
+        config.timing_profile.max_retries = 1U;
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.timing_controller() != nullptr);
+        assert(scheduler.submit(loopback_target(), ports_from(4000U, 3U)) == skan::core::StatusCode::Ok);
+        assert(scheduler.pending_count() == 2U);
+        const PortProbeId first_id = transport.submissions().front().id;
+        transport.deliver(PortResponse{first_id, "127.0.0.1", PortResponseKind::Connected, 0, {}, PortScanClock::now()});
+        std::size_t delivered = 1U;
+        while (delivered < transport.submissions().size()) {
+            const PortSubmission submission = transport.submissions()[delivered++];
+            transport.deliver(PortResponse{submission.id, "127.0.0.1", PortResponseKind::ConnectionRefused,
+                                          ECONNREFUSED, {}, PortScanClock::now()});
+        }
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 3U);
+        assert(scheduler.timing_controller()->rtt().sample_count() >= 1U);
+    }
     return 0;
 }

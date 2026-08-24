@@ -44,6 +44,9 @@ PortScanScheduler::PortScanScheduler(
       transport_(transport),
       config_(config)
 {
+    if (config_.adaptive_timing) {
+        timing_ = std::make_unique<scanengine::TimingController>(config_.timing_profile);
+    }
     if (config_.method == ScanProbeType::TcpConnect) {
         probe_ = std::make_unique<TcpConnectProbe>();
     } else if (config_.method == ScanProbeType::TcpSyn) {
@@ -67,7 +70,7 @@ core::StatusCode PortScanScheduler::validate_config() const noexcept
         return engine_.initialization_status();
     }
     if (!probe_ || !transport_.supports(config_.method) || config_.timeout.count() <= 0 ||
-        config_.max_outstanding == 0U) {
+        config_.max_outstanding == 0U || (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
         return !probe_ || !transport_.supports(config_.method) ? core::StatusCode::PermissionDenied
                                                                : core::StatusCode::InvalidArgument;
     }
@@ -160,6 +163,11 @@ core::StatusCode PortScanScheduler::run_once(int timeout_ms) noexcept
     return status_;
 }
 
+const scanengine::TimingController *PortScanScheduler::timing_controller() const noexcept
+{
+    return timing_.get();
+}
+
 void PortScanScheduler::receive(const PortResponse &response) noexcept
 {
     const auto iterator = pending_.find(response.id);
@@ -209,8 +217,9 @@ core::StatusCode PortScanScheduler::status() const noexcept
 
 void PortScanScheduler::pump() noexcept
 {
-    while (status_ == core::StatusCode::Ok && !queue_.empty() &&
-           pending_.size() < config_.max_outstanding) {
+    const std::size_t limit = timing_ == nullptr ? config_.max_outstanding
+                                                    : timing_->parallelism_limit(config_.max_outstanding);
+    while (status_ == core::StatusCode::Ok && !queue_.empty() && pending_.size() < limit) {
         WorkItem work = std::move(queue_.front());
         queue_.pop_front();
         const PortProbeId id = next_id_++;
@@ -232,9 +241,8 @@ void PortScanScheduler::pump() noexcept
         pending.started_at = PortScanClock::now();
         io::TimerId timer_id = 0U;
         try {
-            timer_id = engine_.schedule(
-                config_.timeout,
-                [this, id]() { on_timeout(id); });
+            const std::chrono::milliseconds timeout = timing_ == nullptr ? config_.timeout : timing_->timeout();
+            timer_id = engine_.schedule(timeout, [this, id]() { on_timeout(id); });
             pending.timer_id = timer_id;
             const auto inserted = pending_.emplace(id, std::move(pending));
             if (!inserted.second) {
@@ -246,6 +254,9 @@ void PortScanScheduler::pump() noexcept
             const core::StatusCode submit_status = transport_.submit(
                 inserted.first->second.submission,
                 [this](const PortResponse &response) { receive(response); });
+            if (submit_status == core::StatusCode::Ok && timing_ != nullptr) {
+                timing_->on_submitted(pending_.size());
+            }
             if (submit_status != core::StatusCode::Ok) {
                 const io::TimerId inserted_timer_id = inserted.first->second.timer_id;
                 (void)engine_.cancel(inserted_timer_id);
@@ -312,6 +323,10 @@ void PortScanScheduler::complete_pending(
         rtt_ms = 0.0;
     }
     append_terminal_result(pending.work, config_.method, state, reason, rtt_ms);
+    if (timing_ != nullptr) {
+        timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt_ms)});
+        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+    }
     pump();
 }
 
@@ -324,6 +339,22 @@ void PortScanScheduler::on_timeout(PortProbeId id) noexcept
     Pending pending = std::move(iterator->second);
     (void)transport_.cancel(id);
     pending_.erase(iterator);
+    if (timing_ != nullptr) {
+        timing_->on_timeout();
+        if (timing_->should_retry(pending.work.retry_count)) {
+            ++pending.work.retry_count;
+            try {
+                queue_.push_front(std::move(pending.work));
+                ++timing_->metrics().retry_count;
+                timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+                pump();
+                return;
+            } catch (const std::bad_alloc &) {
+                status_ = core::StatusCode::MemoryError;
+            }
+        }
+        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+    }
     append_terminal_result(
         pending.work,
         config_.method,

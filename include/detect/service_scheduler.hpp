@@ -14,6 +14,7 @@
 #include "detect/service_probe.hpp"
 #include "io/io_engine.hpp"
 #include "portscan/port_result.hpp"
+#include "scanengine/scan_engine.hpp"
 
 namespace skan::detect {
 
@@ -39,12 +40,14 @@ public:
     std::size_t queued_count() const noexcept;
     bool complete() const noexcept;
     core::StatusCode status() const noexcept;
+    const scanengine::TimingController *timing_controller() const noexcept;
 
 private:
     struct WorkItem final {
         portscan::PortResult port_result;
         std::vector<std::size_t> probe_indices;
         std::size_t next_probe{0U};
+        std::size_t retry_count{0U};
     };
 
     struct Pending final {
@@ -80,6 +83,7 @@ private:
     const ServiceProbeDatabase &database_;
     ServiceDetectionConfig config_;
     ServiceMatcher matcher_;
+    std::unique_ptr<scanengine::TimingController> timing_;
     std::deque<WorkItem> queue_;
     std::unordered_map<ServiceProbeId, Pending> pending_;
     std::vector<ServiceResult> results_;

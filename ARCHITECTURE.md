@@ -69,6 +69,8 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 **Phase 6 — OS Fingerprinting Architecture** is complete for its synthetic/injected scope. It provides typed packet evidence extraction, a small Skan-owned runtime fingerprint database, deterministic weighted available-evidence matching, and a bounded `OSScheduler`/`OSDetector` over the shared Phase 1 reactor. TCP SYN variants, closed variants, ECN concepts, ICMP Echo, and an offline UDP representation are injectable test capabilities; live raw-packet OS fingerprinting is deliberately unavailable and never fabricates an identity.
 
+**Phase 7 — Adaptive Timing + Scan Engine** is complete for the reusable offline and opt-in scheduler scope described below.
+
 ## Target integration
 
 Phase 3 reuses `core::Target` and `core::Host` exactly as defined by Phase 0. The discovery scheduler accepts a target whose `resolved_hosts` have already been supplied by the caller. It does not introduce a second target parser, resolver, CIDR expander, or range syntax. Each supplied host is validated as a dotted-decimal IPv4 address before probe construction.
@@ -218,6 +220,30 @@ The database is a compact, Skan-owned, line-oriented laboratory dataset. It supp
 The matcher computes confidence from **available observed evidence only**. Absent, timed-out, unsupported, and otherwise unavailable fields do not lower a candidate’s score. Observed mismatches lower the score. Current weights emphasize TCP option ordering, window, MSS, and transport behavior while retaining TTL, DF, window scale, SACK, timestamps, flags, ACK/sequence behavior, response behavior, and ICMP fields. Categories are `NO_MATCH` below `0.30`, `LOW` from `0.30` to below `0.60`, `POSSIBLE` from `0.60` to below `0.85`, and `STRONG` at or above `0.85`. Top-N results sort by descending confidence and then fingerprint name.
 
 Probe lifecycle state is explicit: `Generated`, `Sent`, `ResponseReceived`, `Timeout`, `Unsupported`, or `Malformed`. The model includes TCP SYN standard/variant/timestamp/ECN probes, closed-port variants, ICMP Echo, and an optional offline UDP-port-unreachable representation. The recording transport supports deterministic injection but intentionally does not claim a live UDP or raw-packet capability. `live_os_fingerprinting_available()` is false in this build; a live CLI request reports `UNAVAILABLE`, empty matches, and zero confidence rather than fabricating an OS identity.
+
+## Phase 7 adaptive timing and scan engine
+
+Phase 7 introduces the protocol-agnostic `scanengine` policy layer above the Phase 1 reactor and below protocol-specific schedulers. It borrows `io::IOEngine`; it does not create sockets, packet formats, protocol transports, or a second reactor.
+
+| Component | Responsibility |
+| --- | --- |
+| `TimingProfile` | Validated named `T0`–`T5` profiles for parallelism, timeout bounds, RTT multiplier, backoff, recovery, loss EWMA, and retries. |
+| `RttEstimator` | Valid-response-only SRTT, RTTVAR, and clamped RTO calculation. |
+| `CongestionController` | Bounded parallelism, thresholded timeout backoff, gradual success recovery, and EWMA drop estimation. |
+| `ScanWorkItem` / `ScanGroup` | Generic target/protocol metadata, queue ownership, lifecycle state, retry count, and independent metrics. |
+| `AdaptiveScheduler` | Shared timer scheduling, bounded pending correlation, injected transport callbacks, retries, cancellation, shutdown, and late/duplicate handling. |
+| `TimingController` / `ScanEngine` | Reusable integration seam and validated profile factory for protocol schedulers and independent groups. |
+| `ScanMetrics` | Lifecycle, RTT, concurrency, timeout, retry, malformed, duplicate, late, drop, and elapsed-time observability. |
+
+For the first valid RTT sample `R`, `SRTT = R` and `RTTVAR = R/2`. For later samples, `RTTVAR = (1 − β) × RTTVAR + β × |SRTT − R|`, then `SRTT = (1 − α) × SRTT + α × R`, and `RTO = SRTT + multiplier × RTTVAR`. RTO is clamped to the selected profile’s timeout bounds. Timeouts, malformed responses, duplicates, and late responses do not update RTT state.
+
+Adaptive parallelism starts at the profile’s initial value. After the configured consecutive-timeout threshold, it is scaled by the backoff factor and clamped to the minimum. After the configured consecutive-success threshold, it increases by one and is clamped to the maximum. A single timeout does not necessarily halve concurrency, and all profile values are validated before scheduling.
+
+`AdaptiveScheduler` maintains one pending entry per work ID and uses caller-owned one-shot `IOEngine` timers. A timed-out item is retried only while its retry count is below the profile limit; otherwise it becomes terminal. A response for a completed ID is a duplicate, while a response for an expired or cancelled ID is late. Separate `ScanGroup` instances own separate queues and adaptive state.
+
+The existing Phase 4, Phase 5, and Phase 6 schedulers expose an opt-in `adaptive_timing` path backed by `TimingController`. Their established static defaults remain unchanged when the flag is false. Adaptive timing changes scheduling policy only; port state, service matching, OS evidence extraction, and capability checks remain in their existing modules. The CLI adds `--timing T0..T5`, `--min-parallelism`, `--max-parallelism`, and bounded `--retries` to `scan`, while preserving existing target and small default-port behavior.
+
+Phase 7 validation is offline and covers profile validation, RTT equations and bounds, congestion backoff/recovery, state transitions, independent groups, duplicate/late responses, cancellation, retries, shared timers, Phase 4 adaptive integration, and a 1000-item stress group capped at 16 outstanding items. The layer adds no raw packet transport, UDP scanning, public traffic, evasion, exploitation, credentials, or persistence.
 
 ## Correlation and response lifecycle
 

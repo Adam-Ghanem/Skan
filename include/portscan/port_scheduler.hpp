@@ -12,6 +12,7 @@
 #include "discovery/discovery_types.hpp"
 #include "io/io_engine.hpp"
 #include "portscan/port_probe.hpp"
+#include "scanengine/scan_engine.hpp"
 
 namespace skan::portscan {
 
@@ -39,11 +40,13 @@ public:
     std::size_t pending_count() const noexcept;
     bool complete() const noexcept;
     core::StatusCode status() const noexcept;
+    const scanengine::TimingController *timing_controller() const noexcept;
 
 private:
     struct WorkItem final {
         core::Host host;
         Port port;
+        std::size_t retry_count{0U};
     };
 
     struct Pending final {
@@ -73,6 +76,7 @@ private:
     PortScanTransport &transport_;
     PortScanConfig config_;
     std::unique_ptr<PortProbe> probe_;
+    std::unique_ptr<scanengine::TimingController> timing_;
     std::deque<WorkItem> queue_;
     std::unordered_map<PortProbeId, Pending> pending_;
     std::vector<PortResult> results_;

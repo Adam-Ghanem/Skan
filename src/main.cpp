@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -16,6 +17,7 @@
 #include "discovery/discovery.hpp"
 #include "osdetect/os_probe.hpp"
 #include "portscan/portscan.hpp"
+#include "scanengine/timing_profile.hpp"
 
 namespace {
 
@@ -39,6 +41,10 @@ void print_help()
               << "  --tcp-ports <spec>     TCP ports: single, list, or range\n"
               << "  --method <connect|syn> TCP Connect or capability-gated SYN\n"
               << "  --max-outstanding <n>  Bound concurrent port probes\n"
+              << "  --timing <T0..T5>      Select adaptive Skan timing profile\n"
+              << "  --min-parallelism <n>  Set adaptive minimum parallelism\n"
+              << "  --max-parallelism <n>  Set adaptive maximum parallelism\n"
+              << "  --retries <n>          Set bounded adaptive timeout retries\n"
               << "  --service-detect       Detect services on OPEN TCP ports\n"
               << "  --service-db <path>    Use a project-owned service probe database\n"
               << "  --max-response-bytes <n> Bound service response bytes\n"
@@ -51,6 +57,7 @@ void print_help()
               << "  Phase 2 — Packet Layer\n"
               << "  Phase 3 — Host Discovery\n"
               << "  Phase 4 — TCP Port Scan (scoped)\n"
+              << "  Phase 7 — Adaptive Timing + Scan Engine\n"
               << "\nDiscovery CLI mode uses an offline recording transport.\n"
               << "Scan CLI mode uses real nonblocking TCP Connect sockets.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
@@ -232,6 +239,7 @@ int run_scan(int argc, char **argv)
     bool service_detect = false;
     std::string service_database_path;
     skan::detect::ServiceDetectionConfig service_config;
+    bool adaptive_timing = false;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "--tcp-ports" && index + 1 < argc) {
@@ -267,6 +275,29 @@ int run_scan(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             config.max_outstanding = static_cast<std::size_t>(max_outstanding);
+        } else if (argument == "--timing" && index + 1 < argc) {
+            if (skan::scanengine::TimingProfile::parse(argv[++index], config.timing_profile) !=
+                skan::core::StatusCode::Ok) {
+                std::cerr << "Error: timing profile must be T0, T1, T2, T3, T4, or T5.\n";
+                return EXIT_FAILURE;
+            }
+            adaptive_timing = true;
+        } else if ((argument == "--min-parallelism" || argument == "--max-parallelism" || argument == "--retries") &&
+                   index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) ||
+                (argument != "--retries" && value == 0U)) {
+                std::cerr << "Error: adaptive timing values must be valid and parallelism must be positive.\n";
+                return EXIT_FAILURE;
+            }
+            if (argument == "--min-parallelism") {
+                config.timing_profile.min_parallelism = static_cast<std::size_t>(value);
+            } else if (argument == "--max-parallelism") {
+                config.timing_profile.max_parallelism = static_cast<std::size_t>(value);
+            } else {
+                config.timing_profile.max_retries = static_cast<std::size_t>(value);
+            }
+            adaptive_timing = true;
         } else if (argument == "--service-detect") {
             service_detect = true;
         } else if (argument == "--service-db" && index + 1 < argc) {
@@ -297,6 +328,18 @@ int run_scan(int argc, char **argv)
     if (!explicit_ports) {
         ports = skan::portscan::default_tcp_ports();
     }
+    if (adaptive_timing) {
+        config.timing_profile.maximum_timeout = config.timeout;
+        if (config.timing_profile.minimum_timeout > config.timeout) {
+            config.timing_profile.minimum_timeout = config.timeout;
+        }
+        config.timing_profile.initial_parallelism =
+            std::min(std::max(config.timing_profile.initial_parallelism, config.timing_profile.min_parallelism),
+                     config.timing_profile.max_parallelism);
+    }
+    config.adaptive_timing = adaptive_timing;
+    service_config.adaptive_timing = adaptive_timing;
+    service_config.timing_profile = config.timing_profile;
     if (config.method == skan::portscan::ScanProbeType::TcpSyn &&
         !skan::portscan::tcp_syn_network_capability_available()) {
         std::cerr << "Error: TCP SYN network capability is unavailable in this build; "

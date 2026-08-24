@@ -12,6 +12,7 @@
 #include "core/types.hpp"
 #include "portscan/port_result.hpp"
 #include "portscan/port_types.hpp"
+#include "scanengine/timing_profile.hpp"
 
 namespace skan::detect {
 
@@ -73,6 +74,8 @@ struct ServiceDetectionConfig final {
     std::chrono::milliseconds timeout{1000};
     std::size_t max_response_bytes{8192U};
     std::size_t max_probes_per_port{2U};
+    bool adaptive_timing{false};
+    scanengine::TimingProfile timing_profile{};
 };
 
 struct ServiceDetectionSelection final {
