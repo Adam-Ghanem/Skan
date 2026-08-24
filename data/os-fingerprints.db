@@ -1,0 +1,37 @@
+# Skan-owned reduced laboratory fingerprints.
+# This is intentionally not a broad public fingerprint corpus.
+Fingerprint SkanLinuxGeneric
+Class Skan | Linux | 5.x+ | general-purpose
+TTL=64
+DF=Y
+WINDOW=64240
+MSS=1460
+WSCALE=7
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+
+Fingerprint SkanWindowsGeneric
+Class Skan | Windows | modern | general-purpose
+TTL=128
+DF=Y
+WINDOW=65535
+MSS=1460
+WSCALE=8
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+
+Fingerprint SkanEmbeddedGeneric
+Class Skan | Embedded | generic | network-device
+TTL=64
+DF=Y
+WINDOW=4128
+MSS=1460
+WSCALE=2
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS,NOP,WS
+RESPONSE_BEHAVIOR=RST

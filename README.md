@@ -22,9 +22,9 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 3 — Host Discovery | **COMPLETE** |
 | Phase 4 — Scoped TCP Port Scan | **COMPLETE** |
 | Phase 5 — Service Detection | **COMPLETE** |
-| Phase 6 and later | Planned |
+| Phase 6 — OS Fingerprinting Architecture | **COMPLETE** |
 
-Phase 3 is deliberately scoped to explicitly supplied targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect only for supplied IPv4 targets, and keeps SYN network transmission capability-gated. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. No public Internet target is used by the test suite.
+Phase 3 is deliberately scoped to explicitly supplied targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect only for supplied IPv4 targets, and keeps SYN network transmission capability-gated. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 6 is complete for this synthetic/injected scope. No public Internet target is used by the test suite.
 
 ## Phase 3 Host Discovery
 
@@ -105,7 +105,52 @@ The CLI extension is:
   --max-response-bytes 8192 --max-probes 2
 ```
 
-An explicit project-owned database may be selected with `--service-db data/service-probes.db`. Service detection is performed only after the port scan completes, and only OPEN TCP results enter the service scheduler. The current implementation intentionally does not claim protocol-complete identification, TLS negotiation, credential handling, service exploitation, UDP detection, OS fingerprinting, or Internet-wide scanning. Phase 5 is complete for this bounded banner/probe scope.
+An explicit project-owned database may be selected with `--service-db data/service-probes.db`. Service detection is performed only after the port scan completes, and only OPEN TCP results enter the service scheduler. The current implementation intentionally does not claim protocol-complete identification, TLS negotiation, credential handling, service exploitation, UDP detection, live OS fingerprinting, or Internet-wide scanning. Phase 5 is complete for this bounded banner/probe scope.
+
+## Phase 6 OS Fingerprinting Architecture
+
+Phase 6 separates **evidence collection**, **runtime data**, **deterministic matching**, and **orchestration**. `OSDetector` consumes an existing `core::Target` plus Phase 4 `PortResult` values and optional Phase 5 service results only to choose usable TCP context; it never derives an operating-system identity from a port number or service label. The scheduler prefers a known OPEN TCP port and otherwise uses the configured explicit probe port for injected/offline work.
+
+The execution path is:
+
+```text
+Phase 4 PortResult / optional Phase 5 context
+                    ↓
+              OSDetector
+                    ↓
+              OSScheduler
+                    ↓
+  bounded TCP SYN variants, closed variants, ICMP echo
+                    ↓
+          OSProbeTransport seam
+             ↙                 ↘
+ RecordingOSProbeTransport   future capability-gated transport
+             ↓
+ Phase 1 IOEngine timers and bounded pending map
+                    ↓
+ packet correlation and OS evidence extraction
+                    ↓
+ project-owned os-fingerprints.db
+                    ↓
+ weighted available-evidence OSMatcher
+                    ↓
+ ranked OSDetectionResult
+```
+
+The runtime data file `data/os-fingerprints.db` is intentionally a small Skan-owned laboratory dataset, not a copied broad fingerprint corpus. It supports comments, blank lines, typed numeric and boolean fields, TCP option ordering, response behavior, duplicate detection, missing metadata rejection, and deterministic declaration ordering. Both the CLI and library loader use this project-owned runtime file; no broad external fingerprint corpus is embedded in C++.
+
+Matching uses only fields in `Observed` state. Absent, timed-out, unsupported, and unavailable fields contribute no penalty; observed mismatches reduce confidence. The current weights emphasize TCP option ordering, window, and transport values while retaining TTL, DF, MSS, window scale, SACK, timestamps, flags, behavior, and ICMP evidence. Results are categorized as `NO_MATCH` below `0.30`, `LOW` from `0.30` to below `0.60`, `POSSIBLE` from `0.60` to below `0.85`, and `STRONG` at or above `0.85`. Top-N output is sorted by descending confidence and then fingerprint name.
+
+Probe and scheduler states remain explicit: `Generated`, `Sent`, `ResponseReceived`, `Timeout`, `Unsupported`, and `Malformed`. TCP SYN variants, ECN flags, closed-port variants, ICMP Echo, and an optional offline UDP-port-unreachable representation are available to the model. The recording transport intentionally does not claim UDP or any other live packet capability. `live_os_fingerprinting_available()` is false, so the CLI reports `UNAVAILABLE`, empty matches, and confidence `0` rather than fabricating an identity. Unit and integration tests inject serialized packet responses and never require root privileges, external targets, or public traffic.
+
+The minimal CLI form is:
+
+```sh
+./bin/skan os-detect 192.0.2.10 --os-db data/os-fingerprints.db \\
+  --timeout-ms 500 --max-outstanding 8 --json
+```
+
+In this build that command validates options and database loading, then honestly reports that the live transport is unavailable and sends no probes. The library transport seam is the supported deterministic test path.
 
 ## Phase 2 Packet Layer
 
@@ -148,7 +193,7 @@ Compile and execute all Phase 0 through Phase 5 tests with:
 make test
 ```
 
-The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timeouts; retries; multiple targets; and stress-sized synthetic scans. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Existing Phase 0–5 tests remain active.
+The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Existing Phase 0–6 tests remain active.
 
 Sanitizer validation can be run with:
 
@@ -188,11 +233,21 @@ Phase 5 adds opt-in service detection after OPEN TCP results:
   --service-detect --service-db data/service-probes.db
 ```
 
+Phase 6 adds a capability-honest OS detection command:
+
+```sh
+./bin/skan os-detect 192.0.2.10 --os-db data/os-fingerprints.db \
+  --timeout-ms 500 --max-outstanding 8
+./bin/skan os-detect 192.0.2.10 --json
+```
+
+The default live OS transport is unavailable in this build, so both forms report `UNAVAILABLE` with empty matches and zero confidence; no OS identity is inferred without injected response evidence.
+
 Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, UDP option, alternate TCP flag option, or full-port-range default.
 
 ## Network and safety boundary
 
-Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. There is no raw packet transmission in this build: no `AF_PACKET`, `sendto()`, SYN network transport, spoofing, ARP attack behavior, host-range expansion, public-target default, UDP scanning, alternate TCP flag scanning, evasion, operating-system fingerprinting, Lua scripting, or dashboard functionality. The SYN implementation is packet-model-backed and synthetic/transport-injected only until a separately validated capability is available.
+Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. There is no raw packet transmission in this build: no `AF_PACKET`, `sendto()`, SYN network transport, spoofing, ARP attack behavior, host-range expansion, public-target default, UDP scanning, alternate TCP flag scanning, evasion, live operating-system fingerprinting, Lua scripting, or dashboard functionality. Phase 6 provides packet-model-backed synthetic/injected OS evidence collection and deterministic matching only; it does not claim a live OS fingerprint.
 
 The Phase 3 integration remains offline. Phase 4 and Phase 5 integration use only `127.0.0.1` and deliberately created local listening sockets; Phase 5 additionally verifies controlled SSH and HTTP banner responses. No public Internet targets were scanned.
 

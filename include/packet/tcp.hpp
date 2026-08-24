@@ -32,6 +32,7 @@ constexpr bool has_flag(std::uint16_t flags, TcpFlag flag) noexcept
 }
 
 enum class TcpOptionKind : std::uint8_t {
+    Nop = 1U,
     Mss = 2U,
     WindowScale = 3U,
     SackPermitted = 4U,

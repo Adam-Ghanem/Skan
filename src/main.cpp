@@ -11,8 +11,10 @@
 
 #include "core/constants.hpp"
 #include "core/status.hpp"
+#include "db/os_db.hpp"
 #include "detect/service_detector.hpp"
 #include "discovery/discovery.hpp"
+#include "osdetect/os_probe.hpp"
 #include "portscan/portscan.hpp"
 
 namespace {
@@ -24,7 +26,8 @@ void print_help()
               << "Usage:\n"
               << "  skan [options]\n"
               << "  skan discover <ipv4-address> [options]\n"
-              << "  skan scan <ipv4-address> [options]\n\n"
+              << "  skan scan <ipv4-address> [options]\n"
+              << "  skan os-detect <ipv4-address> [options]\n\n"
               << "Options:\n"
               << "  --help                 Show help\n"
               << "  --version              Show version\n"
@@ -39,7 +42,9 @@ void print_help()
               << "  --service-detect       Detect services on OPEN TCP ports\n"
               << "  --service-db <path>    Use a project-owned service probe database\n"
               << "  --max-response-bytes <n> Bound service response bytes\n"
-              << "  --max-probes <n>       Bound probes per OPEN port\n\n"
+              << "  --max-probes <n>       Bound probes per OPEN port\n"
+              << "  --os-db <path>         Use a project-owned OS fingerprint database\n"
+              << "  --json                 Emit structured output for os-detect\n\n"
               << "Status:\n"
               << "  Phase 0 — Foundation\n"
               << "  Phase 1 — Async I/O Engine\n"
@@ -48,7 +53,8 @@ void print_help()
               << "  Phase 4 — TCP Port Scan (scoped)\n"
               << "\nDiscovery CLI mode uses an offline recording transport.\n"
               << "Scan CLI mode uses real nonblocking TCP Connect sockets.\n"
-              << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n";
+              << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
+              << "OS fingerprinting is an offline/injected architecture; live raw-packet transport is unavailable.\n";
 }
 
 bool parse_unsigned(std::string_view text, unsigned int &value)
@@ -137,6 +143,80 @@ int run_discover(int argc, char **argv)
         std::cout << '\n';
     }
     return EXIT_SUCCESS;
+}
+
+std::string json_escape(std::string_view value)
+{
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (const char character : value) {
+        if (character == '"' || character == '\\') {
+            escaped.push_back('\\');
+        }
+        escaped.push_back(character);
+    }
+    return escaped;
+}
+
+int run_os_detect(int argc, char **argv)
+{
+    if (argc < 3) {
+        std::cerr << "Error: os-detect requires an explicit IPv4 target. Use --help for usage.\n";
+        return EXIT_FAILURE;
+    }
+    const std::string target_address = argv[2];
+    std::string database_path = "data/os-fingerprints.db";
+    std::chrono::milliseconds timeout{1000};
+    std::size_t max_outstanding = 8U;
+    bool json = false;
+    for (int index = 3; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument == "--os-db" && index + 1 < argc) {
+            database_path = argv[++index];
+        } else if (argument == "--timeout-ms" && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
+                std::cerr << "Error: invalid OS detection timeout.\n";
+                return EXIT_FAILURE;
+            }
+            timeout = std::chrono::milliseconds{value};
+        } else if (argument == "--max-outstanding" && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
+                std::cerr << "Error: invalid OS detection max outstanding value.\n";
+                return EXIT_FAILURE;
+            }
+            max_outstanding = static_cast<std::size_t>(value);
+        } else if (argument == "--json") {
+            json = true;
+        } else {
+            std::cerr << "Error: unknown or incomplete os-detect option. Use --help for usage.\n";
+            return EXIT_FAILURE;
+        }
+    }
+
+    skan::core::StatusCode database_status = skan::core::StatusCode::Ok;
+    const skan::db::OSFingerprintDatabase database =
+        skan::db::OSFingerprintDatabase::load_file(database_path, database_status);
+    if (!skan::osdetect::live_os_fingerprinting_available()) {
+        const std::string reason = database_status == skan::core::StatusCode::Ok
+                                       ? "live OS fingerprinting transport is unavailable; no probes were sent"
+                                       : "OS fingerprint database could not be loaded; no probes were sent";
+        if (json) {
+            std::cout << "{\"target\":\"" << json_escape(target_address)
+                      << "\",\"state\":\"unavailable\",\"matches\":[],"
+                      << "\"confidence\":0,\"error\":\"capability-unavailable\","
+                      << "\"reason\":\"" << json_escape(reason) << "\"}\n";
+        } else {
+            std::cout << target_address << " state=UNAVAILABLE confidence=0 error=capability-unavailable\n"
+                      << "  " << reason << "\n";
+        }
+        (void)timeout;
+        (void)max_outstanding;
+        return EXIT_SUCCESS;
+    }
+    (void)database;
+    return EXIT_FAILURE;
 }
 
 int run_scan(int argc, char **argv)
@@ -332,6 +412,10 @@ int main(int argc, char **argv)
 
     if (argc >= 2 && std::string_view(argv[1]) == "scan") {
         return run_scan(argc, argv);
+    }
+
+    if (argc >= 2 && std::string_view(argv[1]) == "os-detect") {
+        return run_os_detect(argc, argv);
     }
 
     std::cerr << "Error: unknown or missing argument. Use --help for usage.\n";

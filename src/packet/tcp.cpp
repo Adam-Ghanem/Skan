@@ -13,6 +13,8 @@ namespace {
 std::size_t option_size(TcpOptionKind kind) noexcept
 {
     switch (kind) {
+    case TcpOptionKind::Nop:
+        return 1U;
     case TcpOptionKind::Mss:
         return 4U;
     case TcpOptionKind::WindowScale:
@@ -44,6 +46,10 @@ bool append_options(const std::vector<TcpOption> &options, std::span<std::uint8_
             return false;
         }
         output[offset] = static_cast<std::uint8_t>(option.kind);
+        if (option.kind == TcpOptionKind::Nop) {
+            ++offset;
+            continue;
+        }
         output[offset + 1U] = static_cast<std::uint8_t>(size);
         switch (option.kind) {
         case TcpOptionKind::Mss:
@@ -232,6 +238,9 @@ std::optional<TCP> TCP::parse(std::span<const std::uint8_t> input)
             break;
         }
         if (kind == 1U) {
+            TcpOption option;
+            option.kind = TcpOptionKind::Nop;
+            tcp.options_.push_back(option);
             ++offset;
             continue;
         }

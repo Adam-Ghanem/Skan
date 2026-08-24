@@ -42,8 +42,18 @@ CPP_SOURCES := \
 		src/detect/service_matcher.cpp \
 		src/detect/service_probe.cpp \
 		src/detect/service_scheduler.cpp \
-		src/detect/service_detector.cpp \
-		src/main.cpp
+			src/detect/service_detector.cpp \
+			src/db/db_types.cpp \
+			src/db/os_db.cpp \
+			src/db/os_db_loader.cpp \
+			src/osdetect/os_probe_types.cpp \
+			src/osdetect/os_types.cpp \
+			src/osdetect/os_fingerprint.cpp \
+			src/osdetect/os_probe.cpp \
+			src/osdetect/os_matcher.cpp \
+			src/osdetect/os_scheduler.cpp \
+			src/osdetect/os_detector.cpp \
+			src/main.cpp
 
 C_SOURCES := src/c_api/status.c
 CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
@@ -60,7 +70,12 @@ PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/por
 	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/port_scheduler.o
 DETECT_OBJECTS := $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/detect/service_db.o \
 	$(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/service_probe.o \
-	$(BUILD_DIR)/detect/service_scheduler.o $(BUILD_DIR)/detect/service_detector.o
+		$(BUILD_DIR)/detect/service_scheduler.o $(BUILD_DIR)/detect/service_detector.o
+DB_OBJECTS := $(BUILD_DIR)/db/db_types.o $(BUILD_DIR)/db/os_db.o $(BUILD_DIR)/db/os_db_loader.o
+OSDETECT_OBJECTS := $(BUILD_DIR)/osdetect/os_probe_types.o $(BUILD_DIR)/osdetect/os_types.o \
+	$(BUILD_DIR)/osdetect/os_fingerprint.o $(BUILD_DIR)/osdetect/os_probe.o \
+	$(BUILD_DIR)/osdetect/os_matcher.o $(BUILD_DIR)/osdetect/os_scheduler.o \
+	$(BUILD_DIR)/osdetect/os_detector.o
 
 TEST_SOURCES := \
 	tests/unit/core/test_types.cpp \
@@ -91,7 +106,13 @@ TEST_SOURCES := \
 	tests/unit/detect/test_service_matcher.cpp \
 	tests/unit/detect/test_service_scheduler.cpp \
 	tests/unit/detect/test_service_detector.cpp \
-	tests/integration/detect/test_service_detection_local.cpp
+			tests/integration/detect/test_service_detection_local.cpp \
+		tests/unit/db/test_os_db.cpp \
+		tests/unit/osdetect/test_os_matcher.cpp \
+		tests/unit/osdetect/test_os_probe.cpp \
+		tests/unit/osdetect/test_os_scheduler.cpp \
+		tests/integration/osdetect/test_os_detection_injected.cpp
+
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
 	$(BUILD_DIR)/test_types \
@@ -122,7 +143,12 @@ TEST_BINARIES := \
 		$(BUILD_DIR)/test_service_matcher \
 		$(BUILD_DIR)/test_service_scheduler \
 		$(BUILD_DIR)/test_service_detector \
-		$(BUILD_DIR)/test_service_detection_local
+			$(BUILD_DIR)/test_service_detection_local \
+			$(BUILD_DIR)/test_os_db \
+			$(BUILD_DIR)/test_os_matcher \
+			$(BUILD_DIR)/test_os_probe \
+			$(BUILD_DIR)/test_os_scheduler \
+			$(BUILD_DIR)/test_os_detection_injected
 
 .PHONY: all debug test clean
 
@@ -222,6 +248,23 @@ $(BUILD_DIR)/test_service_detector: $(BUILD_DIR)/tests/unit/detect/test_service_
 $(BUILD_DIR)/test_service_detection_local: $(BUILD_DIR)/tests/integration/detect/test_service_detection_local.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+OS_TEST_OBJECTS := $(DB_OBJECTS) $(OSDETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
+
+$(BUILD_DIR)/test_os_db: $(BUILD_DIR)/tests/unit/db/test_os_db.o $(DB_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_os_matcher: $(BUILD_DIR)/tests/unit/osdetect/test_os_matcher.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_os_probe: $(BUILD_DIR)/tests/unit/osdetect/test_os_probe.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_os_scheduler: $(BUILD_DIR)/tests/unit/osdetect/test_os_scheduler.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_os_detection_injected: $(BUILD_DIR)/tests/integration/osdetect/test_os_detection_injected.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
@@ -275,7 +318,12 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_service_matcher
 	./$(BUILD_DIR)/test_service_scheduler
 	./$(BUILD_DIR)/test_service_detector
-	./$(BUILD_DIR)/test_service_detection_local
+		./$(BUILD_DIR)/test_service_detection_local
+		./$(BUILD_DIR)/test_os_db
+		./$(BUILD_DIR)/test_os_matcher
+		./$(BUILD_DIR)/test_os_probe
+		./$(BUILD_DIR)/test_os_scheduler
+		./$(BUILD_DIR)/test_os_detection_injected
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

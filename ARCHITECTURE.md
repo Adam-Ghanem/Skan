@@ -37,10 +37,12 @@ Port Scan Scheduler and transports
   ↓
 Service Detection
   ↓
-Future OS Fingerprinting and Output
+OS Fingerprinting Architecture
+  ↓
+Future Output
 ```
 
-The Phase 1 I/O Engine is independent infrastructure. Phases 3–5 use it through its public event-loop and timer API; they do not duplicate the reactor or create a second event loop.
+The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it through its public event-loop and timer API; they do not duplicate the reactor or create a second event loop.
 
 ## Language responsibilities
 
@@ -63,7 +65,9 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–5 use it throug
 
 **Phase 4 — Scoped TCP Port Scan** provides TCP-only port selection and results, a bounded scheduler over the Phase 1 reactor, real nonblocking IPv4 TCP Connect transport, and an offline packet-model-backed TCP SYN probe. It validates each supplied IPv4 host and does not implement a raw SYN transport in this build.
 
-**Phase 5 — Service Detection** provides an opt-in, TCP-only detector that consumes OPEN Phase 4 results, performs bounded nonblocking banner/probe exchanges through the same reactor, matches responses against a compact project-owned database, and emits deterministic structured `ServiceResult` values. It is complete for this bounded scope; it does not implement UDP detection, OS fingerprinting, credential handling, or service exploitation.
+**Phase 5 — Service Detection** provides an opt-in, TCP-only detector that consumes OPEN Phase 4 results, performs bounded nonblocking banner/probe exchanges through the same reactor, matches responses against a compact project-owned database, and emits deterministic structured `ServiceResult` values. It is complete for this bounded scope; it does not implement UDP detection, live OS fingerprinting, credential handling, or service exploitation.
+
+**Phase 6 — OS Fingerprinting Architecture** is complete for its synthetic/injected scope. It provides typed packet evidence extraction, a small Skan-owned runtime fingerprint database, deterministic weighted available-evidence matching, and a bounded `OSScheduler`/`OSDetector` over the shared Phase 1 reactor. TCP SYN variants, closed variants, ECN concepts, ICMP Echo, and an offline UDP representation are injectable test capabilities; live raw-packet OS fingerprinting is deliberately unavailable and never fabricates an identity.
 
 ## Target integration
 
@@ -179,6 +183,42 @@ The database parser accepts `Probe TCP`, `send`, and `match` records. Match rule
 
 A successful match produces a `DETECTED` result with service identity, optional product/version/extra fields, confidence, method, probe name, and RTT. A missing response, timeout, connection close without a match, response limit, malformed response, invalid target, or transport failure produces an explicit non-success state. No service identity is inferred solely from a port number.
 
+## OS fingerprinting architecture
+
+The Phase 6 execution model is:
+
+```text
+Phase 4 PortResult / optional Phase 5 context
+                    ↓
+              OSDetector
+                    ↓
+              OSScheduler
+                    ↓
+  bounded TCP SYN variants, ECN, closed variants, ICMP Echo
+                    ↓
+          OSProbeTransport seam
+             ↙                 ↘
+ RecordingOSProbeTransport   future capability-gated transport
+             ↓
+ Phase 1 IOEngine timers and bounded pending map
+                    ↓
+ packet correlation and typed evidence extraction
+                    ↓
+ project-owned data/os-fingerprints.db
+                    ↓
+ weighted available-evidence OSMatcher
+                    ↓
+ ranked OSDetectionResult
+```
+
+`OSDetector` is a thin façade. It accepts the existing `core::Target`, prior TCP `PortResult` values, and optional Phase 5 context. Prior results select an OPEN TCP port when one exists, or the configured explicit port otherwise; they do not become OS evidence. Service names and port numbers are never used to infer an operating-system identity.
+
+The database is a compact, Skan-owned, line-oriented laboratory dataset. It supports comments, blank lines, class metadata, typed numeric and boolean fields, TCP option ordering, response behavior, deterministic declaration ordering, duplicate rejection, missing metadata rejection, and explicit file-load status. It is not an imported broad fingerprint corpus. Both the CLI and library loader load `data/os-fingerprints.db`; no broad external fingerprint corpus or duplicate signature set is embedded in C++.
+
+The matcher computes confidence from **available observed evidence only**. Absent, timed-out, unsupported, and otherwise unavailable fields do not lower a candidate’s score. Observed mismatches lower the score. Current weights emphasize TCP option ordering, window, MSS, and transport behavior while retaining TTL, DF, window scale, SACK, timestamps, flags, ACK/sequence behavior, response behavior, and ICMP fields. Categories are `NO_MATCH` below `0.30`, `LOW` from `0.30` to below `0.60`, `POSSIBLE` from `0.60` to below `0.85`, and `STRONG` at or above `0.85`. Top-N results sort by descending confidence and then fingerprint name.
+
+Probe lifecycle state is explicit: `Generated`, `Sent`, `ResponseReceived`, `Timeout`, `Unsupported`, or `Malformed`. The model includes TCP SYN standard/variant/timestamp/ECN probes, closed-port variants, ICMP Echo, and an optional offline UDP-port-unreachable representation. The recording transport supports deterministic injection but intentionally does not claim a live UDP or raw-packet capability. `live_os_fingerprinting_available()` is false in this build; a live CLI request reports `UNAVAILABLE`, empty matches, and zero confidence rather than fabricating an OS identity.
+
 ## Correlation and response lifecycle
 
 Each outbound submission contains a monotonically assigned `ProbeId`, target address, probe type, serialized packet, and protocol-specific correlation metadata. The scheduler stores the sent monotonic timestamp and deadline in its pending entry.
@@ -209,21 +249,24 @@ Discovery does not duplicate protocol serialization. ICMP and TCP probe builders
 
 ## I/O Engine integration
 
-The public discovery, port-scan, and service-detection APIs accept an existing `io::IOEngine&`. Probe deadlines use its monotonic timer service, and scheduler completion requests its `stop()`. The recording transports are injectable seams and do not own an event loop. The real Connect transports borrow the same reactor and own only their socket/event lifecycles. All schedulers remain single-thread-affine like the reactor.
+The public discovery, port-scan, service-detection, and OS-detection APIs accept an existing `io::IOEngine&`. Probe deadlines use its monotonic timer service, and scheduler completion requests its `stop()`. The recording transports are injectable seams and do not own an event loop. The real Connect transports borrow the same reactor and own only their socket/event lifecycles. All schedulers remain single-thread-affine like the reactor.
 
 ## CLI boundary
 
-The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 4 adds the scoped TCP scan, and Phase 5 adds opt-in service detection:
+The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 4 adds the scoped TCP scan, Phase 5 adds opt-in service detection, and Phase 6 adds the capability-honest OS detection command:
 
 ```text
-skan scan <ipv4-address> [--tcp-ports <single,list,range>]
+  skan scan <ipv4-address> [--tcp-ports <single,list,range>]
           [--method <connect|syn>] [--timeout-ms <ms>]
           [--max-outstanding <n>] [--service-detect]
           [--service-db <path>] [--max-response-bytes <n>]
           [--max-probes <n>]
+  skan os-detect <ipv4-address> [--os-db <path>]
+          [--timeout-ms <ms>] [--max-outstanding <n>] [--json]
+
 ```
 
-Both commands validate explicit IPv4 targets before running. `scan --method connect` uses real nonblocking stream sockets. `scan --method syn` exits with a capability-unavailable error in this build; synthetic SYN behavior is covered through the library transport seam. `--service-detect` runs only after the scan and only for OPEN TCP results. There are no UDP, alternate TCP flag, fingerprinting, evasion, or range-expansion options.
+The scan command validates explicit IPv4 targets before running. `scan --method connect` uses real nonblocking stream sockets. `scan --method syn` exits with a capability-unavailable error in this build; synthetic SYN behavior is covered through the library transport seam. `--service-detect` runs only after the scan and only for OPEN TCP results. `os-detect` loads the project-owned database and then reports live capability unavailability in this build; its `--json` form emits structured unavailable state with empty matches and confidence `0`. There is no live UDP scanner, evasion, or range-expansion option.
 
 ## Error model
 
@@ -233,7 +276,7 @@ Discovery maps invalid IPv4 input to `InvalidArgument` and `INVALID_TARGET`, tra
 
 Phase 3 is Linux-first because Phase 1 uses Linux `epoll`, and any future ARP transport would require Linux interface capabilities. Current tests and the CLI do not require network privileges, external hosts, or public Internet access.
 
-The repository contains no packet transmission, `AF_PACKET`, raw-socket send path, `sendto()`, TCP SYN network transport, UDP scanner, alternate TCP flag scan, OS fingerprinting, Lua, evasion, dashboard, or hidden scope-control mechanism. Phase 4 contains a scoped IPv4 TCP Connect transport and deterministic TCP port enumeration after normal target validation. Phase 5 contains only TCP stream banner/probe detection on OPEN results through `ServiceTransport`; it does not perform service exploitation, credential exchange, or Internet-wide scanning.
+The repository contains no packet transmission, `AF_PACKET`, raw-socket send path, `sendto()`, TCP SYN network transport, live UDP scanner, alternate TCP flag scan, live OS fingerprint transport, Lua, evasion, dashboard, or hidden scope-control mechanism. Phase 6’s OS layer is packet-model-backed and synthetic/injected only. Phase 4 contains a scoped IPv4 TCP Connect transport and deterministic TCP port enumeration after normal target validation. Phase 5 contains only TCP stream banner/probe detection on OPEN results through `ServiceTransport`; it does not perform service exploitation, credential exchange, or Internet-wide scanning.
 
 ## Module status
 
@@ -245,10 +288,11 @@ The repository contains no packet transmission, `AF_PACKET`, raw-socket send pat
 | Host Discovery | Bounded, asynchronous ICMP/TCP/ARP probe scheduling and response aggregation | Implemented in Phase 3 |
 | Scan Engine | Scan-job coordination and lifecycle management | Phase 4 scheduler implemented |
 | Port Scanning | TCP port selection, Connect transport, SYN probe seam, state/result collection | Implemented in Phase 4; raw SYN transport unavailable |
-| Detection | Bounded TCP banner/probe service detection and deterministic matching | Implemented in Phase 5 |
-| Data Layer | Project-owned service probe database plus future persistence and serialization | Phase 5 compact dataset implemented; persistence planned |
+| Detection | Bounded TCP banner/probe service detection and deterministic matching | Implemented in Phase 5; OS architecture in Phase 6 |
+| OS Detection | Typed evidence collection, bounded injected scheduling, reduced fingerprint database, and weighted matching | Phase 6 complete for synthetic/injected scope; live raw transport unavailable |
+| Data Layer | Project-owned service and OS fingerprint databases plus future persistence and serialization | Phase 5/6 compact datasets implemented; persistence planned |
 | Lua Scripting | Optional user-defined scripting extensions | Planned |
 | Output | Human-readable and machine-readable result formats | Phase 3 result formatting only |
 | Evasion | Future traffic and timing controls | Planned |
-| CLI | Version/help bootstrap, discovery exercise, loopback-scoped TCP scan, and opt-in service detection | Phase 5 minimal integration |
+| CLI | Version/help bootstrap, discovery exercise, scoped TCP scan, opt-in service detection, and capability-honest os-detect | Phase 6 minimal integration complete |
 | Dashboard | Future TypeScript/React visualization and management interface | Planned |
