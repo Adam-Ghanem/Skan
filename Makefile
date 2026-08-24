@@ -30,8 +30,15 @@ CPP_SOURCES := \
 	src/discovery/discovery_scheduler.cpp \
 	src/discovery/icmp_discovery.cpp \
 	src/discovery/tcp_discovery.cpp \
-	src/discovery/arp_discovery.cpp \
-	src/main.cpp
+			src/discovery/arp_discovery.cpp \
+		src/portscan/port_types.cpp \
+		src/portscan/port_result.cpp \
+		src/portscan/port_probe.cpp \
+		src/portscan/tcp_connect.cpp \
+		src/portscan/tcp_syn.cpp \
+		src/portscan/port_scheduler.cpp \
+		src/main.cpp
+
 C_SOURCES := src/c_api/status.c
 CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
 C_OBJECTS := $(C_SOURCES:src/%.c=$(BUILD_DIR)/%.o)
@@ -42,6 +49,9 @@ IO_OBJECTS := $(BUILD_DIR)/io/event.o $(BUILD_DIR)/io/io_engine.o $(BUILD_DIR)/i
 PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packet.o \
 	$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/tcp.o \
 	$(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/icmp.o $(BUILD_DIR)/packet/checksum.o
+PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o \
+	$(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o \
+	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/port_scheduler.o
 
 TEST_SOURCES := \
 	tests/unit/core/test_types.cpp \
@@ -61,7 +71,11 @@ TEST_SOURCES := \
 	tests/unit/discovery/test_discovery_types.cpp \
 	tests/unit/discovery/test_discovery_probe.cpp \
 	tests/unit/discovery/test_discovery_scheduler.cpp \
-	tests/integration/discovery/test_discovery_local.cpp
+	tests/integration/discovery/test_discovery_local.cpp \
+	tests/unit/portscan/test_port_types.cpp \
+	tests/unit/portscan/test_port_probe.cpp \
+	tests/unit/portscan/test_port_scheduler.cpp \
+	tests/integration/portscan/test_portscan_local.cpp
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
 	$(BUILD_DIR)/test_types \
@@ -81,7 +95,11 @@ TEST_BINARIES := \
 	$(BUILD_DIR)/test_discovery_types \
 	$(BUILD_DIR)/test_discovery_probe \
 	$(BUILD_DIR)/test_discovery_scheduler \
-	$(BUILD_DIR)/test_discovery_local
+		$(BUILD_DIR)/test_discovery_local \
+		$(BUILD_DIR)/test_port_types \
+		$(BUILD_DIR)/test_port_probe \
+		$(BUILD_DIR)/test_port_scheduler \
+		$(BUILD_DIR)/test_portscan_local
 
 .PHONY: all debug test clean
 
@@ -148,6 +166,18 @@ $(BUILD_DIR)/test_discovery_scheduler: $(BUILD_DIR)/tests/unit/discovery/test_di
 $(BUILD_DIR)/test_discovery_local: $(BUILD_DIR)/tests/integration/discovery/test_discovery_local.o $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+$(BUILD_DIR)/test_port_types: $(BUILD_DIR)/tests/unit/portscan/test_port_types.o $(BUILD_DIR)/portscan/port_types.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_port_probe: $(BUILD_DIR)/tests/unit/portscan/test_port_probe.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o $(BUILD_DIR)/portscan/tcp_syn.o $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_port_scheduler: $(BUILD_DIR)/tests/unit/portscan/test_port_scheduler.o $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_portscan_local: $(BUILD_DIR)/tests/integration/portscan/test_portscan_local.o $(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
@@ -191,6 +221,10 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_discovery_probe
 	./$(BUILD_DIR)/test_discovery_scheduler
 	./$(BUILD_DIR)/test_discovery_local
+	./$(BUILD_DIR)/test_port_types
+	./$(BUILD_DIR)/test_port_probe
+	./$(BUILD_DIR)/test_port_scheduler
+	./$(BUILD_DIR)/test_portscan_local
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

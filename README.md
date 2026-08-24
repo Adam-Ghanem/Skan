@@ -4,7 +4,7 @@ Skan is an original, modular Linux network-scanning platform under development. 
 
 ## Project goals
 
-Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure and a scoped host-discovery engine; it does not implement port scanning or a full network-scanning workflow.
+Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, and the Phase 4 TCP port-scan foundation; it does not implement a full network-scanning workflow.
 
 ## Language and platform
 
@@ -20,9 +20,10 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 1 — I/O Engine | **COMPLETE** |
 | Phase 2 — Packet Layer | **COMPLETE** |
 | Phase 3 — Host Discovery | **COMPLETE** |
-| Phase 4 and later | Planned |
+| Phase 4 — Scoped TCP Port Scan | **COMPLETE** |
+| Phase 5 and later | Planned |
 
-Phase 3 is deliberately scoped to explicitly supplied, authorized targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. No public Internet target is used by the test suite, and no packet is transmitted by the current implementation.
+Phase 3 is deliberately scoped to explicitly supplied, authorized targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that authorization boundary, adds real nonblocking TCP Connect only for authorized IPv4 targets, and keeps SYN network transmission capability-gated. No public Internet target is used by the test suite.
 
 ## Phase 3 Host Discovery
 
@@ -66,6 +67,25 @@ The scheduler measures sent and received times with `std::chrono::steady_clock`.
 
 Host aggregation is deterministic. Any positive response produces `UP`, even if another probe timed out. An explicit `DOWN` result would take precedence over `UNKNOWN` only when no positive evidence exists. A timeout or lack of conclusive evidence produces `UNKNOWN`; non-response is never treated as proof that a host is down.
 
+## Phase 4 Scoped TCP Port Scan
+
+The Phase 4 port scanner accepts already-resolved `core::Target` and `core::Host` values and applies the existing `discovery::AuthorizationGate` to every host before queueing any port. The loopback-only CLI gate permits only `127.0.0.0/8`; there is no authorization bypass, implicit allow-all path, CIDR expansion, or public-target default.
+
+Only TCP is supported. `--tcp-ports` accepts a single port, a comma-separated list, or an inclusive range such as `22,80,443,8000-8002`. Values are validated to `1..65535`, sorted, and deduplicated. With no explicit selection, the scanner uses the small default set `{22, 80, 443}` and never silently enumerates all 65535 ports.
+
+The scheduler is bounded by `max_outstanding`, uses the shared Phase 1 `IOEngine` for epoll events and one-shot timers, and retains deterministic target/port/probe ordering. TCP Connect uses actual nonblocking IPv4 sockets and classifies immediate success or `SO_ERROR==0` as `OPEN`, `ECONNREFUSED` as `CLOSED`, and deadline expiry as `FILTERED`; other local socket failures are `UNKNOWN`. Socket events, timers, and descriptors are removed or closed on every terminal path.
+
+The TCP SYN probe reuses the Phase 2 `packet::TCP` model for deterministic offline construction and validates source/destination addresses and ports, SYN/ACK acknowledgment correlation, and RST responses. This build intentionally reports the raw-packet network capability as unavailable; synthetic responses can still exercise the probe and scheduler through an injected transport. It does not claim a real SYN scan.
+
+The minimal CLI is:
+
+```sh
+./bin/skan scan 127.0.0.1 --tcp-ports 22,80,443 --method connect \
+  --timeout-ms 500 --max-outstanding 16
+```
+
+`--method syn` is accepted as a capability-gated mode and exits without network activity when the raw-packet capability is unavailable. UDP scanning, alternate TCP flag scans, evasion, decoys, spoofing, fragmentation tricks, service/version detection, OS fingerprinting, scripting, dashboards, and authorization bypasses are outside Phase 4.
+
 ## Phase 2 Packet Layer
 
 The packet layer remains below discovery and is responsible for protocol representation, validation, deterministic serialization, checksums, and lightweight parsing. Discovery does not duplicate ICMP or TCP packet construction. Packet elements continue to serialize into caller-provided `std::span<std::uint8_t>` buffers and provide owned-vector convenience forms.
@@ -107,7 +127,7 @@ Compile and execute all Phase 0, Phase 1, Phase 2, and Phase 3 tests with:
 make test
 ```
 
-The suite includes deterministic unit tests for discovery type names and IPv4 parsing; ICMP, TCP, and ARP submission and response matching; malformed and unrelated responses; authorization rejection; scheduler bounds; duplicate and late response handling; RTT; timeouts; multi-probe aggregation; multiple targets; and a controlled local integration test using loopback data and an offline recording transport. Existing Phase 0–2 tests remain active.
+The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; malformed and unrelated responses; authorization rejection; bounded port-scan scheduling; duplicate and late response handling; RTT; timeouts; multiple targets; and stress-sized synthetic scans. The controlled Phase 4 integration test opens a local loopback listener and verifies real TCP Connect `OPEN` and `CLOSED` results without using public targets. Existing Phase 0–3 tests remain active.
 
 Sanitizer validation can be run with:
 
@@ -132,15 +152,21 @@ Phase 3 adds a loopback-scoped discovery exercise:
 ./bin/skan discover 127.0.0.1 --tcp --tcp-port 80 --timeout-ms 10
 ```
 
-The CLI uses the explicit loopback authorization gate and the offline recording transport. It reports `UNKNOWN` when no synthetic response is injected; it does not open a raw socket or connect to the target. ARP is available to the packet/probe unit tests and future authorized lab transports, but the current loopback CLI does not claim an Ethernet interface.
+The discovery CLI uses the explicit loopback authorization gate and the offline recording transport. It reports `UNKNOWN` when no synthetic response is injected; it does not open a raw socket or connect to the target. ARP is available to the packet/probe unit tests and future authorized lab transports, but the current loopback CLI does not claim an Ethernet interface.
 
-Unknown or incomplete arguments print a clear error and return a non-zero status. There is no `--no-auth`, `--bypass-auth`, hidden authorization path, port range option, or service-detection option.
+Phase 4 adds the authorized TCP Connect exercise:
+
+```sh
+./bin/skan scan 127.0.0.1 --tcp-ports 1,22,80 --method connect --timeout-ms 100
+```
+
+Unknown or incomplete arguments print a clear error and return a non-zero status. There is no `--no-auth`, `--bypass-auth`, hidden authorization path, implicit public-target authorization, UDP option, service-detection option, or full-port-range default.
 
 ## Network and safety boundary
 
-Phase 3 does not implement packet transmission. There is no raw socket, `AF_PACKET`, `sendto()`, TCP connect loop, packet injection, ARP spoofing, ARP poisoning, gratuitous ARP attack, host-range expansion, public-target default, TCP/UDP port scanning, service detection, operating-system fingerprinting, Lua scripting, evasion, or dashboard functionality. Network transport must be added later behind the explicit `DiscoveryTransport` and authorization boundaries.
+Phase 4 implements only authorized IPv4 TCP Connect transport through nonblocking stream sockets. It does not implement raw packet transmission in this build: there is no `AF_PACKET`, `sendto()`, SYN network transport, spoofing, ARP attack behavior, host-range expansion, public-target default, UDP scanning, alternate TCP flag scanning, evasion, service detection, operating-system fingerprinting, Lua scripting, or dashboard functionality. The SYN implementation is packet-model-backed and synthetic/transport-injected only until a separately validated capability is available.
 
-Integration testing uses only loopback addresses and synthetic local byte buffers. No public Internet targets were scanned.
+The Phase 3 integration remains offline. Phase 4 integration uses only `127.0.0.1` and a deliberately created local listening socket plus a closed local port. No public Internet targets were scanned.
 
 ## License
 

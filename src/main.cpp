@@ -1,15 +1,18 @@
 #include <charconv>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include "core/constants.hpp"
 #include "core/status.hpp"
 #include "discovery/discovery.hpp"
+#include "portscan/portscan.hpp"
 
 namespace {
 
@@ -19,7 +22,8 @@ void print_help()
               << "Nmap-inspired modular network scanning platform\n\n"
               << "Usage:\n"
               << "  skan [options]\n"
-              << "  skan discover <ipv4-address> [options]\n\n"
+              << "  skan discover <ipv4-address> [options]\n"
+              << "  skan scan <ipv4-address> [options]\n\n"
               << "Options:\n"
               << "  --help                 Show help\n"
               << "  --version              Show version\n"
@@ -27,13 +31,18 @@ void print_help()
               << "  --tcp                  Select TCP discovery\n"
               << "  --arp                  Select ARP discovery\n"
               << "  --tcp-port <port>      Set the explicit TCP discovery port\n"
-              << "  --timeout-ms <ms>      Set the asynchronous probe timeout\n\n"
+              << "  --timeout-ms <ms>      Set the asynchronous probe timeout\n"
+              << "  --tcp-ports <spec>     TCP ports: single, list, or range\n"
+              << "  --method <connect|syn> TCP Connect or capability-gated SYN\n"
+              << "  --max-outstanding <n>  Bound concurrent port probes\n\n"
               << "Status:\n"
               << "  Phase 0 — Foundation\n"
               << "  Phase 1 — Async I/O Engine\n"
               << "  Phase 2 — Packet Layer\n"
               << "  Phase 3 — Host Discovery\n"
-              << "\nDiscovery CLI mode is loopback-scoped and uses an offline recording transport.\n";
+              << "  Phase 4 — TCP Port Scan (scoped)\n"
+              << "\nDiscovery CLI mode is loopback-scoped and uses an offline recording transport.\n"
+              << "Scan CLI mode is loopback-scoped and uses real nonblocking TCP Connect sockets.\n";
 }
 
 bool parse_unsigned(std::string_view text, unsigned int &value)
@@ -124,6 +133,104 @@ int run_discover(int argc, char **argv)
     return EXIT_SUCCESS;
 }
 
+int run_scan(int argc, char **argv)
+{
+    if (argc < 3) {
+        std::cerr << "Error: scan requires an explicit IPv4 target. Use --help for usage.\n";
+        return EXIT_FAILURE;
+    }
+
+    skan::portscan::PortScanConfig config;
+    std::vector<skan::portscan::Port> ports;
+    bool explicit_ports = false;
+    for (int index = 3; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument == "--tcp-ports" && index + 1 < argc) {
+            const skan::portscan::PortSelection selection =
+                skan::portscan::parse_tcp_ports(argv[++index]);
+            if (selection.status != skan::core::StatusCode::Ok) {
+                std::cerr << "Error: invalid TCP port selection.\n";
+                return EXIT_FAILURE;
+            }
+            ports = selection.ports;
+            explicit_ports = true;
+        } else if (argument == "--method" && index + 1 < argc) {
+            const std::string_view method(argv[++index]);
+            if (method == "connect") {
+                config.method = skan::portscan::ScanProbeType::TcpConnect;
+            } else if (method == "syn") {
+                config.method = skan::portscan::ScanProbeType::TcpSyn;
+            } else {
+                std::cerr << "Error: method must be connect or syn.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argument == "--timeout-ms" && index + 1 < argc) {
+            unsigned int timeout = 0U;
+            if (!parse_unsigned(argv[++index], timeout) || timeout == 0U) {
+                std::cerr << "Error: invalid scan timeout.\n";
+                return EXIT_FAILURE;
+            }
+            config.timeout = std::chrono::milliseconds{timeout};
+        } else if (argument == "--max-outstanding" && index + 1 < argc) {
+            unsigned int max_outstanding = 0U;
+            if (!parse_unsigned(argv[++index], max_outstanding) || max_outstanding == 0U) {
+                std::cerr << "Error: invalid max outstanding value.\n";
+                return EXIT_FAILURE;
+            }
+            config.max_outstanding = static_cast<std::size_t>(max_outstanding);
+        } else {
+            std::cerr << "Error: unknown or incomplete scan option. Use --help for usage.\n";
+            return EXIT_FAILURE;
+        }
+    }
+    if (!explicit_ports) {
+        ports = skan::portscan::default_tcp_ports();
+    }
+    if (config.method == skan::portscan::ScanProbeType::TcpSyn &&
+        !skan::portscan::tcp_syn_network_capability_available()) {
+        std::cerr << "Error: TCP SYN network capability is unavailable in this build; "
+                     "use synthetic transport tests or --method connect.\n";
+        return EXIT_FAILURE;
+    }
+
+    const std::string target_address = argv[2];
+    skan::core::Target target{target_address, {skan::core::Host{target_address, std::nullopt, false}}};
+    skan::io::IOEngine io_engine;
+    if (io_engine.initialization_status() != skan::core::StatusCode::Ok) {
+        std::cerr << "Error: unable to initialize the asynchronous I/O engine.\n";
+        return EXIT_FAILURE;
+    }
+    skan::portscan::TcpConnectTransport transport(io_engine);
+    skan::portscan::PortScanScheduler scanner(
+        io_engine,
+        transport,
+        skan::discovery::AuthorizationGate::loopback_only(),
+        config);
+    const skan::core::StatusCode submit_status = scanner.submit(target, ports);
+    if (submit_status != skan::core::StatusCode::Ok) {
+        std::cerr << "Error: scan submission denied or failed: "
+                  << skan::core::status_to_string(submit_status) << '\n';
+        return EXIT_FAILURE;
+    }
+    const skan::core::StatusCode run_status = scanner.run();
+    if (run_status != skan::core::StatusCode::Ok) {
+        std::cerr << "Error: scan engine failed: " << skan::core::status_to_string(run_status) << '\n';
+        return EXIT_FAILURE;
+    }
+    for (const skan::portscan::PortResult &result : scanner.results()) {
+        std::cout << result.target << ':' << result.port.number << '/'
+                  << skan::portscan::protocol_name(result.port.protocol)
+                  << " state=" << skan::portscan::port_state_name(result.state)
+                  << " probe=" << skan::portscan::scan_probe_type_name(result.probe)
+                  << " reason=" << skan::portscan::scan_reason_name(result.reason);
+        if (result.rtt_ms.has_value()) {
+            std::cout << " rtt_ms=" << *result.rtt_ms;
+        }
+        std::cout << '\n';
+    }
+    return EXIT_SUCCESS;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -140,6 +247,10 @@ int main(int argc, char **argv)
 
     if (argc >= 2 && std::string_view(argv[1]) == "discover") {
         return run_discover(argc, argv);
+    }
+
+    if (argc >= 2 && std::string_view(argv[1]) == "scan") {
+        return run_scan(argc, argv);
     }
 
     std::cerr << "Error: unknown or missing argument. Use --help for usage.\n";
