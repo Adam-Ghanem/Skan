@@ -6,13 +6,10 @@ bin/
 *.d
 compile_commands.json
 
-# Editor files
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
 *.swp
 *.swo
 *~
-
-# Operating-system files
-.DS_Store
-Thumbs.db

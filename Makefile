@@ -1,41 +1,60 @@
+CXX := g++
 CC := gcc
 CPPFLAGS ?= -Iinclude
-CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2
+CXXFLAGS ?= -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 -O2
+CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 -O2
 LDFLAGS ?=
 
 PROJECT := skan
-VERSION := 0.1.0
 TARGET := bin/$(PROJECT)
 BUILD_DIR := build
 
-CORE_SOURCES := \
-	src/core/types.c \
-	src/core/errors.c \
-	src/core/log.c
-CORE_OBJECTS := $(CORE_SOURCES:src/%.c=$(BUILD_DIR)/%.o)
-MAIN_OBJECT := $(BUILD_DIR)/main.o
+CPP_SOURCES := \
+	src/core/types.cpp \
+	src/core/status.cpp \
+	src/core/log.cpp \
+	src/main.cpp
+C_SOURCES := src/c_api/status.c
+CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
+C_OBJECTS := $(C_SOURCES:src/%.c=$(BUILD_DIR)/%.o)
 
-TEST_SOURCES := tests/unit/core/test_core.c
-TEST_OBJECTS := $(TEST_SOURCES:%.c=$(BUILD_DIR)/%.o)
-TEST_BINARY := $(BUILD_DIR)/test_core
+TEST_SOURCES := \
+	tests/unit/core/test_types.cpp \
+	tests/unit/core/test_status.cpp \
+	tests/unit/core/test_constants.cpp
+TEST_BINARIES := \
+	$(BUILD_DIR)/test_types \
+	$(BUILD_DIR)/test_status \
+	$(BUILD_DIR)/test_constants
+TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 
 .PHONY: all debug test clean
 
 all: $(TARGET)
 
-$(TARGET): $(CORE_OBJECTS) $(MAIN_OBJECT) | bin
-	$(CC) $(LDFLAGS) $^ -o $@
+$(TARGET): $(CPP_OBJECTS) $(C_OBJECTS) | bin
+	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(TEST_BINARY): $(CORE_OBJECTS) $(TEST_OBJECTS) | $(BUILD_DIR)
-	$(CC) $(LDFLAGS) $^ -o $@
+$(BUILD_DIR)/test_types: $(BUILD_DIR)/tests/unit/core/test_types.o $(BUILD_DIR)/core/types.o $(BUILD_DIR)/core/status.o $(BUILD_DIR)/c_api/status.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_status: $(BUILD_DIR)/tests/unit/core/test_status.o $(BUILD_DIR)/core/status.o $(BUILD_DIR)/c_api/status.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_constants: $(BUILD_DIR)/tests/unit/core/test_constants.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/%.o: src/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 $(BUILD_DIR)/%.o: src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/tests/%.o: tests/%.c
+$(BUILD_DIR)/tests/%.o: tests/%.cpp
 	@mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
 bin:
 	mkdir -p $@
@@ -43,14 +62,18 @@ bin:
 $(BUILD_DIR):
 	mkdir -p $@
 
-debug: CFLAGS += -g3 -O0
+debug: CXXFLAGS += -g -O0
+
+debug: CFLAGS += -g -O0
 
 debug: clean all
 
-test: $(TEST_BINARY)
-	./$(TEST_BINARY)
+test: $(TEST_BINARIES)
+	./$(BUILD_DIR)/test_types
+	./$(BUILD_DIR)/test_status
+	./$(BUILD_DIR)/test_constants
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
 
--include $(CORE_OBJECTS:.o=.d) $(MAIN_OBJECT:.o=.d) $(TEST_OBJECTS:.o=.d)
+-include $(CPP_OBJECTS:.o=.d) $(C_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d)
