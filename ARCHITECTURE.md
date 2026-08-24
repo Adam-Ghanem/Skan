@@ -1,6 +1,6 @@
 # Skan Architecture
 
-Skan is an original Linux network-scanning platform designed as a modular C++20 application. The architecture is influenced by established scanner engineering principles, but all Skan implementations are original and the project does not claim compatibility with any other scanner.
+Skan is an original Linux network-scanning platform designed as a modular C++20 application. The architecture is influenced by general scanner engineering principles, but all Skan implementations are original and the project does not claim compatibility with any other scanner.
 
 ## High-level stack
 
@@ -9,8 +9,8 @@ Skan
 │
 ├── Core
 ├── I/O Engine
-├── Scan Engine
 ├── Packet Layer
+├── Scan Engine
 ├── Discovery
 ├── Port Scanning
 ├── Detection
@@ -22,38 +22,89 @@ Skan
 └── Dashboard
 ```
 
-## Language responsibilities
-
-| Language | Responsibility | Status |
-| --- | --- | --- |
-| C++20 | Application architecture, orchestration, I/O engine, future scan engine, detection, data layer, output, and CLI | Phase 0 and Phase 1 implemented where applicable |
-| C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
-| Lua 5.4 | Future scripting layer | Planned |
-| TypeScript/React | Future dashboard | Planned |
-
-## Implemented
-
-**Phase 0 — Foundation** is complete. It includes C++20 core types, version and Phase 0 constants, strongly typed status handling, timestamped logging, the CLI bootstrap, a minimal C-compatible status API, the Makefile, unit tests, and documentation.
-
-**Phase 1 — Asynchronous I/O Engine** is complete. It adds a Linux-first reactor backed by `epoll`, a logical event abstraction, descriptor registration/modification/removal, bounded and continuous run modes, monotonic one-shot timers, timer cancellation, nonblocking descriptor support, callback lifecycle protection, and RAII cleanup of the epoll descriptor.
-
-The Phase 1 engine contains no scan logic. It does not open network sockets, discover hosts, craft packets, probe ports, identify services, or perform fingerprinting.
-
-## Phase 1 I/O architecture
-
-The public `IOEngine` presents logical events and status values. Only `src/io/io_engine.cpp` includes Linux epoll headers and translates between logical `EventMask` values and native epoll masks. The intended dependency direction is:
+The implemented dependency direction is deliberately narrow:
 
 ```text
 Core
   ↓
-IOEngine
+Packet Layer
   ↓
-Future Scan Engine
-  ↓
-Future network modules
+Future scan and discovery modules
 ```
 
-The current backend is:
+The Phase 1 I/O Engine is an independent infrastructure layer. The Phase 2 Packet Layer does not depend on discovery, port scanning, detection, scripting, dashboards, or network transmission.
+
+## Language responsibilities
+
+| Language | Responsibility | Status |
+| --- | --- | --- |
+| C++20 | Core, I/O engine, packet representation, serialization, future orchestration, detection, data, output, and CLI | Phase 0, Phase 1, and Phase 2 implemented where applicable |
+| C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
+| Lua 5.4 | Future scripting layer | Planned |
+| TypeScript/React | Future dashboard | Planned |
+
+## Implemented phases
+
+**Phase 0 — Foundation** provides C++20 core types, constants, strongly typed status handling, timestamped logging, the CLI bootstrap, the minimal C-compatible status API, the Makefile, unit tests, and documentation.
+
+**Phase 1 — Asynchronous I/O Engine** provides a Linux-first `epoll` reactor, logical event registration and lifecycle management, bounded and continuous run modes, monotonic one-shot timers, cancellation, nonblocking descriptor support, callback lifecycle protection, and RAII cleanup.
+
+**Phase 2 — Packet Layer** provides offline packet representation, composition, validation, deterministic serialization, lightweight parsing, and checksums for Ethernet II, IPv4, TCP, UDP, and ICMPv4 Echo messages.
+
+## PacketElement abstraction
+
+`PacketElement` is the small polymorphic boundary shared by protocol elements. It exposes `serialized_size()`, span-based `serialize()`, and `validate()`. The span API makes the destination capacity explicit, while the inherited vector convenience method provides an owned result for callers that want one. Packet elements do not open descriptors, access the I/O engine, or perform network I/O.
+
+Concrete elements are value-oriented C++20 classes:
+
+| Element | Representation and responsibility |
+| --- | --- |
+| `Ethernet` | Two six-byte MAC addresses and a 16-bit EtherType. The Ethernet II header is always 14 bytes. |
+| `IPv4` | A fixed 20-byte IPv4 header with version, IHL, DSCP/ECN, total length, identification, flags/fragment offset, TTL, protocol, checksum, and 32-bit addresses. IPv4 options and fragmentation behavior are intentionally outside Phase 2. |
+| `TCP` | Ports, sequence and acknowledgment numbers, data offset, supported flags, window, checksum, urgent pointer, an extensible option representation, and payload bytes. |
+| `UDP` | Ports, derived datagram length, checksum, and payload bytes. |
+| `ICMP` | ICMPv4 Echo Request or Echo Reply, code, checksum, identifier, sequence, and arbitrary payload bytes. |
+
+## Packet composition
+
+`Packet` owns optional protocol layers through RAII-managed values. A valid composition requires an IPv4 layer and exactly one of TCP, UDP, or ICMP. Ethernet is optional because the IP-layer packet can be useful independently of a link-layer frame. The serializer always emits layers in this order:
+
+```text
+Ethernet (optional)
+    ↓
+IPv4
+    ↓
+TCP or UDP or ICMP
+```
+
+The packet composer validates that the IPv4 protocol field matches the selected payload protocol. During serialization it computes the IPv4 total length from the IPv4 and payload layers, recalculates the IPv4 header checksum, and calculates TCP or UDP checksums with the IPv4 pseudo-header. No packet is transmitted.
+
+## Serialization model
+
+All serialization is deterministic and bounds-checked. Multi-byte fields are written explicitly in big-endian/network byte order through small wire helpers; host endianness is never assumed. Each element reports the exact number of bytes it will produce, and span-based serialization returns `InvalidArgument` when the destination is too small or the element is invalid.
+
+TCP options are encoded as MSS, Window Scale, SACK Permitted, or Timestamp options and padded to a 32-bit boundary. TCP and UDP payloads are owned by their value objects so that serialized sizes, parsing, and checksum inputs remain consistent. ICMP Echo payloads are serialized directly after the eight-byte header.
+
+## Checksum architecture
+
+The reusable Internet checksum implementation operates over `std::span<const std::uint8_t>`. It handles empty buffers, odd-length buffers by zero-padding the final byte, one's-complement carry folding, and final complementing. The same primitive supports:
+
+1. IPv4 header checksums with the checksum field zeroed during calculation.
+2. TCP checksums with source address, destination address, protocol 6, and TCP length in the IPv4 pseudo-header.
+3. UDP checksums with source address, destination address, protocol 17, and UDP length in the IPv4 pseudo-header.
+4. ICMP checksums over the complete ICMP message with its checksum field zeroed.
+
+A generic pseudo-header checksum returns zero when verification of a complete checksummed message succeeds. The TCP and UDP element serializers map a computed zero to `0xFFFF` for the transmitted field, preserving the nonzero wire representation required for those protocols.
+
+## Parsing model
+
+Parsing is intentionally lightweight and protocol-local. `Ethernet::parse`, `IPv4::parse`, `TCP::parse`, `UDP::parse`, and `ICMP::parse` inspect only the supplied span, reject truncated or structurally invalid input, and never read beyond its bounds. Parsing is allocation-free for Ethernet and IPv4; TCP, UDP, and ICMP allocate only to own options or payload bytes in the returned value. There is no complete packet dissector or recursive parser in Phase 2.
+
+IPv4 parsing requires a complete declared IPv4 length and verifies the header checksum. TCP parsing validates the data offset and supported option lengths. UDP parsing requires the declared datagram length to equal the supplied span. ICMP parsing is limited to Echo Request and Echo Reply and verifies the ICMP checksum.
+
+## Phase 1 I/O architecture
+
+The public `IOEngine` presents logical events and status values. Only `src/io/io_engine.cpp` includes Linux epoll headers and translates between logical `EventMask` values and native epoll masks. The current backend is:
 
 ```text
 IOEngine
@@ -61,46 +112,20 @@ IOEngine
    └── Linux epoll backend
 ```
 
-The public separation leaves room for future `kqueue` or IOCP backends, but neither is implemented in Phase 1.
+The public separation leaves room for future `kqueue` or IOCP backends, but neither is implemented. Phase 1 remains single-thread-affine, owns its epoll descriptor through RAII, and borrows caller-owned events.
 
-### Event model
+## Raw-socket and future-module boundary
 
-An `Event` is a caller-owned descriptor registration containing a file descriptor, a logical mask, a callback, and an optional opaque context pointer. Logical masks support read, write, error, and hangup conditions. The callback receives the mutable logical `Event`, including its ready mask, and does not need to know about `epoll_event`.
+Raw sockets, `AF_PACKET`, `sendto()`, packet injection, TCP SYN scanning, UDP scanning, host discovery, service detection, operating-system fingerprinting, Lua scripting, evasion, adaptive congestion control, dashboards, and all other Phase 3+ behavior are deliberately absent. Phase 2 generates and parses bytes entirely offline. Later transmission code must be introduced above this layer and must not be hidden inside packet element serialization or validation.
 
-An Event may be registered with only one `IOEngine` at a time. `IOEngine::add()` marks it registered, `modify()` changes the native interest mask, and `remove()` detaches it. The caller must keep the Event object alive while it is registered. The engine borrows the object and never deletes it.
+## Module status
 
-### Event lifecycle and callback safety
-
-Dispatch uses the native readiness snapshot only to locate candidate Event objects. Immediately before invocation, the engine verifies that the event is still registered with that engine. Consequently, if an earlier callback removes another event that is also present in the same readiness batch, the removed event is skipped.
-
-A callback may remove itself, remove another Event, call `stop()`, or register another Event. Registration storage is not iterated directly during callback dispatch, so these operations do not invalidate the dispatch traversal. Calling `stop()` ends the current dispatch pass and causes a continuous `run()` loop to exit. `run_once()` processes one bounded iteration and resets its local stop request afterward for deterministic callers.
-
-Callbacks are invoked inside exception guards. An exception is logged as an error and does not escape the reactor boundary or leave the engine in a running state.
-
-### Timer model
-
-Timers are one-shot entries stored in a map and indexed by a min-heap ordered by `std::chrono::steady_clock` deadlines. Timer identifiers are opaque integer values returned by `schedule()`. Cancellation removes the active timer from the map; stale heap entries are discarded lazily and never invoke callbacks.
-
-The event loop calculates the nearest active timer deadline and uses the remaining duration to bound `epoll_wait()`. Deadlines use the monotonic steady clock rather than wall-clock time. Zero-duration timers are eligible during the same iteration after the wait returns, while an empty queue does not cause a busy-wait loop.
-
-### Ownership and RAII
-
-`IOEngine` is the owner of its epoll file descriptor and closes it in its destructor. Copying and moving the engine are disabled because it owns a live operating-system resource and borrowed registrations. Events and callbacks remain caller-owned. `shutdown()` detaches all borrowed Events, clears timers, closes the descriptor, and is idempotent.
-
-### Thread model
-
-Phase 1 is single-thread-affine. `IOEngine` is not advertised as thread-safe; normal operations, callbacks, event registration, and timer manipulation should occur on the event-loop thread. No worker threads, thread pool, eventfd, or signalfd infrastructure is introduced. Cross-thread wakeup can be added later as a separate feature.
-
-## Planned modules
-
-The following modules are architectural boundaries for future phases and are not implemented yet:
-
-| Module | Planned responsibility | Status |
+| Module | Responsibility | Status |
 | --- | --- | --- |
 | Core | Shared value types, constants, status handling, and common utilities | Implemented in Phase 0 |
 | I/O Engine | Linux epoll event dispatch, timers, and descriptor operations | Implemented in Phase 1 |
+| Packet Layer | Ethernet, IPv4, TCP, UDP, ICMP representation, composition, checksums, serialization, and parsing | Implemented in Phase 2 |
 | Scan Engine | Scan-job coordination and lifecycle management | Planned |
-| Packet Layer | Packet representation and low-level packet operations | Planned |
 | Discovery | Host and network discovery workflows | Planned |
 | Port Scanning | Port-state probing and result collection | Planned |
 | Detection | Service and operating-system detection | Planned |
@@ -110,5 +135,3 @@ The following modules are architectural boundaries for future phases and are not
 | Evasion | Future traffic and timing controls | Planned |
 | CLI | Command parsing beyond the Phase 0 bootstrap | Phase 0 shell only |
 | Dashboard | Future TypeScript/React visualization and management interface | Planned |
-
-Phase 1 intentionally avoids TCP, UDP, ICMP, and ARP scanners; raw sockets; packet crafting; service detection; operating-system fingerprinting; database parsing; Lua; scripting; evasion; dashboards; adaptive congestion control; and all other Phase 2+ functionality.
