@@ -24,6 +24,13 @@ CPP_SOURCES := \
 	src/packet/udp.cpp \
 	src/packet/icmp.cpp \
 	src/packet/checksum.cpp \
+	src/discovery/discovery.cpp \
+	src/discovery/discovery_types.cpp \
+	src/discovery/discovery_probe.cpp \
+	src/discovery/discovery_scheduler.cpp \
+	src/discovery/icmp_discovery.cpp \
+	src/discovery/tcp_discovery.cpp \
+	src/discovery/arp_discovery.cpp \
 	src/main.cpp
 C_SOURCES := src/c_api/status.c
 CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
@@ -50,7 +57,11 @@ TEST_SOURCES := \
 	tests/unit/packet/test_tcp.cpp \
 	tests/unit/packet/test_udp.cpp \
 	tests/unit/packet/test_icmp.cpp \
-	tests/unit/packet/test_checksum.cpp
+	tests/unit/packet/test_checksum.cpp \
+	tests/unit/discovery/test_discovery_types.cpp \
+	tests/unit/discovery/test_discovery_probe.cpp \
+	tests/unit/discovery/test_discovery_scheduler.cpp \
+	tests/integration/discovery/test_discovery_local.cpp
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
 	$(BUILD_DIR)/test_types \
@@ -66,7 +77,11 @@ TEST_BINARIES := \
 	$(BUILD_DIR)/test_tcp \
 	$(BUILD_DIR)/test_udp \
 	$(BUILD_DIR)/test_icmp \
-	$(BUILD_DIR)/test_checksum
+	$(BUILD_DIR)/test_checksum \
+	$(BUILD_DIR)/test_discovery_types \
+	$(BUILD_DIR)/test_discovery_probe \
+	$(BUILD_DIR)/test_discovery_scheduler \
+	$(BUILD_DIR)/test_discovery_local
 
 .PHONY: all debug test clean
 
@@ -117,6 +132,22 @@ $(BUILD_DIR)/test_icmp: $(BUILD_DIR)/tests/unit/packet/test_icmp.o $(BUILD_DIR)/
 $(BUILD_DIR)/test_checksum: $(BUILD_DIR)/tests/unit/packet/test_checksum.o $(BUILD_DIR)/packet/checksum.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+DISCOVERY_OBJECTS := $(BUILD_DIR)/discovery/discovery.o $(BUILD_DIR)/discovery/discovery_types.o \
+	$(BUILD_DIR)/discovery/discovery_probe.o $(BUILD_DIR)/discovery/discovery_scheduler.o \
+	$(BUILD_DIR)/discovery/icmp_discovery.o $(BUILD_DIR)/discovery/tcp_discovery.o $(BUILD_DIR)/discovery/arp_discovery.o
+
+$(BUILD_DIR)/test_discovery_types: $(BUILD_DIR)/tests/unit/discovery/test_discovery_types.o $(BUILD_DIR)/discovery/discovery_types.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_discovery_probe: $(BUILD_DIR)/tests/unit/discovery/test_discovery_probe.o $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_discovery_scheduler: $(BUILD_DIR)/tests/unit/discovery/test_discovery_scheduler.o $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_discovery_local: $(BUILD_DIR)/tests/integration/discovery/test_discovery_local.o $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
@@ -156,6 +187,10 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_udp
 	./$(BUILD_DIR)/test_icmp
 	./$(BUILD_DIR)/test_checksum
+	./$(BUILD_DIR)/test_discovery_types
+	./$(BUILD_DIR)/test_discovery_probe
+	./$(BUILD_DIR)/test_discovery_scheduler
+	./$(BUILD_DIR)/test_discovery_local
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

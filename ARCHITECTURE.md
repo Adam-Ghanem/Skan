@@ -10,8 +10,8 @@ Skan
 ├── Core
 ├── I/O Engine
 ├── Packet Layer
+├── Host Discovery
 ├── Scan Engine
-├── Discovery
 ├── Port Scanning
 ├── Detection
 ├── Data Layer
@@ -29,16 +29,18 @@ Core
   ↓
 Packet Layer
   ↓
-Future scan and discovery modules
+Host Discovery
+  ↓
+Future scan and discovery workflows
 ```
 
-The Phase 1 I/O Engine is an independent infrastructure layer. The Phase 2 Packet Layer does not depend on discovery, port scanning, detection, scripting, dashboards, or network transmission.
+The Phase 1 I/O Engine is independent infrastructure. Phase 3 uses it through its public event-loop and timer API; it does not duplicate the reactor or create a second event loop.
 
 ## Language responsibilities
 
 | Language | Responsibility | Status |
 | --- | --- | --- |
-| C++20 | Core, I/O engine, packet representation, serialization, future orchestration, detection, data, output, and CLI | Phase 0, Phase 1, and Phase 2 implemented where applicable |
+| C++20 | Core, I/O engine, packet representation, discovery, future orchestration, detection, data, output, and CLI | Phase 0–3 implemented where applicable |
 | C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
 | Lua 5.4 | Future scripting layer | Planned |
 | TypeScript/React | Future dashboard | Planned |
@@ -51,72 +53,112 @@ The Phase 1 I/O Engine is an independent infrastructure layer. The Phase 2 Packe
 
 **Phase 2 — Packet Layer** provides offline packet representation, composition, validation, deterministic serialization, lightweight parsing, and checksums for Ethernet II, IPv4, TCP, UDP, and ICMPv4 Echo messages.
 
-## PacketElement abstraction
+**Phase 3 — Host Discovery** provides a bounded scheduler, explicit authorization callback, common probe abstraction, ICMP Echo correlation, TCP SYN/ACK and RST evidence classification, minimal ARP request/reply representation, monotonic timeouts, RTT calculation, duplicate and late response handling, deterministic host-state aggregation, and a safe recording transport for offline tests.
 
-`PacketElement` is the small polymorphic boundary shared by protocol elements. It exposes `serialized_size()`, span-based `serialize()`, and `validate()`. The span API makes the destination capacity explicit, while the inherited vector convenience method provides an owned result for callers that want one. Packet elements do not open descriptors, access the I/O engine, or perform network I/O.
+## Target and authorization integration
 
-Concrete elements are value-oriented C++20 classes:
+Phase 3 reuses `core::Target` and `core::Host` exactly as defined by Phase 0. The discovery scheduler accepts a target whose `resolved_hosts` have already been supplied by the caller. It does not introduce a second target parser, resolver, CIDR expander, or range syntax.
 
-| Element | Representation and responsibility |
-| --- | --- |
-| `Ethernet` | Two six-byte MAC addresses and a 16-bit EtherType. The Ethernet II header is always 14 bytes. |
-| `IPv4` | A fixed 20-byte IPv4 header with version, IHL, DSCP/ECN, total length, identification, flags/fragment offset, TTL, protocol, checksum, and 32-bit addresses. IPv4 options and fragmentation behavior are intentionally outside Phase 2. |
-| `TCP` | Ports, sequence and acknowledgment numbers, data offset, supported flags, window, checksum, urgent pointer, an extensible option representation, and payload bytes. |
-| `UDP` | Ports, derived datagram length, checksum, and payload bytes. |
-| `ICMP` | ICMPv4 Echo Request or Echo Reply, code, checksum, identifier, sequence, and arbitrary payload bytes. |
+The repository inspected at the start of Phase 3 contained no separate resolver or authorization implementation. To avoid inventing a bypass path, Phase 3 introduces an explicit `AuthorizationGate` callback as a required scheduler dependency. A missing callback rejects discovery. The CLI uses the conservative `AuthorizationGate::loopback_only()` helper, which authorizes only IPv4 loopback addresses. A production or lab integration must supply the repository-approved authorization callback for its own explicit scope.
 
-## Packet composition
+No discovery method can bypass this gate. There is no `--no-auth`, `--bypass-auth`, hidden allow-all branch, or implicit public-target policy.
 
-`Packet` owns optional protocol layers through RAII-managed values. A valid composition requires an IPv4 layer and exactly one of TCP, UDP, or ICMP. Ethernet is optional because the IP-layer packet can be useful independently of a link-layer frame. The serializer always emits layers in this order:
+## Discovery architecture
+
+The execution model is:
 
 ```text
-Ethernet (optional)
-    ↓
-IPv4
-    ↓
-TCP or UDP or ICMP
+core::Target (already resolved and authorized)
+          ↓
+DiscoveryScheduler
+          ↓
+bounded work queue
+          ↓
+DiscoveryProbe::build()
+          ↓
+Phase 2 packet serialization
+          ↓
+DiscoveryTransport::submit()
+          ↓
+Phase 1 IOEngine timers/event loop
+          ↓
+Discovery::receive()
+          ↓
+probe-local response assessment
+          ↓
+DiscoveryResult evidence
+          ↓
+HostState aggregation
 ```
 
-The packet composer validates that the IPv4 protocol field matches the selected payload protocol. During serialization it computes the IPv4 total length from the IPv4 and payload layers, recalculates the IPv4 header checksum, and calculates TCP or UDP checksums with the IPv4 pseudo-header. No packet is transmitted.
+`DiscoveryScheduler` owns probe implementations through `std::unique_ptr`, borrows the shared `IOEngine` and caller-owned transport, and stores pending correlation entries in a bounded map. It is single-thread-affine like the Phase 1 engine. There is no thread-per-host model, worker pool, blocking sleep, or independent reactor.
 
-## Serialization model
+The `DiscoveryProbe` abstraction has three responsibilities: identify its strongly typed probe type, build one correlated submission using the Phase 2 packet API, and assess a received response as `Matching`, `Unrelated`, or `Malformed`. Transport delivery is separate from packet construction, allowing deterministic offline tests and preventing a hidden network path inside serialization code.
 
-All serialization is deterministic and bounds-checked. Multi-byte fields are written explicitly in big-endian/network byte order through small wire helpers; host endianness is never assumed. Each element reports the exact number of bytes it will produce, and span-based serialization returns `InvalidArgument` when the destination is too small or the element is invalid.
+## Probe types
 
-TCP options are encoded as MSS, Window Scale, SACK Permitted, or Timestamp options and padded to a 32-bit boundary. TCP and UDP payloads are owned by their value objects so that serialized sizes, parsing, and checksum inputs remain consistent. ICMP Echo payloads are serialized directly after the eight-byte header.
+| Probe | Packet and correlation behavior | Evidence |
+| --- | --- | --- |
+| ICMP Echo | Uses Phase 2 `ICMP` Echo Request serialization. Correlation requires the exact target source address, Echo Reply type/code, deterministic identifier, and sequence. | Matching Echo Reply produces `UP` with `ICMP_ECHO_REPLY`. |
+| TCP | Uses Phase 2 `TCP` serialization for exactly one configured port. Correlation requires the target source address, response source/destination ports, and SYN sequence acknowledgment when applicable. | SYN/ACK produces `UP` with `TCP_SYN_ACK`; RST produces `UP` with `TCP_RST`. A timeout is `UNKNOWN`. |
+| ARP | Uses a discovery-local 28-byte Ethernet/IPv4 ARP representation. Requests and replies are bounds-checked and correlate target IPv4, operation, and sender/target IPv4 fields. | Matching ARP reply produces `UP` with `ARP_REPLY`. |
 
-## Checksum architecture
+The default TCP discovery port is centralized as `kDefaultTcpDiscoveryPort` and is **80**. A caller may select one explicit port, but the scheduler never enumerates ports and Phase 3 does not implement a TCP scanner.
 
-The reusable Internet checksum implementation operates over `std::span<const std::uint8_t>`. It handles empty buffers, odd-length buffers by zero-padding the final byte, one's-complement carry folding, and final complementing. The same primitive supports:
+ARP remains an offline representation in this phase. A future authorized lab transport may connect it to a directly reachable Ethernet interface; ARP spoofing, poisoning, gratuitous ARP attacks, and any other offensive ARP behavior are outside the architecture.
 
-1. IPv4 header checksums with the checksum field zeroed during calculation.
-2. TCP checksums with source address, destination address, protocol 6, and TCP length in the IPv4 pseudo-header.
-3. UDP checksums with source address, destination address, protocol 17, and UDP length in the IPv4 pseudo-header.
-4. ICMP checksums over the complete ICMP message with its checksum field zeroed.
+## Correlation and response lifecycle
 
-A generic pseudo-header checksum returns zero when verification of a complete checksummed message succeeds. The TCP and UDP element serializers map a computed zero to `0xFFFF` for the transmitted field, preserving the nonzero wire representation required for those protocols.
+Each outbound submission contains a monotonically assigned `ProbeId`, target address, probe type, serialized packet, and protocol-specific correlation metadata. The scheduler stores the sent monotonic timestamp and deadline in its pending entry.
 
-## Parsing model
+When a response arrives, the scheduler first looks up the `ProbeId`. An unknown ID is reported as not found without a state mutation. An expired ID is counted as late; a completed ID is counted as a duplicate. A pending response is passed to the probe implementation, which rejects malformed input without out-of-bounds access and ignores valid but unrelated packets. Only a matching response removes the pending operation, cancels its Phase 1 timer, calculates RTT, and appends positive evidence.
 
-Parsing is intentionally lightweight and protocol-local. `Ethernet::parse`, `IPv4::parse`, `TCP::parse`, `UDP::parse`, and `ICMP::parse` inspect only the supplied span, reject truncated or structurally invalid input, and never read beyond its bounds. Parsing is allocation-free for Ethernet and IPv4; TCP, UDP, and ICMP allocate only to own options or payload bytes in the returned value. There is no complete packet dissector or recursive parser in Phase 2.
+Malformed responses for a known pending probe are recorded as `MALFORMED_RESPONSE`, complete that probe, cancel its deadline, and return `ParseError`. This prevents a malformed packet from causing an additional timeout result. Unrelated responses leave the pending operation untouched.
 
-IPv4 parsing requires a complete declared IPv4 length and verifies the header checksum. TCP parsing validates the data offset and supported option lengths. UDP parsing requires the declared datagram length to equal the supplied span. ICMP parsing is limited to Echo Request and Echo Reply and verifies the ICMP checksum.
+## Timeout model
 
-## Phase 1 I/O architecture
+Every accepted probe receives a one-shot `IOEngine::schedule()` timer using `std::chrono::steady_clock`. The scheduler never calls `sleep()` and never blocks a thread per host. On expiry, the pending operation is removed, a `TIMEOUT` result with no RTT is recorded, and queued work is pumped within the configured `max_outstanding` bound.
 
-The public `IOEngine` presents logical events and status values. Only `src/io/io_engine.cpp` includes Linux epoll headers and translates between logical `EventMask` values and native epoll masks. The current backend is:
+The shared Phase 1 timer implementation is reused directly. No new timer queue or deadline clock exists in the discovery layer. When all queued and pending probes are complete, the scheduler requests a clean stop from the shared event loop, allowing finite CLI and integration runs.
+
+## Host-state aggregation
+
+Evidence is retained per target address and exposed through `DiscoveryResult` values. Aggregation is deterministic:
+
+1. Any positive response (`UP`) wins immediately, including when another probe timed out.
+2. Explicit `DOWN` evidence would be considered only if there is no positive evidence.
+3. Timeout, malformed, unauthorized, invalid, unrelated, and absent evidence do not prove that a host is down; absent conclusive evidence remains `UNKNOWN`.
+
+Phase 3 currently produces positive or unknown outcomes. It intentionally does not manufacture `DOWN` from a timeout.
+
+## Packet Layer integration
+
+Discovery does not duplicate protocol serialization. ICMP and TCP probe builders call the Phase 2 `ICMP` and `TCP` models. ARP is the only discovery-local wire representation because ARP was intentionally not added to the Phase 2 IP-focused packet layer. The packet layer remains responsible for byte ordering, header layout, checksums, serialization bounds, and protocol-local parsing.
+
+## I/O Engine integration
+
+The public discovery API accepts an existing `io::IOEngine&`. Probe deadlines use its monotonic timer service, and scheduler completion requests its `stop()`. The recording transport is an injectable seam and does not own an event loop. A future real transport must present the same boundary and preserve the authorization and single-thread-affine lifecycle rules.
+
+## CLI boundary
+
+The CLI retains `--version` and `--help` and adds only:
 
 ```text
-IOEngine
-   │
-   └── Linux epoll backend
+skan discover <ipv4-address> [--icmp] [--tcp] [--arp]
+             [--tcp-port <port>] [--timeout-ms <ms>]
 ```
 
-The public separation leaves room for future `kqueue` or IOCP backends, but neither is implemented. Phase 1 remains single-thread-affine, owns its epoll descriptor through RAII, and borrows caller-owned events.
+The current command is explicitly loopback-scoped and uses the offline recording transport. It is a safe exercise of scheduling, authorization, timeout, and result formatting; it does not open raw sockets or connect to a host. There are no port-range, service-detection, fingerprinting, evasion, or authorization-bypass options.
 
-## Raw-socket and future-module boundary
+## Error model
 
-Raw sockets, `AF_PACKET`, `sendto()`, packet injection, TCP SYN scanning, UDP scanning, host discovery, service detection, operating-system fingerprinting, Lua scripting, evasion, adaptive congestion control, dashboards, and all other Phase 3+ behavior are deliberately absent. Phase 2 generates and parses bytes entirely offline. Later transmission code must be introduced above this layer and must not be hidden inside packet element serialization or validation.
+Discovery maps invalid IPv4 input to `InvalidArgument` and `INVALID_TARGET`, missing or rejecting authorization to `PermissionDenied` and `UNAUTHORIZED_TARGET`, transport I/O failure to `IoError` and `SOCKET_FAILURE`, parser rejection to `ParseError` and `MALFORMED_RESPONSE`, timer or internal construction failures to `InternalError`, and late responses to `NotFound` without corrupting state. One target failure is recorded and does not terminate unrelated queued work.
+
+## Platform and network boundary
+
+Phase 3 is Linux-first because Phase 1 uses Linux `epoll`, and any future ARP transport would require Linux interface capabilities. Current tests and the CLI do not require network privileges, external hosts, or public Internet access.
+
+The repository contains no packet transmission, `AF_PACKET`, raw-socket send path, `sendto()`, TCP connect scanner, port enumeration, service detection, OS fingerprinting, Lua, evasion, dashboard, or other Phase 4+ functionality. Network transport must be added later above the explicit `DiscoveryTransport` and `AuthorizationGate` boundaries.
 
 ## Module status
 
@@ -125,13 +167,13 @@ Raw sockets, `AF_PACKET`, `sendto()`, packet injection, TCP SYN scanning, UDP sc
 | Core | Shared value types, constants, status handling, and common utilities | Implemented in Phase 0 |
 | I/O Engine | Linux epoll event dispatch, timers, and descriptor operations | Implemented in Phase 1 |
 | Packet Layer | Ethernet, IPv4, TCP, UDP, ICMP representation, composition, checksums, serialization, and parsing | Implemented in Phase 2 |
+| Host Discovery | Authorized, bounded, asynchronous ICMP/TCP/ARP probe scheduling and response aggregation | Implemented in Phase 3 |
 | Scan Engine | Scan-job coordination and lifecycle management | Planned |
-| Discovery | Host and network discovery workflows | Planned |
 | Port Scanning | Port-state probing and result collection | Planned |
 | Detection | Service and operating-system detection | Planned |
 | Data Layer | Persistence and serialization of scan results | Planned |
 | Lua Scripting | Optional user-defined scripting extensions | Planned |
-| Output | Human-readable and machine-readable result formats | Planned |
+| Output | Human-readable and machine-readable result formats | Phase 3 result formatting only |
 | Evasion | Future traffic and timing controls | Planned |
-| CLI | Command parsing beyond the Phase 0 bootstrap | Phase 0 shell only |
+| CLI | Version/help bootstrap and minimal discovery exercise | Phase 3 minimal integration |
 | Dashboard | Future TypeScript/React visualization and management interface | Planned |
