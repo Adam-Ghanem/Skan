@@ -1,0 +1,18 @@
+build/
+bin/
+*.o
+*.a
+*.so
+*.d
+compile_commands.json
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating-system files
+.DS_Store
+Thumbs.db
