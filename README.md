@@ -4,23 +4,29 @@ Skan is an original, modular network scanning platform under development. It is 
 
 ## Project goals
 
-Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, I/O engine, scan engine, packet layer, discovery, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. Networking and scanning behavior are deliberately outside the current phase.
+Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, I/O engine, scan engine, packet layer, discovery, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides infrastructure only; network scanning behavior remains outside the completed phases.
 
 ## Language strategy
 
-The primary implementation language is **C++20**. C11 is reserved for selected low-level or system-facing primitives where a C boundary provides a real benefit. The Phase 0 repository includes a small C status API to demonstrate that boundary without introducing networking code. Lua 5.4 is planned for a future scripting layer, and TypeScript/React is planned for a future dashboard.
+The primary implementation language is **C++20**. C11 is reserved for selected low-level or system-facing primitives where a C boundary provides a real benefit. The repository includes a small C status API to demonstrate that boundary without introducing networking code. Lua 5.4 is planned for a future scripting layer, and TypeScript/React is planned for a future dashboard.
 
-Skan targets Linux. Future system integrations may use Linux APIs such as sockets, raw sockets, and `epoll`, but none of those are implemented in Phase 0.
+Skan targets Linux. Phase 1 uses the Linux `epoll` API as its I/O backend. Future backends such as BSD `kqueue` or Windows IOCP are not implemented.
 
-## Current status
+## Development status
 
-The project is in **Phase 0 — Foundation**. Implemented work includes the C++20 build system, foundational types, constants, status/error handling, logging, CLI bootstrap, C compatibility boundary, unit-test infrastructure, and project documentation.
+| Phase | Status |
+| --- | --- |
+| Phase 0 — Foundation | **COMPLETE** |
+| Phase 1 — I/O Engine | **COMPLETE** |
+| Phase 2 and later | Planned |
 
-No scanning, networking, packet crafting, discovery, service detection, fingerprinting, scripting engine, evasion, or dashboard functionality exists yet.
+Phase 1 adds a single-thread-affine asynchronous I/O engine with logical read, write, error, and hangup events; add/modify/remove operations; bounded `run_once()` and continuous `run()` modes; monotonic one-shot timers; cancellation; nonblocking file-descriptor support; callback lifecycle protection; and RAII cleanup of the epoll descriptor.
+
+No TCP, UDP, ICMP, ARP, host-discovery, packet-crafting, service-detection, operating-system-fingerprinting, Lua, evasion, database, or dashboard functionality has been implemented.
 
 ## Requirements
 
-A Linux environment with GNU Make, GCC, and G++ is required. Normal builds use `-O2`; debug builds use `-g -O0`. The Makefile can be adapted to Clang with command-line compiler overrides.
+A Linux environment with GNU Make, GCC, and G++ is required. Normal builds use C++20 and `-O2`; debug builds use `-g -O0`. The Phase 1 backend requires Linux epoll.
 
 ## Build
 
@@ -30,7 +36,7 @@ Build the executable with:
 make
 ```
 
-The executable is written to `bin/skan`. Object files and dependency files are written below `build/`; generated files are not placed in `src/`.
+The executable is written to `bin/skan`. Object files, dependency files, and test binaries are written below `build/`; generated files are not placed in `src/`.
 
 For a debug build, use:
 
@@ -40,24 +46,24 @@ make debug
 
 ## Tests
 
-Compile and execute the Phase 0 unit tests with:
+Compile and execute all Phase 0 and Phase 1 unit tests with:
 
 ```sh
 make test
 ```
 
-The tests cover C++ status conversion, the C status boundary, version and protocol constants, and basic `Host`, `Port`, `Target`, and `ScanResult` construction and invariants.
+Tests use local pipes and the monotonic clock. They cover event construction and masks, callback invocation, registration state, readable and writable readiness, hangup handling, add/modify/remove, callback self-removal, removing another event, stop behavior, timer expiration, deadline handling, cancellation, multiple same-deadline timers, zero-duration timers, and empty queues.
 
 ## CLI usage
 
-The only supported commands are:
+The CLI remains the Phase 0 bootstrap. The only supported commands are:
 
 ```sh
 ./bin/skan --version
 ./bin/skan --help
 ```
 
-`--version` prints `Skan 0.1.0`. `--help` prints the current Phase 0 status and the available options. Unknown or missing arguments print a clear error and return a non-zero status.
+`--version` prints `Skan 0.1.0`. `--help` prints the current status and available options. Unknown or missing arguments print a clear error and return a non-zero status.
 
 ## License
 
