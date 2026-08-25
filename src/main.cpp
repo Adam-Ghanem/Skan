@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <algorithm>
 #include <string>
@@ -16,6 +17,8 @@
 #include "detect/service_detector.hpp"
 #include "discovery/discovery.hpp"
 #include "osdetect/os_probe.hpp"
+#include "output/output_manager.hpp"
+#include "output/result_model.hpp"
 #include "portscan/portscan.hpp"
 #include "scanengine/timing_profile.hpp"
 
@@ -49,6 +52,8 @@ void print_help()
               << "  --service-db <path>    Use a project-owned service probe database\n"
               << "  --max-response-bytes <n> Bound service response bytes\n"
               << "  --max-probes <n>       Bound probes per OPEN port\n"
+              << "  --output <format>      normal, json, xml, or grepable\n"
+              << "  -o, --output-file <path> Write serialized output to a file (replace)\n"
               << "  --os-db <path>         Use a project-owned OS fingerprint database\n"
               << "  --json                 Emit structured output for os-detect\n\n"
               << "Status:\n"
@@ -239,6 +244,8 @@ int run_scan(int argc, char **argv)
     bool service_detect = false;
     std::string service_database_path;
     skan::detect::ServiceDetectionConfig service_config;
+    skan::output::OutputFormat output_format = skan::output::OutputFormat::Normal;
+    std::string output_file_path;
     bool adaptive_timing = false;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
@@ -298,6 +305,17 @@ int run_scan(int argc, char **argv)
                 config.timing_profile.max_retries = static_cast<std::size_t>(value);
             }
             adaptive_timing = true;
+        } else if (argument == "--output" && index + 1 < argc) {
+            if (skan::output::parse_output_format(argv[++index], output_format) != skan::output::OutputStatus::Ok) {
+                std::cerr << "Error: output format must be normal, json, xml, or grepable.\n";
+                return EXIT_FAILURE;
+            }
+        } else if ((argument == "-o" || argument == "--output-file") && index + 1 < argc) {
+            output_file_path = argv[++index];
+            if (output_file_path.empty()) {
+                std::cerr << "Error: output file path cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
         } else if (argument == "--service-detect") {
             service_detect = true;
         } else if (argument == "--service-db" && index + 1 < argc) {
@@ -354,6 +372,7 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: unable to initialize the asynchronous I/O engine.\n";
         return EXIT_FAILURE;
     }
+    const auto scan_started = std::chrono::steady_clock::now();
     skan::portscan::TcpConnectTransport transport(io_engine);
     skan::portscan::PortScanScheduler scanner(
         io_engine,
@@ -370,17 +389,7 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: scan engine failed: " << skan::core::status_to_string(run_status) << '\n';
         return EXIT_FAILURE;
     }
-    for (const skan::portscan::PortResult &result : scanner.results()) {
-        std::cout << result.target << ':' << result.port.number << '/'
-                  << skan::portscan::protocol_name(result.port.protocol)
-                  << " state=" << skan::portscan::port_state_name(result.state)
-                  << " probe=" << skan::portscan::scan_probe_type_name(result.probe)
-                  << " reason=" << skan::portscan::scan_reason_name(result.reason);
-        if (result.rtt_ms.has_value()) {
-            std::cout << " rtt_ms=" << *result.rtt_ms;
-        }
-        std::cout << '\n';
-    }
+    std::vector<skan::detect::ServiceResult> service_results;
     if (service_detect) {
         service_config.timeout = config.timeout;
         skan::core::StatusCode database_status = skan::core::StatusCode::Ok;
@@ -414,23 +423,41 @@ int run_scan(int argc, char **argv)
                       << skan::core::status_to_string(detection_run) << '\n';
             return EXIT_FAILURE;
         }
-        for (const skan::detect::ServiceResult &result : detector.results()) {
-            std::cout << result.target << ':' << result.port.number << '/'
-                      << skan::portscan::protocol_name(result.protocol)
-                      << " port_state=" << skan::portscan::port_state_name(result.port_state)
-                      << " state=" << skan::detect::detection_state_name(result.state)
-                      << " service=" << (result.service.empty() ? "unknown" : result.service)
-                      << " product=" << (result.product.empty() ? "unknown" : result.product)
-                      << " version=" << (result.version.empty() ? "unknown" : result.version)
-                      << " method=" << skan::detect::detection_method_name(result.method)
-                      << " probe=" << result.probe_name
-                      << " confidence=" << result.confidence
-                      << " error=" << skan::detect::detection_error_name(result.error);
-            if (result.rtt_ms.has_value()) {
-                std::cout << " rtt_ms=" << *result.rtt_ms;
-            }
-            std::cout << '\n';
+        service_results = detector.results();
+    }
+    skan::output::ScanReport report;
+    report.target_spec = target_address;
+    if (adaptive_timing) {
+        report.timing_profile = config.timing_profile.id;
+    }
+    if (scanner.timing_controller() != nullptr) {
+        report.timing_metrics = scanner.timing_controller()->metrics();
+    }
+    report.duration_ms = std::chrono::duration<double, std::milli>(
+                             std::chrono::steady_clock::now() - scan_started)
+                             .count();
+    skan::output::HostResult host;
+    host.address = target_address;
+    host.ports = scanner.results();
+    host.services = std::move(service_results);
+    report.hosts.push_back(std::move(host));
+
+    std::ofstream output_file;
+    std::ostream *serialized_output = &std::cout;
+    if (!output_file_path.empty()) {
+        output_file.open(output_file_path, std::ios::out | std::ios::trunc);
+        if (!output_file.is_open()) {
+            std::cerr << "Error: unable to open output file: " << output_file_path << '\n';
+            return EXIT_FAILURE;
         }
+        serialized_output = &output_file;
+    }
+    const skan::output::OutputStatus output_status = skan::output::OutputManager::write(
+        output_format, report, *serialized_output);
+    if (output_status != skan::output::OutputStatus::Ok) {
+        std::cerr << "Error: unable to serialize scan report: "
+                  << skan::output::output_status_name(output_status) << '\n';
+        return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
 }

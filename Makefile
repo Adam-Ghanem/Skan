@@ -23,6 +23,14 @@ CPP_SOURCES := \
 		src/scanengine/scan_group.cpp \
 		src/scanengine/adaptive_scheduler.cpp \
 				src/scanengine/scan_engine.cpp \
+		src/output/result_model.cpp \
+		src/output/output_writer.cpp \
+		src/output/output_context.cpp \
+		src/output/output_normal.cpp \
+		src/output/output_json.cpp \
+		src/output/output_xml.cpp \
+		src/output/output_grepable.cpp \
+		src/output/output_manager.cpp \
 	src/packet/packet_element.cpp \
 	src/packet/packet.cpp \
 	src/packet/ethernet.cpp \
@@ -72,7 +80,13 @@ IO_OBJECTS := $(BUILD_DIR)/io/event.o $(BUILD_DIR)/io/io_engine.o $(BUILD_DIR)/i
 SCANENGINE_OBJECTS := $(BUILD_DIR)/scanengine/timing_profile.o $(BUILD_DIR)/scanengine/rtt_estimator.o \
 	$(BUILD_DIR)/scanengine/congestion.o $(BUILD_DIR)/scanengine/scan_metrics.o \
 	$(BUILD_DIR)/scanengine/scan_group.o $(BUILD_DIR)/scanengine/adaptive_scheduler.o \
-	$(BUILD_DIR)/scanengine/scan_engine.o
+			$(BUILD_DIR)/scanengine/scan_engine.o
+OUTPUT_OBJECTS := $(BUILD_DIR)/output/result_model.o $(BUILD_DIR)/output/output_writer.o \
+	$(BUILD_DIR)/output/output_context.o \
+	$(BUILD_DIR)/output/output_normal.o $(BUILD_DIR)/output/output_json.o \
+	$(BUILD_DIR)/output/output_xml.o $(BUILD_DIR)/output/output_grepable.o \
+	$(BUILD_DIR)/output/output_manager.o
+
 PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packet.o \
 	$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/tcp.o \
 	$(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/icmp.o $(BUILD_DIR)/packet/checksum.o
@@ -130,7 +144,15 @@ TEST_SOURCES := \
 		tests/unit/scanengine/test_scan_group.cpp \
 		tests/unit/scanengine/test_adaptive_scheduler.cpp \
 		tests/unit/scanengine/test_scan_engine.cpp \
-		tests/integration/scanengine/test_scan_engine_io.cpp
+		tests/integration/scanengine/test_scan_engine_io.cpp \
+		tests/unit/output/test_result_model.cpp \
+		tests/unit/output/test_output_context.cpp \
+		tests/unit/output/test_output_normal.cpp \
+		tests/unit/output/test_output_json.cpp \
+		tests/unit/output/test_output_xml.cpp \
+		tests/unit/output/test_output_grepable.cpp \
+		tests/unit/output/test_output_manager.cpp \
+		tests/integration/output/test_output_integration.cpp
 
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
@@ -175,7 +197,15 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_scan_group \
 				$(BUILD_DIR)/test_adaptive_scheduler \
 				$(BUILD_DIR)/test_scan_engine \
-				$(BUILD_DIR)/test_scan_engine_io
+				$(BUILD_DIR)/test_scan_engine_io \
+		$(BUILD_DIR)/test_result_model \
+		$(BUILD_DIR)/test_output_context \
+		$(BUILD_DIR)/test_output_normal \
+		$(BUILD_DIR)/test_output_json \
+		$(BUILD_DIR)/test_output_xml \
+		$(BUILD_DIR)/test_output_grepable \
+		$(BUILD_DIR)/test_output_manager \
+		$(BUILD_DIR)/test_output_integration
 
 .PHONY: all debug test clean
 
@@ -293,6 +323,9 @@ $(BUILD_DIR)/test_os_detection_injected: $(BUILD_DIR)/tests/integration/osdetect
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 SCANENGINE_TEST_OBJECTS := $(SCANENGINE_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
+OUTPUT_TEST_OBJECTS := $(OUTPUT_OBJECTS) $(DB_OBJECTS) $(OSDETECT_OBJECTS) $(DETECT_OBJECTS) \
+	$(PORTSCAN_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(SCANENGINE_OBJECTS) \
+	$(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
 
 $(BUILD_DIR)/test_timing_profile: $(BUILD_DIR)/tests/unit/scanengine/test_timing_profile.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
@@ -316,6 +349,30 @@ $(BUILD_DIR)/test_scan_engine: $(BUILD_DIR)/tests/unit/scanengine/test_scan_engi
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_scan_engine_io: $(BUILD_DIR)/tests/integration/scanengine/test_scan_engine_io.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_result_model: $(BUILD_DIR)/tests/unit/output/test_result_model.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_output_context: $(BUILD_DIR)/tests/unit/output/test_output_context.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_output_normal: $(BUILD_DIR)/tests/unit/output/test_output_normal.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_output_json: $(BUILD_DIR)/tests/unit/output/test_output_json.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_output_xml: $(BUILD_DIR)/tests/unit/output/test_output_xml.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_output_grepable: $(BUILD_DIR)/tests/unit/output/test_output_grepable.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_output_manager: $(BUILD_DIR)/tests/unit/output/test_output_manager.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_output_integration: $(BUILD_DIR)/tests/integration/output/test_output_integration.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/%.o: src/%.cpp
@@ -385,6 +442,14 @@ test: $(TEST_BINARIES)
 			./$(BUILD_DIR)/test_adaptive_scheduler
 			./$(BUILD_DIR)/test_scan_engine
 			./$(BUILD_DIR)/test_scan_engine_io
+		./$(BUILD_DIR)/test_result_model
+		./$(BUILD_DIR)/test_output_context
+		./$(BUILD_DIR)/test_output_normal
+		./$(BUILD_DIR)/test_output_json
+		./$(BUILD_DIR)/test_output_xml
+		./$(BUILD_DIR)/test_output_grepable
+		./$(BUILD_DIR)/test_output_manager
+		./$(BUILD_DIR)/test_output_integration
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

@@ -71,6 +71,8 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 **Phase 7 — Adaptive Timing + Scan Engine** is complete for the reusable offline and opt-in scheduler scope described below.
 
+**Phase 8 — Output + Result Serialization** is complete for the pure presentation scope described below.
+
 ## Target integration
 
 Phase 3 reuses `core::Target` and `core::Host` exactly as defined by Phase 0. The discovery scheduler accepts a target whose `resolved_hosts` have already been supplied by the caller. It does not introduce a second target parser, resolver, CIDR expander, or range syntax. Each supplied host is validated as a dotted-decimal IPv4 address before probe construction.
@@ -245,6 +247,28 @@ The existing Phase 4, Phase 5, and Phase 6 schedulers expose an opt-in `adaptive
 
 Phase 7 validation is offline and covers profile validation, RTT equations and bounds, congestion backoff/recovery, state transitions, independent groups, duplicate/late responses, cancellation, retries, shared timers, Phase 4 adaptive integration, and a 1000-item stress group capped at 16 outstanding items. The layer adds no raw packet transport, UDP scanning, public traffic, evasion, exploitation, credentials, or persistence.
 
+## Phase 8 output and result serialization
+
+Phase 8 is a pure presentation layer. It receives an already-computed `output::ScanReport` and performs no scanning, probing, packet construction, detection, scheduling, timing, or network I/O.
+
+```text
+Phase 3–7 structured results
+            ↓
+      output::ScanReport
+            ↓
+       OutputManager
+       ↙    ↓    ↓    ↘
+  Normal  JSON  XML  Grepable
+```
+
+`ScanReport` is the single canonical model. It contains scanner metadata, optional timestamps/duration/target specification, optional Phase 7 timing profile and `ScanMetrics`, typed `HostResult` values, and top-level warnings/errors. Each `HostResult` contains discovery state, optional hostname/RTT, existing `PortResult` values, existing `ServiceResult` values, ranked existing `OSMatchResult` values, and host-local warnings/errors. No writer defines a second result model or reconstructs data from another writer.
+
+`calculate_summary()` derives host, port, service, and OS counts from the vectors at serialization time. Optional values remain absent, while empty strings, zero values, false values, unknown states, and empty match arrays retain their distinct meanings. `validate_report()` rejects invalid required identifiers, non-finite or out-of-range confidence, negative durations/RTTs, and invalid timing drop rates through `OutputStatus::InvalidReport`.
+
+All writers implement `OutputWriter` and stream directly to a caller-owned `std::ostream`. `OutputManager` only selects the writer. Hosts sort by canonical address, ports by number and protocol, services by associated port, and OS matches by descending confidence then ascending name. JSON preserves UTF-8 bytes and escapes quotes, backslashes, controls, and newlines. XML escapes attributes/text and sanitizes disallowed controls. Grepable output uses one fixed-field record per line and backslash-escapes quoted values; no machine format emits terminal color codes.
+
+The CLI defaults to `normal` and accepts `--output normal|json|xml|grepable`, `-o <file>`, and `--output-file <file>`. Explicit file output uses RAII and the documented deterministic replace/truncate policy. Serialized output goes to stdout unless a file is selected; operational logs, warnings, and errors go to stderr. Output selection does not add scan logic or alter target/port scope.
+
 ## Correlation and response lifecycle
 
 Each outbound submission contains a monotonically assigned `ProbeId`, target address, probe type, serialized packet, and protocol-specific correlation metadata. The scheduler stores the sent monotonic timestamp and deadline in its pending entry.
@@ -279,20 +303,21 @@ The public discovery, port-scan, service-detection, and OS-detection APIs accept
 
 ## CLI boundary
 
-The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 4 adds the scoped TCP scan, Phase 5 adds opt-in service detection, and Phase 6 adds the capability-honest OS detection command:
+The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 4 adds the scoped TCP scan, Phase 5 adds opt-in service detection, Phase 6 adds the capability-honest OS detection command, and Phase 8 adds pure result-format selection for `scan`:
 
 ```text
   skan scan <ipv4-address> [--tcp-ports <single,list,range>]
           [--method <connect|syn>] [--timeout-ms <ms>]
           [--max-outstanding <n>] [--service-detect]
           [--service-db <path>] [--max-response-bytes <n>]
-          [--max-probes <n>]
+          [--max-probes <n>] [--output <normal|json|xml|grepable>]
+          [-o|--output-file <path>]
   skan os-detect <ipv4-address> [--os-db <path>]
           [--timeout-ms <ms>] [--max-outstanding <n>] [--json]
 
 ```
 
-The scan command validates explicit IPv4 targets before running. `scan --method connect` uses real nonblocking stream sockets. `scan --method syn` exits with a capability-unavailable error in this build; synthetic SYN behavior is covered through the library transport seam. `--service-detect` runs only after the scan and only for OPEN TCP results. `os-detect` loads the project-owned database and then reports live capability unavailability in this build; its `--json` form emits structured unavailable state with empty matches and confidence `0`. There is no live UDP scanner, evasion, or range-expansion option.
+The scan command validates explicit IPv4 targets before running. `scan --method connect` uses real nonblocking stream sockets. `scan --method syn` exits with a capability-unavailable error in this build; synthetic SYN behavior is covered through the library transport seam. `--service-detect` runs only after the scan and only for OPEN TCP results. `os-detect` loads the project-owned database and then reports live capability unavailability in this build; its `--json` form emits structured unavailable state with empty matches and confidence `0`. Phase 8 output defaults to Normal, accepts `normal`, `json`, `xml`, and `grepable`, and supports explicit RAII file replacement through `-o`/`--output-file`. Serialized stdout is kept separate from stderr diagnostics. There is no live UDP scanner, evasion, or range-expansion option.
 
 ## Error model
 
@@ -318,7 +343,7 @@ The repository contains no packet transmission, `AF_PACKET`, raw-socket send pat
 | OS Detection | Typed evidence collection, bounded injected scheduling, reduced fingerprint database, and weighted matching | Phase 6 complete for synthetic/injected scope; live raw transport unavailable |
 | Data Layer | Project-owned service and OS fingerprint databases plus future persistence and serialization | Phase 5/6 compact datasets implemented; persistence planned |
 | Lua Scripting | Optional user-defined scripting extensions | Planned |
-| Output | Human-readable and machine-readable result formats | Phase 3 result formatting only |
+| Output | Pure Normal, JSON, XML, and grepable serialization of canonical reports | Phase 8 implemented |
 | Evasion | Future traffic and timing controls | Planned |
-| CLI | Version/help bootstrap, discovery exercise, scoped TCP scan, opt-in service detection, and capability-honest os-detect | Phase 6 minimal integration complete |
+| CLI | Version/help bootstrap, discovery exercise, scoped TCP scan, opt-in service detection, capability-honest os-detect, and output selection/file output | Phase 8 integration complete |
 | Dashboard | Future TypeScript/React visualization and management interface | Planned |

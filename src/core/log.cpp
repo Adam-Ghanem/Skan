@@ -44,7 +44,7 @@ void write(Level level, std::string_view message)
 {
     static std::mutex log_mutex;
     const std::lock_guard<std::mutex> lock(log_mutex);
-    std::ostream &stream = (level == Level::Warn || level == Level::Error) ? std::cerr : std::cout;
+    std::ostream &stream = std::cerr;
 
     stream << '[' << timestamp() << "] [" << level_name(level) << "] " << message << '\n';
 }
