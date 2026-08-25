@@ -26,6 +26,7 @@
 #include "net/network_scan_transport.hpp"
 #include "orchestrator/scan_orchestrator.hpp"
 #include "portscan/portscan.hpp"
+#include "portscan/udp_scan.hpp"
 #include "scanengine/timing_profile.hpp"
 #include "target/target_engine.hpp"
 
@@ -51,9 +52,14 @@ void print_help()
               << "  --tcp-port <port>      Set the explicit TCP discovery port\n"
               << "  --timeout-ms <ms>      Set the asynchronous probe timeout\n"
               << "  --tcp-ports <spec>     TCP ports: single, list, or range\n"
-              << "  --method <connect|syn> TCP Connect or capability-gated SYN\n"
+              << "  --udp                  Run the explicit bounded UDP scan mode\n"
+              << "  --udp-ports <spec>     UDP ports: single, list, or range\n"
+              << "  --method <connect|syn> TCP Connect or capability-gated SYN (not with --udp)\n"
               << "  --transport <mode>     offline or explicit Linux raw-packet transport\n"
-              << "  --max-outstanding <n>  Bound concurrent port probes\n"
+              << "  --max-outstanding <n>  Bound concurrent TCP probes\n"
+              << "  --udp-max-outstanding <n> Bound concurrent UDP probes (default 64)\n"
+              << "  --udp-timeout-ms <ms>  Bound UDP response timeout (default 1500)\n"
+              << "  --udp-retries <n>      Bound UDP timeout retries (default 1)\n"
               << "  --timing <T0..T5>      Select adaptive Skan timing profile\n"
               << "  --min-parallelism <n>  Set adaptive minimum parallelism\n"
               << "  --max-parallelism <n>  Set adaptive maximum parallelism\n"
@@ -85,14 +91,16 @@ void print_help()
               << "  Phase 10 — Real Network Integration\n"
               << "  Phase 11 — Unified Scan Orchestrator\n"
               << "  Phase 12 — Target Resolution and Target Engine\n"
+              << "  Phase 13 — Bounded UDP Scan Engine\n"
               << "\nTarget specifications accept IPv4, CIDR, inclusive ranges, hostnames, and comma-separated mixtures.\n"
               << "The resolve command normalizes targets without scanning; use --max-targets to bound expansion.\n"
               << "Discovery CLI mode uses an offline recording transport.\n"
               << "Scan Connect mode uses normal nonblocking TCP sockets unless --transport offline is selected.\n"
               << "Scan SYN mode requires explicit --transport offline or --transport linux --interface <name>.\n"
-              << "The scan pipeline runs Discovery, Port, Service, OS, and Output stages sequentially.\n"
+              << "The scan pipeline runs Discovery, TCP Port, UDP (when --udp), Service, OS, and Output stages sequentially.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
               << "OS fingerprinting is an offline/injected architecture; live raw-packet transport is unavailable.\n"
+              << "UDP timeout is OPEN_OR_FILTERED; UDP service/OS inference is not fabricated.\n"
               << "Linux raw-packet failures are reported; Skan never silently falls back or fabricates results.\n";
 }
 
@@ -488,11 +496,28 @@ int run_scan(int argc, char **argv)
     const std::string target_specification = argv[2];
     skan::target::TargetLimits target_limits;
     bool explicit_ports = false;
+    bool explicit_method = false;
     bool adaptive_timing = false;
     std::string transport_mode;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
-        if (argument == "--tcp-ports" && index + 1 < argc) {
+        if (argument == "--udp") {
+            config.udp_enabled = true;
+            config.port_scan_enabled = false;
+        } else if (argument == "--udp-ports" && index + 1 < argc) {
+            const skan::portscan::PortSelection selection =
+                skan::portscan::parse_udp_ports(argv[++index]);
+            if (selection.status != skan::core::StatusCode::Ok) {
+                std::cerr << "Error: invalid UDP port selection.\n";
+                return EXIT_FAILURE;
+            }
+            config.udp_ports.clear();
+            for (const skan::portscan::Port &port : selection.ports) {
+                config.udp_ports.push_back(port.number);
+            }
+            config.udp_enabled = true;
+            config.port_scan_enabled = false;
+        } else if (argument == "--tcp-ports" && index + 1 < argc) {
             const skan::portscan::PortSelection selection =
                 skan::portscan::parse_tcp_ports(argv[++index]);
             if (selection.status != skan::core::StatusCode::Ok) {
@@ -514,6 +539,7 @@ int run_scan(int argc, char **argv)
                 std::cerr << "Error: method must be connect or syn.\n";
                 return EXIT_FAILURE;
             }
+            explicit_method = true;
         } else if (argument == "--timeout-ms" && index + 1 < argc) {
             unsigned int timeout = 0U;
             if (!parse_unsigned(argv[++index], timeout) || timeout == 0U) {
@@ -521,6 +547,13 @@ int run_scan(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             config.timeout = std::chrono::milliseconds{timeout};
+        } else if (argument == "--udp-timeout-ms" && index + 1 < argc) {
+            unsigned int timeout = 0U;
+            if (!parse_unsigned(argv[++index], timeout) || timeout == 0U) {
+                std::cerr << "Error: invalid UDP timeout.\n";
+                return EXIT_FAILURE;
+            }
+            config.udp_timeout = std::chrono::milliseconds{timeout};
         } else if (argument == "--max-outstanding" && index + 1 < argc) {
             unsigned int value = 0U;
             if (!parse_unsigned(argv[++index], value) || value == 0U) {
@@ -528,6 +561,20 @@ int run_scan(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             config.max_parallelism = static_cast<std::size_t>(value);
+        } else if (argument == "--udp-max-outstanding" && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
+                std::cerr << "Error: invalid UDP max outstanding value.\n";
+                return EXIT_FAILURE;
+            }
+            config.udp_max_outstanding = static_cast<std::size_t>(value);
+        } else if (argument == "--udp-retries" && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value)) {
+                std::cerr << "Error: invalid UDP retries value.\n";
+                return EXIT_FAILURE;
+            }
+            config.udp_retries = static_cast<std::size_t>(value);
         } else if (argument == "--timing" && index + 1 < argc) {
             if (skan::scanengine::TimingProfile::parse(argv[++index], config.timing_profile) !=
                 skan::core::StatusCode::Ok) {
@@ -643,14 +690,22 @@ int run_scan(int argc, char **argv)
     } else {
         config.transport = skan::orchestrator::ScanTransport::Connect;
     }
+    if (config.udp_enabled && explicit_method) {
+        std::cerr << "Error: --udp cannot be combined with --method connect or --method syn; use --udp-ports instead.\n";
+        return EXIT_FAILURE;
+    }
+    if (config.udp_enabled && transport_mode.empty()) {
+        std::cerr << "Error: --udp requires an explicit --transport offline or --transport linux --interface <name>.\n";
+        return EXIT_FAILURE;
+    }
     if (config.port_method == skan::portscan::ScanProbeType::TcpSyn && transport_mode.empty()) {
         std::cerr << "Error: TCP SYN requires an explicit --transport linux --interface <name> or --transport offline; "
                      "no raw transport is selected implicitly.\n";
         return EXIT_FAILURE;
     }
-    if (config.transport == skan::orchestrator::ScanTransport::Linux &&
+    if (config.transport == skan::orchestrator::ScanTransport::Linux && !config.udp_enabled &&
         config.port_method != skan::portscan::ScanProbeType::TcpSyn) {
-        std::cerr << "Error: the linux packet transport is only available for --method syn; Connect mode uses normal TCP sockets.\n";
+        std::cerr << "Error: the linux packet transport is only available for TCP --method syn; Connect mode uses normal TCP sockets.\n";
         return EXIT_FAILURE;
     }
     if (config.transport == skan::orchestrator::ScanTransport::Linux && !config.interface_name.has_value()) {

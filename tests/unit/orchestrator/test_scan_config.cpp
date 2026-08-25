@@ -55,6 +55,17 @@ int main()
     assert(invalid.validate() == skan::core::StatusCode::Ok);
 
     invalid = valid_config();
+    invalid.udp_enabled = true;
+    invalid.transport = skan::orchestrator::ScanTransport::Offline;
+    invalid.udp_ports = {53U, 161U};
+    assert(invalid.validate() == skan::core::StatusCode::Ok);
+    invalid.transport = skan::orchestrator::ScanTransport::Connect;
+    assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
+    invalid.transport = skan::orchestrator::ScanTransport::Offline;
+    invalid.udp_ports = {0U};
+    assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
+
+    invalid = valid_config();
     invalid.max_response_bytes = 0U;
     assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
     invalid = valid_config();

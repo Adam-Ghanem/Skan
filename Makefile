@@ -43,6 +43,7 @@ CPP_SOURCES := \
 		 src/net/linux_capture.cpp \
 	src/net/unique_fd.cpp \
 	src/net/network_scan_transport.cpp \
+					 src/net/udp_network_scan_transport.cpp \
 			 src/net/linux_discovery_transport.cpp \
 						src/packet/packet_element.cpp \
 		src/packet/packet.cpp \
@@ -65,6 +66,7 @@ CPP_SOURCES := \
 		src/portscan/tcp_connect.cpp \
 		src/portscan/tcp_syn.cpp \
 		src/portscan/port_scheduler.cpp \
+			src/portscan/udp_scan.cpp \
 		src/detect/service_types.cpp \
 		src/detect/service_db.cpp \
 		src/detect/service_matcher.cpp \
@@ -115,6 +117,7 @@ NET_OBJECTS := $(BUILD_DIR)/net/interface.o $(BUILD_DIR)/net/interface_types.o \
 	$(BUILD_DIR)/net/packet_receiver.o $(BUILD_DIR)/net/packet_filter.o \
 	$(BUILD_DIR)/net/linux_transport.o $(BUILD_DIR)/net/linux_capture.o \
 	$(BUILD_DIR)/net/unique_fd.o $(BUILD_DIR)/net/network_scan_transport.o \
+			$(BUILD_DIR)/net/udp_network_scan_transport.o \
 		$(BUILD_DIR)/net/linux_discovery_transport.o
 
 PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packet.o \
@@ -122,7 +125,8 @@ PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packe
 	$(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/icmp.o $(BUILD_DIR)/packet/checksum.o
 PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o \
 	$(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o \
-	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/port_scheduler.o
+	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/port_scheduler.o \
+		$(BUILD_DIR)/portscan/udp_scan.o
 DETECT_OBJECTS := $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/detect/service_db.o \
 	$(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/service_probe.o \
 		$(BUILD_DIR)/detect/service_scheduler.o $(BUILD_DIR)/detect/service_detector.o
@@ -159,6 +163,7 @@ TEST_SOURCES := \
 	tests/unit/portscan/test_port_types.cpp \
 	tests/unit/portscan/test_port_probe.cpp \
 	tests/unit/portscan/test_port_scheduler.cpp \
+		tests/unit/portscan/test_udp_scan.cpp \
 	tests/integration/portscan/test_portscan_local.cpp \
 	tests/unit/detect/test_service_types.cpp \
 	tests/unit/detect/test_service_db.cpp \
@@ -195,6 +200,7 @@ TEST_SOURCES := \
 			tests/unit/net/test_packet_filter.cpp \
 			tests/unit/net/test_linux_transport.cpp \
 		tests/unit/net/test_network_scan_transport.cpp \
+		tests/unit/net/test_udp_network_scan_transport.cpp \
 		tests/unit/net/test_linux_discovery_transport.cpp \
 				 tests/integration/net/test_linux_loopback.cpp \
 			tests/unit/orchestrator/test_scan_config.cpp \
@@ -234,6 +240,7 @@ TEST_BINARIES := \
 		$(BUILD_DIR)/test_port_types \
 		$(BUILD_DIR)/test_port_probe \
 		$(BUILD_DIR)/test_port_scheduler \
+			$(BUILD_DIR)/test_udp_scan \
 		$(BUILD_DIR)/test_portscan_local \
 		$(BUILD_DIR)/test_service_types \
 		$(BUILD_DIR)/test_service_db \
@@ -270,6 +277,7 @@ TEST_BINARIES := \
 			$(BUILD_DIR)/test_packet_filter \
 			$(BUILD_DIR)/test_linux_transport \
 			$(BUILD_DIR)/test_network_scan_transport \
+			$(BUILD_DIR)/test_udp_network_scan_transport \
 			$(BUILD_DIR)/test_linux_discovery_transport \
 				$(BUILD_DIR)/test_linux_loopback \
 			$(BUILD_DIR)/test_scan_config \
@@ -329,7 +337,7 @@ $(BUILD_DIR)/test_tcp: $(BUILD_DIR)/tests/unit/packet/test_tcp.o $(BUILD_DIR)/pa
 $(BUILD_DIR)/test_udp: $(BUILD_DIR)/tests/unit/packet/test_udp.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/checksum.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_icmp: $(BUILD_DIR)/tests/unit/packet/test_icmp.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/icmp.o $(BUILD_DIR)/packet/checksum.o $(CORE_OBJECTS) | $(BUILD_DIR)
+$(BUILD_DIR)/test_icmp: $(BUILD_DIR)/tests/unit/packet/test_icmp.o $(PACKET_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_checksum: $(BUILD_DIR)/tests/unit/packet/test_checksum.o $(BUILD_DIR)/packet/checksum.o | $(BUILD_DIR)
@@ -360,6 +368,8 @@ $(BUILD_DIR)/test_port_probe: $(BUILD_DIR)/tests/unit/portscan/test_port_probe.o
 $(BUILD_DIR)/test_port_scheduler: $(BUILD_DIR)/tests/unit/portscan/test_port_scheduler.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+$(BUILD_DIR)/test_udp_scan: $(BUILD_DIR)/tests/unit/portscan/test_udp_scan.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
 $(BUILD_DIR)/test_portscan_local: $(BUILD_DIR)/tests/integration/portscan/test_portscan_local.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
@@ -475,6 +485,8 @@ $(BUILD_DIR)/test_linux_transport: $(BUILD_DIR)/tests/unit/net/test_linux_transp
 
 $(BUILD_DIR)/test_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_network_scan_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
+$(BUILD_DIR)/test_udp_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_udp_network_scan_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_linux_discovery_transport: $(BUILD_DIR)/tests/unit/net/test_linux_discovery_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
@@ -589,6 +601,7 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_port_types
 	./$(BUILD_DIR)/test_port_probe
 	./$(BUILD_DIR)/test_port_scheduler
+	./$(BUILD_DIR)/test_udp_scan
 	./$(BUILD_DIR)/test_portscan_local
 	./$(BUILD_DIR)/test_service_types
 	./$(BUILD_DIR)/test_service_db
@@ -625,6 +638,7 @@ test: $(TEST_BINARIES)
 			./$(BUILD_DIR)/test_packet_filter
 			./$(BUILD_DIR)/test_linux_transport
 			./$(BUILD_DIR)/test_network_scan_transport
+			./$(BUILD_DIR)/test_udp_network_scan_transport
 			./$(BUILD_DIR)/test_linux_discovery_transport
 							./$(BUILD_DIR)/test_linux_loopback
 			./$(BUILD_DIR)/test_scan_config

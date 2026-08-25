@@ -71,7 +71,8 @@ std::vector<portscan::PortResult> ordered_ports(const HostResult &host, const Ou
         if (port.state == portscan::PortState::Closed && !context.include_closed_ports) {
             continue;
         }
-        if (port.state == portscan::PortState::Filtered && !context.include_filtered_ports) {
+        if ((port.state == portscan::PortState::Filtered || port.state == portscan::PortState::OpenOrFiltered) &&
+            !context.include_filtered_ports) {
             continue;
         }
         if (port.state == portscan::PortState::Unknown && !context.include_unknown) {

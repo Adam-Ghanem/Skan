@@ -28,6 +28,7 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 10 — Real Network Scan Integration | **COMPLETE** |
 | Phase 11 — Unified Scan Orchestrator and audit hardening | **COMPLETE** |
 | Phase 12 — Target Resolution and Target Engine | **COMPLETE** |
+| Phase 13 — Bounded UDP Scan Engine | **COMPLETE** |
 
 Phase 3 is deliberately scoped to normalized IPv4 targets. Phase 12 now owns strict target parsing, bounded IPv4 CIDR/range expansion, platform hostname-to-A resolution, deduplication, and numeric deterministic ordering before discovery or scanning begins. Its default transport remains a deterministic recording transport for offline tests and safe CLI exercises, while Phase 10 adds an explicit Linux transport option that requires an interface. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect for normalized IPv4 targets, and now supports capability-gated Linux SYN transmission only through `--transport linux --interface <name>`; no raw mode is selected implicitly. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 10 adds real ICMP/TCP/ARP discovery adapters under the same explicit interface boundary. No public Internet target is used by the test suite.
 
@@ -450,3 +451,69 @@ The default Phase 3 integration remains offline. Phase 4 and Phase 5 integration
 ## License
 
 The repository currently contains a `License: TBD` placeholder. No open-source license has been selected.
+
+
+## Phase 13 Bounded UDP Scanning
+
+Phase 13 adds a first-class, opt-in UDP scan stage. Existing TCP, discovery, service-detection, OS-detection, target-normalization, timing, and output behavior remains unchanged unless `--udp` is supplied. The UDP stage executes after discovery and TCP scanning, when those stages are enabled, and before TCP-only service detection, OS detection, and output serialization. UDP results are never passed to the TCP service detector, and no service identity is inferred from a UDP port number.
+
+The CLI requires an explicit transport for UDP scanning. The deterministic offline path is safe for tests and demonstrations, while the Linux path requires both `--transport linux` and an explicit `--interface`. Linux capability failures are reported; Skan never silently changes a requested Linux scan into an offline scan.
+
+```sh
+# Deterministic timeout classification with one UDP probe.
+./bin/skan scan 192.0.2.10 --udp --transport offline \
+  --udp-ports 53 --udp-timeout-ms 1500 --udp-retries 1 --output json
+
+# Use the ten-port project-owned default UDP set.
+./bin/skan scan 192.0.2.10 --udp --transport offline
+
+# Explicit Linux raw UDP mode; requires AF_PACKET capture/injection capability.
+./bin/skan scan 192.0.2.10 --udp --transport linux --interface eth0 \
+  --udp-ports 53,123,161
+```
+
+`--udp-ports` accepts a single port, a comma-separated list, or an inclusive range. Values are restricted to `1..65535`, sorted, and deduplicated. The project-owned default set is `{53, 67, 68, 69, 123, 137, 161, 162, 500, 514}`. UDP uses a default maximum of 64 outstanding probes, a 1500 ms timeout, and one bounded retry. These values are independently configured from the unchanged TCP defaults.
+
+| UDP evidence | Canonical state | Reason | Meaning |
+| --- | --- | --- | --- |
+| A validated UDP datagram from the target to the allocated source port | `OPEN` | `UDP_RESPONSE` | The target returned a correlated UDP response. |
+| A validated ICMPv4 Destination Unreachable with code 3 and an embedded matching IPv4/UDP probe | `CLOSED` | `ICMP_PORT_UNREACHABLE` | The target explicitly reported that the destination UDP port is closed. |
+| A validated administrative or network/host unreachable error with a matching embedded probe | `FILTERED` | `ICMP_ADMINISTRATIVELY_PROHIBITED` or `ICMP_NETWORK_UNREACHABLE` | The network supplied explicit filtering or reachability evidence. |
+| No validated response after the bounded retry policy | `OPEN_OR_FILTERED` | `UDP_TIMEOUT` | UDP silence cannot distinguish an open service from filtering. |
+| A correlated but malformed datagram/error or local transport failure | `ERROR` | Explicit malformed, socket, capability, or internal reason | The observation is not converted into a guessed port state. |
+
+Each probe uses the existing Phase 2 `packet::UDP` and `packet::Packet` composition paths. The scheduler uses the shared Phase 1 reactor and Phase 7 timing controller; it does not create threads, sleeps, polling loops, blocking receive loops, or a second reactor. Source ports are allocated deterministically from a bounded ephemeral range, are unique among outstanding probes, and are released on response, timeout, retry, cancellation, and teardown. Correlation checks the logical probe identifier where available and the local/destination IPv4 addresses, source/destination ports, and UDP protocol fields. Unrelated, late, and duplicate observations cannot mutate completed results.
+
+The runtime database `data/udp-probes.db` is Skan-owned and intentionally small. Its strict line-oriented records contain a unique probe name, destination port, protocol hint, maximum response size, and bounded hexadecimal payload. The current definitions cover minimal DNS, NTP, SNMP, NetBIOS, TFTP, IKE, and deterministic generic fallback probes. Malformed records, duplicate names or destination ports, invalid hexadecimal data, zero ports other than the single default record, and oversized payload/response limits are rejected. The database is not copied from or derived from Nmap data.
+
+| Transport | UDP status | Network activity |
+| --- | --- | --- |
+| Offline recording transport | Implemented and deterministic | None; responses are injected by tests or callers. |
+| Linux AF_PACKET transport | Implemented with capability gating | Sends Ethernet/IPv4/UDP frames and receives bounded Ethernet/IPv4/UDP/ICMP observations only when the selected interface and host policy permit it. |
+| TCP Connect transport | Rejected for UDP | UDP is not silently reinterpreted as a TCP stream or normal-connect scan. |
+
+UDP service identification and UDP OS fingerprinting are deliberately not implemented in this phase. IPv6, evasion, decoys, spoofing, fragmentation tricks, credentials, exploitation, Internet-wide scanning, and public-target traffic remain outside scope. UDP timeout is never reported as `CLOSED` or as `OPEN`; it is represented as `OPEN_OR_FILTERED` in every output format. JSON, XML, normal, and grepable writers preserve the UDP protocol, state, reason, probe name, retry count, and additive state counters.
+
+## Phase 13 Architecture
+
+The UDP execution path is:
+
+```text
+TargetEngine-normalized core::Target
+                    ↓
+             UdpScanStage
+                    ↓
+              UDPScheduler
+          ↙                     ↘
+RecordingUDPTransport     LinuxUDPScanTransport
+          ↓                     ↓
+  injected UDPResponse     LinuxTransport + LinuxCapture
+                                ↓
+                         PacketReceiver / ICMP parser
+                    ↓
+        shared IOEngine timers and event dispatch
+                    ↓
+        canonical PortResult and output report
+```
+
+The UDP transport is a sibling of the existing TCP raw adapter rather than a modification of TCP-specific submission or response contracts. It reuses the existing Linux transport, capture, packet receiver, interface selection, packet composition, and single-reactor lifecycle. Its protocol-specific correlation is kept in a bounded pending map keyed by the logical UDP probe identifier and verified against all wire-level correlation fields. The existing service stage receives only TCP `OPEN` results, and the OS stage filters merged results back to TCP before invoking the existing OS detector.

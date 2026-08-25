@@ -24,6 +24,8 @@ const char *stage_kind_name(StageKind stage) noexcept
         return "discovery";
     case StageKind::PortScan:
         return "port-scan";
+    case StageKind::UdpScan:
+        return "udp-scan";
     case StageKind::ServiceDetection:
         return "service-detection";
     case StageKind::OSDetection:
@@ -54,7 +56,11 @@ core::StatusCode ScanConfig::validate() const noexcept
     if (discovery_enabled && transport == ScanTransport::Connect) {
         return core::StatusCode::InvalidArgument;
     }
-    if (max_response_bytes == 0U || max_probes_per_port == 0U) {
+    if (udp_enabled && transport == ScanTransport::Connect) {
+        return core::StatusCode::InvalidArgument;
+    }
+    if (max_response_bytes == 0U || max_probes_per_port == 0U || udp_timeout.count() <= 0 ||
+        udp_max_outstanding == 0U) {
         return core::StatusCode::InvalidArgument;
     }
     if (transport != ScanTransport::Linux && interface_name.has_value()) {
@@ -80,6 +86,11 @@ core::StatusCode ScanConfig::validate() const noexcept
         }
     }
     for (const std::uint16_t port : ports) {
+        if (port == 0U) {
+            return core::StatusCode::InvalidArgument;
+        }
+    }
+    for (const std::uint16_t port : udp_ports) {
         if (port == 0U) {
             return core::StatusCode::InvalidArgument;
         }

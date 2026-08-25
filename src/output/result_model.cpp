@@ -84,6 +84,15 @@ ScanSummary calculate_summary(const ScanReport &report) noexcept
             case portscan::PortState::Unknown:
                 ++summary.unknown_ports;
                 break;
+            case portscan::PortState::OpenOrFiltered:
+                ++summary.open_or_filtered_ports;
+                break;
+            case portscan::PortState::Unfiltered:
+                ++summary.unfiltered_ports;
+                break;
+            case portscan::PortState::Error:
+                ++summary.error_ports;
+                break;
             }
         }
         for (const detect::ServiceResult &service : host.services) {

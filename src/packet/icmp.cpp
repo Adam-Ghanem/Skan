@@ -50,8 +50,8 @@ core::StatusCode ICMP::serialize(std::span<std::uint8_t> output) const noexcept
 
 bool ICMP::validate() const noexcept
 {
-    return (type_ == IcmpType::EchoRequest || type_ == IcmpType::EchoReply) &&
-           serialized_size() <= 65535U;
+    return (type_ == IcmpType::EchoRequest || type_ == IcmpType::EchoReply ||
+            type_ == IcmpType::DestinationUnreachable) && serialized_size() <= 65535U;
 }
 
 std::optional<ICMP> ICMP::parse(std::span<const std::uint8_t> input)
@@ -61,7 +61,8 @@ std::optional<ICMP> ICMP::parse(std::span<const std::uint8_t> input)
     }
     const std::uint8_t raw_type = input[0];
     if (raw_type != static_cast<std::uint8_t>(IcmpType::EchoRequest) &&
-        raw_type != static_cast<std::uint8_t>(IcmpType::EchoReply)) {
+        raw_type != static_cast<std::uint8_t>(IcmpType::EchoReply) &&
+        raw_type != static_cast<std::uint8_t>(IcmpType::DestinationUnreachable)) {
         return std::nullopt;
     }
 

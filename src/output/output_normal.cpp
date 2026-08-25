@@ -46,6 +46,10 @@ OutputStatus NormalOutputWriter::write(
             } else {
                 output << " rtt_ms=" << std::setprecision(15) << *port.rtt_ms;
             }
+            if (port.port.protocol == portscan::Protocol::Udp) {
+                output << " probe=" << detail::grep_escape(port.probe_name.value_or(""))
+                       << " retries=" << port.retry_count;
+            }
             for (const detect::ServiceResult &service : services) {
                 if (service.port.number != port.port.number || service.protocol != port.port.protocol) {
                     continue;
@@ -89,6 +93,9 @@ OutputStatus NormalOutputWriter::write(
            << " open=" << summary.open_ports
            << " closed=" << summary.closed_ports
            << " filtered=" << summary.filtered_ports
+           << " open_or_filtered=" << summary.open_or_filtered_ports
+           << " unfiltered=" << summary.unfiltered_ports
+           << " errors=" << summary.error_ports
            << " services=" << summary.services_detected
            << " os_matches=" << summary.os_matches << '\n';
     if (report.duration_ms.has_value()) {

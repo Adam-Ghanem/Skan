@@ -7,6 +7,9 @@
 
 #include "packet/checksum.hpp"
 #include "packet/icmp.hpp"
+#include "packet/packet.hpp"
+#include "packet/ipv4.hpp"
+#include "packet/udp.hpp"
 
 int main()
 {
@@ -36,6 +39,34 @@ int main()
     std::array<std::uint8_t, 12U> bad_checksum = expected;
     bad_checksum[2] ^= 0x01U;
     assert(!skan::packet::ICMP::parse(std::span<const std::uint8_t>{bad_checksum}).has_value());
+
+    skan::packet::UDP embedded_udp;
+    embedded_udp.set_source_port(40000U);
+    embedded_udp.set_destination_port(53U);
+    embedded_udp.set_payload({0x01U, 0x02U});
+    skan::packet::IPv4 embedded_ipv4;
+    embedded_ipv4.set_protocol(17U);
+    embedded_ipv4.set_source_address(0xC0000201U);
+    embedded_ipv4.set_destination_address(0xC000020AU);
+    skan::packet::Packet embedded_packet;
+    embedded_packet.set_ipv4(embedded_ipv4);
+    embedded_packet.set_udp(embedded_udp);
+    const std::vector<std::uint8_t> embedded_bytes = embedded_packet.serialize();
+    assert(embedded_bytes.size() == 30U);
+    skan::packet::ICMP unreachable(skan::packet::IcmpType::DestinationUnreachable);
+    unreachable.set_code(3U);
+    unreachable.set_payload(embedded_bytes);
+    const std::vector<std::uint8_t> unreachable_bytes = unreachable.serialize();
+    assert(unreachable.validate());
+    const auto parsed_unreachable = skan::packet::ICMP::parse(std::span<const std::uint8_t>{unreachable_bytes});
+    assert(parsed_unreachable.has_value());
+    assert(parsed_unreachable->type() == skan::packet::IcmpType::DestinationUnreachable);
+    assert(parsed_unreachable->code() == 3U);
+    assert(parsed_unreachable->payload() == embedded_bytes);
+    for (std::size_t length = 0U; length < unreachable_bytes.size(); ++length) {
+        assert(!skan::packet::ICMP::parse(
+                    std::span<const std::uint8_t>{unreachable_bytes}.first(length)).has_value());
+    }
 
     skan::packet::ICMP reply(skan::packet::IcmpType::EchoReply);
     assert(reply.validate());

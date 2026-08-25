@@ -37,6 +37,10 @@ private:
         const core::Target &target,
         std::vector<portscan::PortResult> &results,
         std::optional<scanengine::ScanMetrics> &metrics);
+    bool execute_udp_scan(
+        const core::Target &target,
+        std::vector<portscan::PortResult> &results,
+        std::optional<scanengine::ScanMetrics> &metrics);
     bool execute_service_detection(
         const std::vector<portscan::PortResult> &ports,
         std::vector<detect::ServiceResult> &results);
@@ -56,10 +60,12 @@ private:
     ScanSession session_;
     std::unique_ptr<DiscoveryStage> discovery_stage_;
     std::unique_ptr<PortScanStage> port_stage_;
+    std::unique_ptr<UdpScanStage> udp_stage_;
     std::unique_ptr<ServiceDetectionStage> service_stage_;
     std::unique_ptr<OSDetectionStage> os_stage_;
     std::vector<discovery::DiscoveryResult> discovery_results_;
     std::vector<portscan::PortResult> port_results_;
+    std::vector<portscan::PortResult> udp_results_;
     std::vector<detect::ServiceResult> service_results_;
     std::vector<OSReportEvidence> os_results_;
     std::vector<std::string> warnings_;

@@ -157,6 +157,43 @@ bool ScanPipeline::execute_port_scan(
     return true;
 }
 
+bool ScanPipeline::execute_udp_scan(
+    const core::Target &target,
+    std::vector<portscan::PortResult> &results,
+    std::optional<scanengine::ScanMetrics> &metrics)
+{
+    if (cancelled()) {
+        return false;
+    }
+    if (target.resolved_hosts.empty()) {
+        return true;
+    }
+    (void)session_.transition(PipelineState::PortScanning);
+    emit_stage(ScanEventType::StageStarted, StageKind::UdpScan, "UDP scan started");
+    if (cancelled()) {
+        return false;
+    }
+    udp_stage_ = std::make_unique<UdpScanStage>(session_.io_engine(), config_, target, &dependencies_);
+    const StageResult stage_result = udp_stage_->start();
+    if (stage_result.cancelled || cancelled()) {
+        return false;
+    }
+    if (!stage_result.success()) {
+        fail(stage_result.message, stage_result.status);
+        return false;
+    }
+    results = udp_stage_->results();
+    if (udp_stage_->timing_metrics() != nullptr && !metrics.has_value()) {
+        metrics = *udp_stage_->timing_metrics();
+    }
+    for (const portscan::PortResult &result : results) {
+        session_.emit(ScanEvent{ScanEventType::PortCompleted, {}, StageKind::UdpScan, std::nullopt,
+                                result.port.number, result.target, {}});
+    }
+    emit_stage(ScanEventType::StageCompleted, StageKind::UdpScan, "UDP scan completed");
+    return true;
+}
+
 bool ScanPipeline::execute_service_detection(
     const std::vector<portscan::PortResult> &ports,
     std::vector<detect::ServiceResult> &results)
@@ -214,7 +251,7 @@ bool ScanPipeline::execute_os_detection(
         std::vector<portscan::PortResult> host_ports;
         std::vector<detect::ServiceResult> host_services;
         for (const portscan::PortResult &port : ports) {
-            if (port.target == host.address) {
+            if (port.target == host.address && port.port.protocol == portscan::Protocol::Tcp) {
                 host_ports.push_back(port);
             }
         }
@@ -296,6 +333,9 @@ void ScanPipeline::cancel_active() noexcept
     if (port_stage_ != nullptr) {
         port_stage_->cancel();
     }
+    if (udp_stage_ != nullptr) {
+        udp_stage_->cancel();
+    }
     if (service_stage_ != nullptr) {
         service_stage_->cancel();
     }
@@ -346,6 +386,13 @@ core::StatusCode ScanPipeline::run(std::ostream &output)
         }
         return final_status_;
     }
+    if (config_.udp_enabled && !execute_udp_scan(port_target, udp_results_, timing_metrics_)) {
+        if (cancelled()) {
+            (void)serialize_report(output);
+            return core::StatusCode::Ok;
+        }
+        return final_status_;
+    }
     if (config_.service_detection_enabled && !execute_service_detection(port_results_, service_results_)) {
         if (cancelled()) {
             (void)serialize_report(output);
@@ -353,6 +400,17 @@ core::StatusCode ScanPipeline::run(std::ostream &output)
         }
         return final_status_;
     }
+    port_results_.insert(port_results_.end(), udp_results_.begin(), udp_results_.end());
+    std::sort(port_results_.begin(), port_results_.end(), [](const portscan::PortResult &left,
+                                                             const portscan::PortResult &right) {
+        if (left.target != right.target) {
+            return left.target < right.target;
+        }
+        if (left.port.number != right.port.number) {
+            return left.port.number < right.port.number;
+        }
+        return left.port.protocol < right.port.protocol;
+    });
     if (config_.os_detection_enabled && !execute_os_detection(active_target_, port_results_, service_results_, os_results_)) {
         if (cancelled()) {
             (void)serialize_report(output);

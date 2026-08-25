@@ -24,6 +24,7 @@ enum class ScanTransport {
 enum class StageKind {
     Discovery = 0,
     PortScan,
+    UdpScan,
     ServiceDetection,
     OSDetection,
     Output
@@ -36,17 +37,23 @@ struct ScanConfig final {
 
     bool discovery_enabled{false};
     bool port_scan_enabled{true};
+    bool udp_enabled{false};
     bool service_detection_enabled{false};
     bool os_detection_enabled{false};
 
     portscan::ScanProbeType port_method{portscan::ScanProbeType::TcpConnect};
     std::vector<std::uint16_t> ports;
+    std::vector<std::uint16_t> udp_ports;
+    std::string udp_probe_db_path{"data/udp-probes.db"};
     scanengine::TimingProfile timing_profile{};
     std::chrono::milliseconds timeout{portscan::kDefaultPortTimeout};
     bool adaptive_timing{false};
     std::size_t min_parallelism{1U};
     std::size_t max_parallelism{portscan::kDefaultMaxOutstanding};
     std::size_t retries{0U};
+    std::chrono::milliseconds udp_timeout{portscan::kDefaultUdpTimeout};
+    std::size_t udp_max_outstanding{portscan::kDefaultUdpMaxOutstanding};
+    std::size_t udp_retries{portscan::kDefaultUdpRetries};
 
     std::string service_db_path;
     std::size_t max_response_bytes{8192U};

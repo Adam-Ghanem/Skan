@@ -85,6 +85,8 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 **Phase 12 — Target Resolution and Target Engine** is complete
  for IPv4, CIDR, inclusive ranges, hostnames through bounded A-record resolution, mixed input, deduplication, deterministic numeric ordering, and normalized handoff to Phase 11. It deliberately does not add IPv6 or blocking DNS inside the scan reactor.
 
+**Phase 13 — Bounded UDP Scan Engine** is complete for explicit offline UDP scanning and capability-gated Linux AF_PACKET UDP transport. It adds strict project-owned UDP probes, bounded source-port allocation, ICMPv4 unreachable classification, retries and timeout semantics, pipeline/output integration, stress tests, and no implicit fallback. UDP service identification, UDP OS fingerprinting, IPv6, and evasion remain outside scope.
+
 ## Target integration
 
 Phase 12 owns target selection parsing and normalization before the existing `core::Target` boundary. Discovery, port scanning, service detection, and OS detection continue to receive only normalized `core::Host` values and validate dotted-decimal IPv4 addresses; none of those modules understands CIDR, ranges, hostnames, or comma-separated input. The scan pipeline performs normal address, port, protocol, transport, and resource validation after Target Engine resolution; it does not add a hidden public-target default.
@@ -545,3 +547,44 @@ Phase 9 contains the repository's explicit `AF_PACKET` raw-socket byte transport
 | Evasion | Future traffic and timing controls | Planned |
 | CLI | Version/help bootstrap, discovery exercise, scoped TCP scan, opt-in service detection, capability-honest os-detect, output selection/file output, infrastructure interface inspection, and explicit transport selection | Phase 10 integration complete |
 | Dashboard | Future TypeScript/React visualization and management interface | Planned |
+
+
+## Phase 13 UDP scan architecture
+
+Phase 13 adds a sibling UDP subsystem rather than forcing datagram semantics into the TCP-specific `PortSubmission`, `PortResponse`, or `PortProbe` contracts. `UdpScanStage` owns selection of the project-owned UDP probe database and transport. `UDPScheduler` owns a bounded host × UDP-port queue, one logical probe identifier per attempt, deterministic source-port allocation, retry/timer lifecycle, and canonical `PortResult` emission. It borrows the same Phase 1 `IOEngine` and optional Phase 7 `TimingController` used by the existing schedulers.
+
+```text
+TargetEngine-normalized core::Target
+                    ↓
+             UdpScanStage
+                    ↓
+              UDPScheduler
+          ↙                     ↘
+RecordingUDPTransport     LinuxUDPScanTransport
+          ↓                     ↓
+ injected UDPResponse       LinuxTransport + LinuxCapture
+                                ↓
+                    PacketReceiver / ICMPv4 parser
+                                ↓
+             UDP response or embedded-error correlation
+                                ↓
+             OPEN / CLOSED / FILTERED / OPEN_OR_FILTERED
+                                ↓
+                       canonical PortResult
+```
+
+The pipeline order is `Discovery → TCP Port Scan → UDP Scan → Service Detection → OS Detection → Output`, with each stage still independently optional according to configuration. TCP service detection receives only the TCP result vector, and OS detection filters the merged vector back to TCP before invoking the existing OS subsystem. UDP results are merged into the report after service detection, so UDP evidence is visible in all output formats without changing the TCP service or OS contracts.
+
+### UDP packet and error correlation
+
+Probe packets are composed through `packet::UDP` and `packet::Packet`; no UDP wire serialization is duplicated in the scheduler or transport. Linux capture continues through the existing bounded `PacketReceiver`. ICMPv4 Destination Unreachable is accepted by the existing ICMP model only after header-length and Internet-checksum validation. The Linux UDP adapter then validates the embedded IPv4 version, IHL, total length, IPv4 checksum, UDP protocol, UDP length, and all embedded address/port fields before generating a typed response.
+
+The logical probe ID is carried by the callback lifecycle. For captured packets, the dedicated UDP pending map performs strong wire matching on local/source IPv4, target/destination IPv4, source port, destination port, and UDP protocol. For ICMP errors, matching additionally requires an outer error source equal to the target and an embedded IPv4/UDP packet equal to the original local probe. Ambiguous, malformed, unrelated, late, and duplicate observations are ignored or converted to an explicit error without completing a different pending item. Source ports are deterministic and bounded to a fixed ephemeral allocation range, unique among outstanding entries, and released on every terminal, retry, cancel, and teardown path.
+
+### State and transport boundaries
+
+A validated target UDP datagram produces `OPEN` with `UDP_RESPONSE`. An embedded ICMP Destination Unreachable code 3 produces `CLOSED` with `ICMP_PORT_UNREACHABLE`. Administrative codes produce `FILTERED` with an administrative reason, and network/host unreachable codes produce `FILTERED` with a network-unreachable reason. Exhausting the bounded retry policy produces `OPEN_OR_FILTERED` with `UDP_TIMEOUT`; silence is never collapsed into `CLOSED`, `OPEN`, or fabricated service evidence. Malformed correlated data and local transport failures use `ERROR` with an explicit reason. The canonical summary retains additive counters for open-or-filtered, unfiltered, and error results while preserving the legacy TCP counters.
+
+`RecordingUDPTransport` is deterministic and injection-only. `LinuxUDPScanTransport` reuses the existing interface lookup, Linux byte transport, bounded capture, packet receiver, and single-reactor attachment lifecycle. It requires an explicit interface and host AF_PACKET capture/injection capability. A failed Linux open is returned as a typed capability or system error; there is no automatic offline fallback. Connect transport is rejected for UDP rather than being silently reinterpreted as a stream scan.
+
+The project-owned `data/udp-probes.db` parser rejects malformed records, duplicate names or destination ports, invalid hexadecimal payloads, oversized payloads, invalid response limits, and multiple default records. Each record is small and bounded; the built-in dataset covers minimal DNS, NTP, SNMP, NetBIOS, TFTP, IKE, and generic fallback probes. No Nmap database or broad external probe corpus is used.

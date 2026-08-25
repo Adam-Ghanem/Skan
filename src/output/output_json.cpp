@@ -177,6 +177,14 @@ void write_port(JsonWriter &json, const portscan::PortResult &port, std::size_t 
         json.key("rtt_ms", first, depth + 1U);
         json.number(*port.rtt_ms);
     }
+    if (port.port.protocol == portscan::Protocol::Udp) {
+        json.key("retry_count", first, depth + 1U);
+        json.integer(port.retry_count);
+        if (port.probe_name.has_value()) {
+            json.key("probe_name", first, depth + 1U);
+            json.string(*port.probe_name);
+        }
+    }
     json.end_object(depth, !first);
 }
 
@@ -395,6 +403,12 @@ OutputStatus JsonOutputWriter::write(
     json.integer(summary.closed_ports);
     json.key("filtered_ports", summary_first, 2U);
     json.integer(summary.filtered_ports);
+    json.key("open_or_filtered_ports", summary_first, 2U);
+    json.integer(summary.open_or_filtered_ports);
+    json.key("unfiltered_ports", summary_first, 2U);
+    json.integer(summary.unfiltered_ports);
+    json.key("error_ports", summary_first, 2U);
+    json.integer(summary.error_ports);
     json.key("unknown_ports", summary_first, 2U);
     json.integer(summary.unknown_ports);
     json.key("services_detected", summary_first, 2U);

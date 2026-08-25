@@ -9,6 +9,7 @@
 #include "discovery/discovery_types.hpp"
 #include "net/linux_discovery_transport.hpp"
 #include "net/network_scan_transport.hpp"
+#include "net/udp_network_scan_transport.hpp"
 #include "portscan/tcp_connect.hpp"
 
 namespace skan::orchestrator {
@@ -223,6 +224,120 @@ bool PortScanStage::completed() const noexcept { return result_.completed; }
 const StageResult &PortScanStage::result() const noexcept { return result_; }
 const std::vector<portscan::PortResult> &PortScanStage::results() const noexcept { return results_; }
 const scanengine::ScanMetrics *PortScanStage::timing_metrics() const noexcept
+{
+    return scheduler_ != nullptr && scheduler_->timing_controller() != nullptr
+               ? &scheduler_->timing_controller()->metrics()
+               : nullptr;
+}
+
+UdpScanStage::UdpScanStage(io::IOEngine &engine, const ScanConfig &config, core::Target target,
+                             const ScanStageDependencies *dependencies)
+    : engine_(engine), config_(config), target_(std::move(target)), dependencies_(dependencies)
+{
+}
+
+UdpScanStage::~UdpScanStage() = default;
+StageKind UdpScanStage::kind() const noexcept { return StageKind::UdpScan; }
+
+StageResult UdpScanStage::start()
+{
+    if (cancelled_) {
+        result_ = stage_cancelled();
+        return result_;
+    }
+    portscan::PortScanConfig scan_config;
+    scan_config.method = portscan::ScanProbeType::Udp;
+    scan_config.timeout = config_.udp_timeout;
+    scan_config.max_outstanding = config_.udp_max_outstanding;
+    scan_config.retries = config_.udp_retries;
+    scan_config.adaptive_timing = config_.adaptive_timing;
+    scan_config.timing_profile = config_.timing_profile;
+    scan_config.timing_profile.min_parallelism = config_.min_parallelism;
+    scan_config.timing_profile.max_parallelism = config_.udp_max_outstanding;
+    scan_config.timing_profile.max_retries = config_.udp_retries;
+    configured_ports_.clear();
+    for (const std::uint16_t port : config_.udp_ports) {
+        configured_ports_.push_back(portscan::Port{port, portscan::Protocol::Udp});
+    }
+
+    portscan::UDPProbeDatabase database;
+    if (config_.udp_probe_db_path.empty()) {
+        database = portscan::UDPProbeDatabase::built_in();
+    } else {
+        core::StatusCode db_status = core::StatusCode::Ok;
+        database = portscan::UDPProbeDatabase::load_file(config_.udp_probe_db_path, db_status);
+        if (db_status != core::StatusCode::Ok) {
+            result_ = stage_failure(db_status, "UDP probe database loading failed");
+            return result_;
+        }
+    }
+    if (dependencies_ != nullptr && dependencies_->udp_transport) {
+        transport_ = dependencies_->udp_transport(engine_, config_);
+    } else if (config_.transport == ScanTransport::Offline) {
+        transport_ = std::make_unique<portscan::RecordingUDPTransport>();
+    } else if (config_.transport == ScanTransport::Linux) {
+        if (!config_.interface_name.has_value()) {
+            result_ = stage_failure(core::StatusCode::InvalidArgument, "Linux UDP scan requires an interface");
+            return result_;
+        }
+        auto linux = std::make_unique<net::LinuxUDPScanTransport>(engine_, net::NetworkScanConfig{
+            *config_.interface_name, 65535U, true, std::nullopt});
+        const net::NetworkScanResult opened = linux->open();
+        if (!opened.success()) {
+            const core::StatusCode mapped = opened.status == net::NetworkScanStatus::PermissionDenied
+                                                 ? core::StatusCode::PermissionDenied
+                                                 : opened.status == net::NetworkScanStatus::InterfaceNotFound
+                                                       ? core::StatusCode::NotFound
+                                                       : core::StatusCode::IoError;
+            result_ = stage_failure(mapped, opened.message);
+            return result_;
+        }
+        transport_ = std::move(linux);
+    } else {
+        result_ = stage_failure(core::StatusCode::InvalidArgument, "UDP scanning does not support connect transport");
+        return result_;
+    }
+    if (transport_ == nullptr) {
+        result_ = stage_failure(core::StatusCode::InternalError, "UDP transport factory returned null");
+        return result_;
+    }
+    scheduler_ = std::make_unique<portscan::UDPScheduler>(engine_, *transport_, std::move(database), scan_config);
+    const core::StatusCode submitted = config_.udp_ports.empty()
+                                           ? scheduler_->submit_default(target_)
+                                           : scheduler_->submit(target_, configured_ports_);
+    if (submitted != core::StatusCode::Ok) {
+        result_ = stage_failure(submitted, "UDP scan submission failed");
+        return result_;
+    }
+    if (dependencies_ != nullptr && dependencies_->after_udp_submit) {
+        dependencies_->after_udp_submit(*scheduler_);
+    }
+    const core::StatusCode run_status = scheduler_->run();
+    if (cancelled_) {
+        result_ = stage_cancelled();
+        return result_;
+    }
+    results_ = scheduler_->results();
+    if (run_status != core::StatusCode::Ok) {
+        result_ = stage_failure(run_status, "UDP scan stage failed");
+        return result_;
+    }
+    result_ = stage_success();
+    return result_;
+}
+
+void UdpScanStage::cancel() noexcept
+{
+    cancelled_ = true;
+    scheduler_.reset();
+    transport_.reset();
+    result_ = stage_cancelled();
+}
+
+bool UdpScanStage::completed() const noexcept { return result_.completed; }
+const StageResult &UdpScanStage::result() const noexcept { return result_; }
+const std::vector<portscan::PortResult> &UdpScanStage::results() const noexcept { return results_; }
+const scanengine::ScanMetrics *UdpScanStage::timing_metrics() const noexcept
 {
     return scheduler_ != nullptr && scheduler_->timing_controller() != nullptr
                ? &scheduler_->timing_controller()->metrics()

@@ -11,7 +11,9 @@
 #include "orchestrator/scan_config.hpp"
 #include "osdetect/os_detector.hpp"
 #include "portscan/port_scheduler.hpp"
+#include "portscan/udp_scan.hpp"
 #include "net/linux_discovery_transport.hpp"
+#include "net/udp_network_scan_transport.hpp"
 #include "net/network_scan_transport.hpp"
 #include "scanengine/scan_metrics.hpp"
 
@@ -22,10 +24,12 @@ class ScanSession;
 struct ScanStageDependencies final {
     std::function<std::unique_ptr<discovery::DiscoveryTransport>(io::IOEngine &, const ScanConfig &)> discovery_transport;
     std::function<std::unique_ptr<portscan::PortScanTransport>(io::IOEngine &, const ScanConfig &)> port_transport;
+    std::function<std::unique_ptr<portscan::UDPScanTransport>(io::IOEngine &, const ScanConfig &)> udp_transport;
     std::function<std::unique_ptr<detect::ServiceTransport>(io::IOEngine &, const ScanConfig &)> service_transport;
     std::function<std::unique_ptr<osdetect::OSProbeTransport>(io::IOEngine &, const ScanConfig &)> os_transport;
     std::function<void(discovery::Discovery &)> after_discovery_submit;
     std::function<void(portscan::PortScanScheduler &)> after_port_submit;
+    std::function<void(portscan::UDPScheduler &)> after_udp_submit;
     std::function<void(detect::ServiceDetector &)> after_service_submit;
     std::function<void(osdetect::OSDetector &)> after_os_submit;
 };
@@ -103,6 +107,34 @@ private:
     std::vector<portscan::Port> configured_ports_;
     std::unique_ptr<portscan::PortScanTransport> transport_;
     std::unique_ptr<portscan::PortScanScheduler> scheduler_;
+    std::vector<portscan::PortResult> results_;
+    StageResult result_;
+    bool cancelled_{false};
+};
+
+class UdpScanStage final : public ScanStageRunner {
+public:
+    UdpScanStage(io::IOEngine &engine, const ScanConfig &config, core::Target target,
+                 const ScanStageDependencies *dependencies = nullptr);
+    ~UdpScanStage() override;
+
+    StageKind kind() const noexcept override;
+    StageResult start() override;
+    void cancel() noexcept override;
+    bool completed() const noexcept override;
+    const StageResult &result() const noexcept override;
+
+    const std::vector<portscan::PortResult> &results() const noexcept;
+    const scanengine::ScanMetrics *timing_metrics() const noexcept;
+
+private:
+    io::IOEngine &engine_;
+    const ScanConfig &config_;
+    core::Target target_;
+    const ScanStageDependencies *dependencies_{nullptr};
+    std::vector<portscan::Port> configured_ports_;
+    std::unique_ptr<portscan::UDPScanTransport> transport_;
+    std::unique_ptr<portscan::UDPScheduler> scheduler_;
     std::vector<portscan::PortResult> results_;
     StageResult result_;
     bool cancelled_{false};

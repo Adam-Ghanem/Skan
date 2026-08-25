@@ -2,6 +2,7 @@
 #define SKAN_PORTSCAN_PORT_RESULT_HPP
 
 #include <chrono>
+#include <cstddef>
 #include <optional>
 #include <string>
 
@@ -20,6 +21,8 @@ struct PortResult final {
     ScanReason reason{ScanReason::InternalError};
     std::optional<double> rtt_ms;
     PortScanTimePoint timestamp{};
+    std::size_t retry_count{0U};
+    std::optional<std::string> probe_name;
 };
 
 const char *port_result_state_name(PortState state) noexcept;

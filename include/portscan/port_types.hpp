@@ -14,19 +14,24 @@
 namespace skan::portscan {
 
 enum class Protocol {
-    Tcp = 0
+    Tcp = 0,
+    Udp
 };
 
 enum class ScanProbeType {
     TcpConnect = 0,
-    TcpSyn
+    TcpSyn,
+    Udp
 };
 
 enum class PortState {
     Open = 0,
     Closed,
     Filtered,
-    Unknown
+    Unknown,
+    OpenOrFiltered,
+    Unfiltered,
+    Error
 };
 
 enum class ScanReason {
@@ -42,7 +47,15 @@ enum class ScanReason {
     InvalidPort,
     UnsupportedMethod,
     CapabilityUnavailable,
-    InternalError
+    InternalError,
+    UdpResponse,
+    IcmpPortUnreachable,
+    IcmpAdministrativelyProhibited,
+    IcmpNetworkUnreachable,
+    UdpTimeout,
+    DuplicateResponse,
+    LateResponse,
+    UnsupportedProtocol
 };
 
 struct Port final {
@@ -63,6 +76,9 @@ inline constexpr std::uint16_t kDefaultTcpPort = 80U;
 inline constexpr std::uint16_t kDefaultMaxTcpPort = 1024U;
 inline constexpr std::size_t kDefaultMaxOutstanding = 128U;
 inline constexpr std::chrono::milliseconds kDefaultPortTimeout{1000};
+inline constexpr std::size_t kDefaultUdpMaxOutstanding = 64U;
+inline constexpr std::chrono::milliseconds kDefaultUdpTimeout{1500};
+inline constexpr std::size_t kDefaultUdpRetries = 1U;
 
 struct PortScanConfig final {
     ScanProbeType method{ScanProbeType::TcpConnect};
@@ -70,6 +86,7 @@ struct PortScanConfig final {
     std::size_t max_outstanding{kDefaultMaxOutstanding};
     bool adaptive_timing{false};
     scanengine::TimingProfile timing_profile{};
+    std::size_t retries{0U};
 };
 
 struct PortSelection final {
@@ -78,7 +95,9 @@ struct PortSelection final {
 };
 
 PortSelection parse_tcp_ports(std::string_view specification);
+PortSelection parse_udp_ports(std::string_view specification);
 std::vector<Port> default_tcp_ports();
+std::vector<Port> default_udp_ports();
 
 const char *protocol_name(Protocol protocol) noexcept;
 const char *scan_probe_type_name(ScanProbeType probe) noexcept;

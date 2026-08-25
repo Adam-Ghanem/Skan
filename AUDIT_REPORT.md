@@ -1,8 +1,8 @@
-# Skan Phase 0–11 Engineering Audit
+# Skan Phase 0–13 Engineering Audit
 
 ## Scope and conclusion
 
-This audit reviewed the Phase 0–11 implementation, including the core model, single-reactor I/O path, packet parsers, discovery and port schedulers, service and OS detection, adaptive timing, Linux transport/capture, output, CLI, orchestration, tests, documentation, and Makefile. The implementation remains a **Nmap-inspired, Linux-first network-scanning engine** rather than an Nmap-compatible replacement. The audit found several concrete lifecycle and scalability defects and repaired them without introducing a new reactor, worker threads, a target-range subsystem, a new protocol family, or a second result/output model.
+This audit reviewed the Phase 0–13 implementation, including the core model, single-reactor I/O path, packet parsers, discovery and port schedulers, service and OS detection, adaptive timing, Linux transport/capture, output, CLI, orchestration, tests, documentation, and Makefile. The implementation remains a **Nmap-inspired, Linux-first network-scanning engine** rather than an Nmap-compatible replacement. The audit found several concrete lifecycle and scalability defects and repaired them without introducing a new reactor, worker threads, a target-range subsystem, a new protocol family, or a second result/output model.
 
 The final code preserves the existing explicit-target and capability-gated design. Raw Linux tests still report `SKIPPED` when AF_PACKET permission is unavailable, while an explicitly requested live Linux scan fails clearly rather than falling back to offline behavior.
 
@@ -54,12 +54,14 @@ The following capabilities are intentionally not claimed as complete:
 | ICMP/TCP/ARP discovery adapters | Offline and explicit Linux paths implemented within current scope |
 | TCP stream service detection | Implemented with bounded project-owned probes |
 | Live raw OS fingerprinting | Unavailable/capability-honest; injected architecture implemented |
-| UDP scanning | Not added by this audit |
+| Offline UDP scanning | Implemented with bounded probes, retries, correlation, and deterministic recording transport |
+| Explicit Linux AF_PACKET UDP scanning | Capability-gated and implemented where permitted; no fallback |
 | Evasion, spoofing, exploitation, credential handling, persistence | Out of scope |
 
 ## G. Testing upgrade
 
-The complete Makefile test graph contains 70 test-binary executions. New and strengthened coverage includes stale epoll batch records, PacketReceiver attach/detach and close lifecycle, oversized capture frames, unknown TCP options, closed-reactor timer failure, queued-cancellation metric arithmetic, 10,000 timers, 10,000 correlations, 1,000-host × 100-port orchestration, pipeline cancellation, discovery response handling, service/OS ordering, and capability-aware Linux skips.
+The complete Makefile test graph contains 74 test-binary executions.
+ New and strengthened coverage includes stale epoll batch records, PacketReceiver attach/detach and close lifecycle, oversized capture frames, unknown TCP options, closed-reactor timer failure, queued-cancellation metric arithmetic, 10,000 timers, 10,000 correlations, 1,000-host × 100-port orchestration, pipeline cancellation, discovery response handling, service/OS ordering, and capability-aware Linux skips.
 
 An optional offline libFuzzer target exercises Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, and timing-profile parsers. If Clang and its fuzzer runtime are unavailable, `make fuzz` reports `SKIPPED` and exits successfully; it never fabricates a fuzz result.
 
@@ -74,7 +76,7 @@ The following gates passed after the final changes:
 | Gate | Result |
 | --- | --- |
 | Clean production build | Passed |
-| Complete release test suite | Passed; 70 binaries executed |
+| Complete release test suite | Passed; 74 binaries executed |
 | Debug build | Passed |
 | AddressSanitizer with leak detection | Passed |
 | UndefinedBehaviorSanitizer | Passed |
@@ -100,3 +102,24 @@ Live OS fingerprinting can be implemented only through an explicit capability-ga
 [3]: src/orchestrator/scan_pipeline.cpp "Unified Phase 11 pipeline"
 [4]: src/orchestrator/scan_report_builder.cpp "Canonical report mapping and host indexing"
 [5]: Makefile "Build, test, sanitizer, coverage, and fuzz targets"
+
+
+## K. Phase 13 UDP audit update
+
+Phase 13 adds first-class UDP scanning without changing the established TCP/discovery/service/OS/output contracts. The new `UDPScheduler` is single-reactor and bounded: it owns a deterministic queue, pending map, fixed source-port occupancy range, one timer per active attempt, bounded retries, and cancellation-safe cleanup. It uses the existing `IOEngine`, Phase 7 timing policy, Phase 2 UDP packet composition, canonical `PortResult`, and output model rather than introducing duplicate infrastructure.
+
+| UDP area | Audit status | Evidence |
+| --- | --- | --- |
+| Explicit opt-in and target handoff | Passed | `--udp` is required; Phase 12 normalized targets are reused; UDP is never enabled by default. |
+| Port selection and defaults | Passed | Strict single/list/range parsing, deduplication, ten-port project-owned default set, and invalid-port rejection. |
+| Probe database | Passed | Strict `data/udp-probes.db` parser with bounded hexadecimal payloads, response limits, unique names/ports, and one generic fallback. |
+| Datagram classification | Passed | Correlated response is `OPEN`; malformed/oversized data is `ERROR`; silence is `OPEN_OR_FILTERED`, never `CLOSED`. |
+| ICMP error classification | Passed | ICMPv4 Destination Unreachable is checksum and bounds validated; code 3 is `CLOSED`; administrative/network evidence is `FILTERED`. |
+| Correlation and lifecycle | Passed | Logical IDs plus local/target IPv4 and source/destination ports are checked; unrelated, duplicate, and late responses cannot complete unrelated work. |
+| Offline test seam | Passed | `RecordingUDPTransport` supports deterministic injected responses and no network access. |
+| Linux raw UDP | Capability-gated | `LinuxUDPScanTransport` reuses Linux transport/capture/receiver and the shared reactor; it fails explicitly and does not fall back when AF_PACKET is unavailable. |
+| Service and OS interactions | Deliberately limited | TCP service detection receives TCP results only; OS detection filters back to TCP; no UDP service or OS inference is fabricated. |
+
+The expanded tests include malformed ICMP and embedded packet truncation, strict UDP database failures, response classification, retries, timeout state, duplicate/unrelated response isolation, pipeline ordering, ten-thousand-operation host/port coverage, one-hundred-thousand-operation offline coverage, and a Linux raw capability test that reports `SKIPPED` on hosts without AF_PACKET permission. The fuzz entry point now exercises UDP port and probe-database parsing alongside the existing bounded packet parsers.
+
+The remaining UDP limitations are intentional: IPv6 is not implemented, Linux live results depend on host AF_PACKET and interface neighbor capabilities, UDP protocol/service matching is absent, and UDP data is not used for OS fingerprinting. The implementation makes no claim of evasion, spoofing, fragmentation, credentials, exploitation, or public-target safety beyond the existing explicit-target and capability boundaries.

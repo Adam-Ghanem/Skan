@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cctype>
+#include <new>
 #include <string_view>
 
 namespace skan::portscan {
@@ -35,9 +36,7 @@ bool parse_port_number(std::string_view value, std::uint16_t &port) noexcept
     return true;
 }
 
-} // namespace
-
-PortSelection parse_tcp_ports(std::string_view specification)
+PortSelection parse_ports(std::string_view specification, Protocol protocol)
 {
     PortSelection selection;
     if (trim(specification).empty()) {
@@ -50,7 +49,7 @@ PortSelection parse_tcp_ports(std::string_view specification)
         while (start <= specification.size()) {
             const std::size_t comma = specification.find(',', start);
             const std::size_t end = comma == std::string_view::npos ? specification.size() : comma;
-            std::string_view token = trim(specification.substr(start, end - start));
+            const std::string_view token = trim(specification.substr(start, end - start));
             if (token.empty()) {
                 selection.status = core::StatusCode::InvalidArgument;
                 selection.ports.clear();
@@ -65,7 +64,7 @@ PortSelection parse_tcp_ports(std::string_view specification)
                     selection.ports.clear();
                     return selection;
                 }
-                selection.ports.push_back(Port{port, Protocol::Tcp});
+                selection.ports.push_back(Port{port, protocol});
             } else {
                 if (token.find('-', dash + 1U) != std::string_view::npos) {
                     selection.status = core::StatusCode::InvalidArgument;
@@ -81,7 +80,7 @@ PortSelection parse_tcp_ports(std::string_view specification)
                     return selection;
                 }
                 for (std::uint32_t port = first; port <= last; ++port) {
-                    selection.ports.push_back(Port{static_cast<std::uint16_t>(port), Protocol::Tcp});
+                    selection.ports.push_back(Port{static_cast<std::uint16_t>(port), protocol});
                 }
             }
 
@@ -100,9 +99,36 @@ PortSelection parse_tcp_ports(std::string_view specification)
     return selection;
 }
 
+} // namespace
+
+PortSelection parse_tcp_ports(std::string_view specification)
+{
+    return parse_ports(specification, Protocol::Tcp);
+}
+
+PortSelection parse_udp_ports(std::string_view specification)
+{
+    return parse_ports(specification, Protocol::Udp);
+}
+
 std::vector<Port> default_tcp_ports()
 {
     return {{22U, Protocol::Tcp}, {kDefaultTcpPort, Protocol::Tcp}, {443U, Protocol::Tcp}};
+}
+
+std::vector<Port> default_udp_ports()
+{
+    return {
+        {53U, Protocol::Udp},
+        {67U, Protocol::Udp},
+        {68U, Protocol::Udp},
+        {69U, Protocol::Udp},
+        {123U, Protocol::Udp},
+        {137U, Protocol::Udp},
+        {161U, Protocol::Udp},
+        {162U, Protocol::Udp},
+        {500U, Protocol::Udp},
+        {514U, Protocol::Udp}};
 }
 
 const char *protocol_name(Protocol protocol) noexcept
@@ -110,6 +136,8 @@ const char *protocol_name(Protocol protocol) noexcept
     switch (protocol) {
     case Protocol::Tcp:
         return "tcp";
+    case Protocol::Udp:
+        return "udp";
     default:
         return "unknown";
     }
@@ -122,6 +150,8 @@ const char *scan_probe_type_name(ScanProbeType probe) noexcept
         return "connect";
     case ScanProbeType::TcpSyn:
         return "syn";
+    case ScanProbeType::Udp:
+        return "udp";
     default:
         return "unknown";
     }
@@ -138,6 +168,12 @@ const char *port_state_name(PortState state) noexcept
         return "FILTERED";
     case PortState::Unknown:
         return "UNKNOWN";
+    case PortState::OpenOrFiltered:
+        return "OPEN_OR_FILTERED";
+    case PortState::Unfiltered:
+        return "UNFILTERED";
+    case PortState::Error:
+        return "ERROR";
     default:
         return "UNKNOWN";
     }
@@ -172,6 +208,22 @@ const char *scan_reason_name(ScanReason reason) noexcept
         return "CAPABILITY_UNAVAILABLE";
     case ScanReason::InternalError:
         return "INTERNAL_ERROR";
+    case ScanReason::UdpResponse:
+        return "UDP_RESPONSE";
+    case ScanReason::IcmpPortUnreachable:
+        return "ICMP_PORT_UNREACHABLE";
+    case ScanReason::IcmpAdministrativelyProhibited:
+        return "ICMP_ADMINISTRATIVELY_PROHIBITED";
+    case ScanReason::IcmpNetworkUnreachable:
+        return "ICMP_NETWORK_UNREACHABLE";
+    case ScanReason::UdpTimeout:
+        return "UDP_TIMEOUT";
+    case ScanReason::DuplicateResponse:
+        return "DUPLICATE_RESPONSE";
+    case ScanReason::LateResponse:
+        return "LATE_RESPONSE";
+    case ScanReason::UnsupportedProtocol:
+        return "UNSUPPORTED_PROTOCOL";
     default:
         return "UNKNOWN";
     }

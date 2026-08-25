@@ -51,6 +51,10 @@ OutputStatus GrepableOutputWriter::write(
             if (port.rtt_ms.has_value()) {
                 output << " rtt_ms=" << std::setprecision(15) << *port.rtt_ms;
             }
+            if (port.port.protocol == portscan::Protocol::Udp) {
+                output << " probe_name=\"" << detail::grep_escape(port.probe_name.value_or("")) << '\"'
+                       << " retry_count=" << port.retry_count;
+            }
             output << '\n';
             for (const detect::ServiceResult &service : services) {
                 if (service.port.number != port.port.number || service.protocol != port.port.protocol) {
@@ -102,6 +106,9 @@ OutputStatus GrepableOutputWriter::write(
            << " open_ports=" << summary.open_ports
            << " closed_ports=" << summary.closed_ports
            << " filtered_ports=" << summary.filtered_ports
+           << " open_or_filtered_ports=" << summary.open_or_filtered_ports
+           << " unfiltered_ports=" << summary.unfiltered_ports
+           << " error_ports=" << summary.error_ports
            << " unknown_ports=" << summary.unknown_ports
            << " services_detected=" << summary.services_detected
            << " os_matches=" << summary.os_matches << '\n';

@@ -124,6 +124,10 @@ void write_port(XmlWriter &xml, const portscan::PortResult &port, std::size_t de
     if (port.rtt_ms.has_value()) {
         attributes += attribute_number("rtt-ms", *port.rtt_ms);
     }
+    if (port.port.protocol == portscan::Protocol::Udp) {
+        attributes += attribute_integer("retry-count", port.retry_count);
+        attributes += attribute("probe-name", port.probe_name.value_or(""));
+    }
     xml.self_closing(depth, "port", attributes);
 }
 
@@ -289,6 +293,9 @@ OutputStatus XmlOutputWriter::write(
     xml.element(2U, "open-ports", std::to_string(summary.open_ports));
     xml.element(2U, "closed-ports", std::to_string(summary.closed_ports));
     xml.element(2U, "filtered-ports", std::to_string(summary.filtered_ports));
+    xml.element(2U, "open-or-filtered-ports", std::to_string(summary.open_or_filtered_ports));
+    xml.element(2U, "unfiltered-ports", std::to_string(summary.unfiltered_ports));
+    xml.element(2U, "error-ports", std::to_string(summary.error_ports));
     xml.element(2U, "unknown-ports", std::to_string(summary.unknown_ports));
     xml.element(2U, "services-detected", std::to_string(summary.services_detected));
     xml.element(2U, "os-matches", std::to_string(summary.os_matches));

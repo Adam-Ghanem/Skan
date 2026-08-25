@@ -12,6 +12,7 @@ namespace skan::packet {
 
 enum class IcmpType : std::uint8_t {
     EchoReply = 0U,
+    DestinationUnreachable = 3U,
     EchoRequest = 8U
 };
 

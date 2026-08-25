@@ -7,8 +7,49 @@
 #include <vector>
 
 #include "orchestrator/scan_pipeline.hpp"
+#include "packet/udp.hpp"
 
 namespace {
+
+class QueuedUDPTransport final : public skan::portscan::UDPScanTransport {
+public:
+    struct Pending final {
+        skan::portscan::UDPSubmission submission;
+        skan::portscan::UDPResponseCallback callback;
+    };
+
+    explicit QueuedUDPTransport(std::shared_ptr<std::vector<Pending>> pending) : pending_(std::move(pending)) {}
+    bool supports() const noexcept override { return true; }
+    skan::core::StatusCode submit(const skan::portscan::UDPSubmission &submission,
+                                  skan::portscan::UDPResponseCallback callback) override
+    {
+        pending_->push_back({submission, std::move(callback)});
+        return skan::core::StatusCode::Ok;
+    }
+    skan::core::StatusCode cancel(skan::portscan::UDPProbeId) noexcept override
+    {
+        return skan::core::StatusCode::Ok;
+    }
+    void flush()
+    {
+        while (!pending_->empty()) {
+            Pending item = std::move(pending_->front());
+            pending_->erase(pending_->begin());
+            skan::packet::UDP response_packet;
+            response_packet.set_source_port(item.submission.port.number);
+            response_packet.set_destination_port(item.submission.source_port);
+            response_packet.set_payload({0x42U});
+            std::vector<std::uint8_t> bytes(response_packet.serialized_size(), 0U);
+            assert(response_packet.serialize(bytes) == skan::core::StatusCode::Ok);
+            item.callback({item.submission.id, "127.0.0.1", 0x7F000001U,
+                           item.submission.port.number, item.submission.source_port,
+                           skan::portscan::UDPResponseKind::Datagram, std::move(bytes),
+                           skan::portscan::UDPScanClock::now()});
+        }
+    }
+private:
+    std::shared_ptr<std::vector<Pending>> pending_;
+};
 
 class QueuedPortTransport final : public skan::portscan::PortScanTransport {
 public:
@@ -87,5 +128,41 @@ int main()
     const auto service_started = std::find(events.begin(), events.end(), skan::orchestrator::ScanEventType::StageStarted);
     assert(service_started != events.end());
     assert(output.str().find("\"warnings\"") != std::string::npos);
+
+    skan::orchestrator::ScanConfig udp_config;
+    udp_config.targets = {{"127.0.0.1", {{"127.0.0.1", std::nullopt, false}}}};
+    udp_config.transport = skan::orchestrator::ScanTransport::Offline;
+    udp_config.port_scan_enabled = false;
+    udp_config.udp_enabled = true;
+    udp_config.udp_ports = {53U};
+    udp_config.udp_timeout = std::chrono::milliseconds{10};
+    udp_config.udp_retries = 0U;
+    udp_config.output_format = skan::output::OutputFormat::Json;
+    auto udp_pending = std::make_shared<std::vector<QueuedUDPTransport::Pending>>();
+    skan::orchestrator::ScanStageDependencies udp_dependencies;
+    udp_dependencies.udp_transport = [udp_pending](skan::io::IOEngine &, const skan::orchestrator::ScanConfig &) {
+        return std::make_unique<QueuedUDPTransport>(udp_pending);
+    };
+    udp_dependencies.after_udp_submit = [udp_pending](skan::portscan::UDPScheduler &) {
+        QueuedUDPTransport transport(udp_pending);
+        transport.flush();
+    };
+    std::vector<skan::orchestrator::StageKind> udp_stages;
+    skan::orchestrator::ScanPipeline udp_pipeline(udp_config,
+        [&udp_stages](const skan::orchestrator::ScanEvent &event) {
+            if (event.stage.has_value() && event.type == skan::orchestrator::ScanEventType::StageStarted) {
+                udp_stages.push_back(*event.stage);
+            }
+        }, std::move(udp_dependencies));
+    std::ostringstream udp_output;
+    assert(udp_pipeline.run(udp_output) == skan::core::StatusCode::Ok);
+    assert(udp_pipeline.report().has_value());
+    const auto udp_summary = skan::output::calculate_summary(*udp_pipeline.report());
+    assert(udp_summary.open_ports == 1U);
+    assert(udp_pipeline.report()->hosts.front().ports.front().port.protocol == skan::portscan::Protocol::Udp);
+    assert(udp_pipeline.report()->hosts.front().services.empty());
+    assert(udp_stages.size() == 2U);
+    assert(udp_stages[0] == skan::orchestrator::StageKind::UdpScan);
+    assert(udp_stages[1] == skan::orchestrator::StageKind::Output);
     return 0;
 }
