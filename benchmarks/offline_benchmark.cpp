@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -14,11 +15,16 @@
 #include "detect/service_scheduler.hpp"
 #include "io/io_engine.hpp"
 #include "orchestrator/scan_pipeline.hpp"
+#include "net/packet_receiver.hpp"
 #include "osdetect/os_scheduler.hpp"
 #include "output/output_manager.hpp"
 #include "output/result_model.hpp"
 #include "portscan/port_scheduler.hpp"
 #include "portscan/udp_scan.hpp"
+#include "packet/ethernet.hpp"
+#include "packet/ipv6.hpp"
+#include "packet/packet.hpp"
+#include "packet/udp.hpp"
 #include "target/target_engine.hpp"
 
 namespace {
@@ -30,6 +36,21 @@ std::string address_for(std::size_t index)
     return skan::target::format_ipv4(0xC6120001U + static_cast<std::uint32_t>(index));
 }
 
+std::string ipv6_address_for(std::size_t index)
+{
+    std::array<std::uint8_t, 16U> bytes{};
+    bytes[0] = 0x20U;
+    bytes[1] = 0x01U;
+    bytes[2] = 0x0DU;
+    bytes[3] = 0xB8U;
+    const std::uint32_t value = static_cast<std::uint32_t>(index + 1U);
+    bytes[12] = static_cast<std::uint8_t>(value >> 24U);
+    bytes[13] = static_cast<std::uint8_t>(value >> 16U);
+    bytes[14] = static_cast<std::uint8_t>(value >> 8U);
+    bytes[15] = static_cast<std::uint8_t>(value);
+    return skan::core::IpAddress::from_ipv6(bytes).to_string();
+}
+
 skan::core::Target target_for(std::size_t count)
 {
     skan::core::Target target;
@@ -39,6 +60,55 @@ skan::core::Target target_for(std::size_t count)
         target.resolved_hosts.push_back(skan::core::Host{address_for(index), std::nullopt, true});
     }
     return target;
+}
+
+skan::core::Target ipv6_target_for(std::size_t count)
+{
+    skan::core::Target target;
+    target.original_specification = count == 0U ? "" : ipv6_address_for(0U) + "-" + ipv6_address_for(count - 1U);
+    target.resolved_hosts.reserve(count);
+    for (std::size_t index = 0U; index < count; ++index) {
+        const auto address = skan::core::parse_ip_address(ipv6_address_for(index));
+        target.resolved_hosts.push_back(skan::core::Host{ipv6_address_for(index), std::nullopt, true, *address});
+    }
+    return target;
+}
+
+skan::core::Target mixed_target_for(std::size_t count)
+{
+    skan::core::Target target;
+    target.original_specification = "mixed-offline";
+    target.resolved_hosts.reserve(count);
+    for (std::size_t index = 0U; index < count; ++index) {
+        if ((index & 1U) == 0U) {
+            target.resolved_hosts.push_back(skan::core::Host{address_for(index / 2U), std::nullopt, true});
+        } else {
+            const auto address = skan::core::parse_ip_address(ipv6_address_for(index / 2U));
+            target.resolved_hosts.push_back(
+                skan::core::Host{ipv6_address_for(index / 2U), std::nullopt, true, *address});
+        }
+    }
+    return target;
+}
+
+std::vector<std::uint8_t> ipv6_udp_frame()
+{
+    skan::packet::Ethernet ethernet(
+        {0x00U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U},
+        {0x66U, 0x77U, 0x88U, 0x99U, 0xAAU, 0xBBU}, 0x86DDU);
+    skan::packet::IPv6 ipv6;
+    ipv6.set_next_header(17U);
+    ipv6.set_source_address(skan::core::parse_ip_address("2001:db8::1")->bytes);
+    ipv6.set_destination_address(skan::core::parse_ip_address("2001:db8::2")->bytes);
+    skan::packet::UDP udp;
+    udp.set_source_port(40000U);
+    udp.set_destination_port(53U);
+    udp.set_payload({0x01U, 0x02U, 0x03U, 0x04U, 0x05U});
+    skan::packet::Packet packet;
+    packet.set_ethernet(ethernet);
+    packet.set_ipv6(ipv6);
+    packet.set_udp(udp);
+    return packet.serialize();
 }
 
 std::vector<skan::portscan::PortResult> open_ports_for(std::size_t count)
@@ -122,6 +192,30 @@ void benchmark_target_expansion(std::size_t count)
     });
 }
 
+void benchmark_ipv6_target_expansion(std::size_t count)
+{
+    const std::string specification = ipv6_address_for(0U) + "-" + ipv6_address_for(count - 1U);
+    measure("ipv6-target-expansion", count, [&specification, count]() {
+        const auto result = skan::target::TargetEngine::resolve(
+            specification, skan::target::TargetLimits{count, 64U});
+        return result.success() ? result.target_set.size() : 0U;
+    });
+}
+
+void benchmark_ipv6_receiver(std::size_t count)
+{
+    const std::vector<std::uint8_t> frame = ipv6_udp_frame();
+    measure("ipv6-receiver-parser", count, [&frame, count]() {
+        std::size_t valid = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            if (skan::net::PacketReceiver::parse(frame).status == skan::net::ParseStatus::Valid) {
+                ++valid;
+            }
+        }
+        return valid;
+    });
+}
+
 void benchmark_tcp(std::size_t count)
 {
     const skan::core::Target target = target_for(count);
@@ -136,6 +230,46 @@ void benchmark_tcp(std::size_t count)
         if (scheduler.submit(target, ports) != skan::core::StatusCode::Ok ||
             scheduler.run() != skan::core::StatusCode::Ok) {
             return std::size_t{0U};
+        }
+        return scheduler.results().size();
+    });
+}
+
+void benchmark_mixed_udp(std::size_t count)
+{
+    const skan::core::Target target = mixed_target_for(count);
+    const std::vector<skan::portscan::Port> ports{{53U, skan::portscan::Protocol::Udp}};
+    measure("mixed-udp-scheduler", count, [&target, &ports, count]() {
+        skan::io::IOEngine engine;
+        skan::portscan::RecordingUDPTransport transport;
+        skan::portscan::PortScanConfig config;
+        config.timeout = std::chrono::milliseconds{1};
+        config.max_outstanding = std::min<std::size_t>(count, 1024U);
+        config.retries = 0U;
+        skan::portscan::UDPScheduler scheduler(
+            engine, transport, skan::portscan::UDPProbeDatabase::built_in(), config);
+        if (scheduler.submit(target, ports) != skan::core::StatusCode::Ok) {
+            return std::size_t{0U};
+        }
+        std::size_t index = 0U;
+        while (index < transport.submissions().size()) {
+            const auto &submission = transport.submissions()[index++];
+            skan::packet::UDP response_packet;
+            response_packet.set_source_port(submission.port.number);
+            response_packet.set_destination_port(submission.source_port);
+            response_packet.set_payload({0x01U});
+            std::vector<std::uint8_t> bytes(response_packet.serialized_size(), 0U);
+            if (response_packet.serialize(bytes) != skan::core::StatusCode::Ok) {
+                return std::size_t{0U};
+            }
+            skan::portscan::UDPResponse response;
+            response.id = submission.id;
+            response.source_ip = submission.destination_ip;
+            response.source_port = submission.port.number;
+            response.destination_port = submission.source_port;
+            response.kind = skan::portscan::UDPResponseKind::Datagram;
+            response.bytes = std::move(bytes);
+            transport.deliver(response);
         }
         return scheduler.results().size();
     });
@@ -246,8 +380,11 @@ int main(int argc, char **argv)
     std::cout << "stage,target_count,median_wall_ms,p95_wall_ms,operations_per_second,peak_rss_kib,operations\n";
     for (const std::size_t count : counts) {
         benchmark_target_expansion(count);
+        benchmark_ipv6_target_expansion(count);
+        benchmark_ipv6_receiver(count);
         benchmark_tcp(count);
         benchmark_udp(count);
+        benchmark_mixed_udp(count);
         benchmark_service(count);
         benchmark_os(count);
         benchmark_orchestrator(count);

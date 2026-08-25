@@ -1,38 +1,52 @@
 # Skan Next-Phase Roadmap
 
 **Author:** Manus AI
-**Status:** Phase 15 implementation complete; future work remains explicitly scoped.
+**Status:** Phase 16 implementation complete; future work remains explicitly scoped and capability-gated.
 
-## Completed Phase 15 boundary
+## Completed Phase 16 boundary
 
-Phase 15 established a typed binary IPv4/IPv6 target identity, bounded IPv6 literals/CIDR/ranges, synchronous A+AAAA resolution before the reactor, a strict IPv6 base-header model, bounded extension recognition, IPv6 pseudo-header checksums, ICMPv6 support within the declared message scope, family-aware packet observation/correlation, AF_INET6 Connect and TCP service detection, offline IPv6 discovery/UDP construction, canonical family-aware output, CLI support, and deterministic local/injected tests.
+Phase 16 completes the production-safe dual-stack boundary on top of the Phase 0–15 architecture. Typed IPv4/IPv6 identity now includes optional validated IPv6 zone metadata, strict shared parsing, deterministic scope-aware formatting, equality, ordering, hashing, and explicit numeric/name interface-index resolution. Target and hostname expansion have hard ceilings of 1,000,000 targets and 4,096 hostname results in addition to caller-selected lower limits.
 
-The implementation continues to use one `IOEngine`, one timer mechanism, the existing packet composer, existing schedulers, existing capture/receiver, the existing Target Engine, the existing orchestrator, and the existing output model. It does not add threads, polling, sleeps, implicit interface selection, fallback, evasion, exploitation, credentials, persistence, or public-target traffic.
+The shared packet layer includes strict IPv6 base-header and bounded extension parsing, IPv4/IPv6 TCP and UDP checksum construction and receive validation, ICMPv6 checksum validation, and a bounded quoted IPv6/UDP parser for ICMPv6 error correlation. IPv4 UDP checksum zero remains accepted as the standards-defined exception; IPv6 UDP checksum zero is rejected. The existing UDP scheduler classifies only validated ICMPv6 Destination Unreachable code 4 quotes as closed evidence and keeps malformed, unsupported, unrelated, duplicate, and late observations non-conclusive.
 
-## P1: native Linux IPv6 capability, only with a controlled design
+AF_INET6 TCP Connect and TCP service detection use the existing nonblocking lifecycle and one `io::IOEngine`. Offline discovery, UDP, SYN construction, mixed-family orchestration, family-aware output, interface inventory, local IPv6 service integration, fuzz entry points, benchmarks, and deterministic 10,000-host IPv6/mixed scheduler tests reuse the existing packet, scheduler, transport, capture, correlation, and output contracts. No second scanner, reactor, scheduler, packet stack, thread, polling loop, sleep, fallback, evasion, exploitation, credential path, persistence mechanism, or public-target traffic was introduced.
 
-A future phase may add native Linux IPv6 raw discovery and packet scanning through explicit-interface AF_PACKET capture/injection. Acceptance requires a separately reviewed typed transport path, IPv6 neighbor and source-selection handling, bounded extension parsing reuse, family-aware correlation, controlled loopback/private-lab fixtures, and capability tests that remain explicit when unavailable. It must never select an interface implicitly or fall back to offline or Connect mode.
+## Current capability boundary
 
-A future phase may add a complete, bounded Neighbor Discovery implementation only if solicitation/advertisement state, link-local scope handling, options, timers, and malformed-input behavior are specified independently. The current Phase 15 code recognizes limited ND message forms but does not claim a complete ND stack.
+| Capability | Current status | Boundary |
+| --- | --- | --- |
+| IPv4/IPv6 literals, CIDR, ranges, mixed targets | Implemented | Expansion is bounded and deterministic. |
+| IPv6 zone identifiers | Implemented within scope | One strict `%zone` token is preserved; live link-local use requires an explicit resolvable zone. |
+| A/AAAA resolution | Implemented | Synchronous, pre-reactor, bounded, and deterministic. |
+| IPv6 packet/extensions/checksums | Implemented within bounds | Supported extensions and payloads are bounded; fragments are not reassembled. |
+| ICMPv6 UDP error correlation | Implemented offline/injected | Only validated quotes and supported classifications affect the existing scheduler. |
+| AF_INET6 Connect and service detection | Implemented | Uses the existing event/timer lifecycle; local `::1` coverage is conditional on platform support. |
+| IPv6 interface inventory | Implemented | `interfaces` reports typed addresses, zones, and family-specific capture/injection flags. |
+| Linux raw IPv6 discovery/SYN/UDP | Explicitly unavailable | The current adapters remain IPv4/ARP-specific; no fallback or implicit interface selection is allowed. |
+| Complete Neighbor Discovery | Explicitly unavailable | Limited message recognition is not a state machine or neighbor-resolution implementation. |
+| IPv6 OS fingerprinting | Explicitly unavailable | No OS identity is inferred without reliable IPv6 evidence transport. |
+| UDP service inference and broad fingerprint corpora | Not implemented | Silence and absent evidence remain explicit; no guessing is added. |
 
-## P1: IPv6 OS evidence only with real transport support
+## Future work requiring a separate acceptance review
 
-IPv6 OS fingerprinting remains unavailable with confidence zero. It may be considered only after a real IPv6 probe/capture transport and a project-owned evidence model are available. No future implementation may infer OS identity from an IPv6 address, port, service label, host platform, or other non-observed evidence.
+### Native Linux IPv6 raw capability
 
-## P2: measured correctness and protocol coverage
+A future phase may add native IPv6 raw discovery and packet scanning only through the existing Linux transport/capture and orchestrator seams. Acceptance would require an explicit interface, a coherent source-address policy, complete Ethernet neighbor handling or an explicitly supplied destination MAC policy, bounded extension reuse, exact family-aware correlation, controlled loopback/private-lab fixtures, and capability tests for permission and topology failures. It must never select an interface implicitly, silently use Connect or offline mode, spoof source identity, fragment packets, or contact public targets.
 
-If synchronous hostname resolution becomes material, replace it behind the existing injectable `HostnameResolver` seam with an asynchronous implementation that preserves A+AAAA bounds, deterministic ordering, duplicate suppression, pre-reactor ownership, and clear failure semantics.
+### Bounded Neighbor Discovery
 
-Additional TCP or UDP semantics may be considered only when they fit the existing typed models, strict correlation, bounded payload policies, shared packet composition, existing schedulers, canonical result states, and capability reporting. UDP service inference is not an implicit extension of UDP port scanning.
+A future phase may add local-link Neighbor Discovery only after solicitation/advertisement state, link-local scope, option parsing, timers, retries, malformed-input handling, cache ownership, and cancellation are specified as one bounded design. Limited ICMPv6 Neighbor Discovery recognition in the current packet model must not be represented as complete ND capability.
 
-Report-building and serialization changes should remain measurement-driven. Any optimization must preserve canonical ordering, family fields, escaping, atomic output-file replacement, and the existing writer contracts.
+### IPv6 OS evidence
 
-## P3: larger architectural commitments
+IPv6 OS fingerprinting may be considered only after a reliable IPv6 probe/capture transport and project-owned evidence model exist. The matcher must use observed packet evidence only, preserve explicit `UNAVAILABLE` and zero-confidence states, and remain within the existing OS scheduler and output model. It must not infer identity from an address, port, service label, local platform, or guessed network behavior.
 
-Optional scripting or extensibility would require a separate sandbox, execution budget, authorization model, cancellation contract, output model, and audit boundary. It remains deliberately out of scope.
+### Measurement and maintenance
 
-Broader fingerprint corpora, additional protocol families, and platform backends should be introduced only with project-owned provenance, strict resource limits, deterministic tests, and an explicit safety review. Nmap’s documented breadth is a comparison reference, not a requirement to reproduce unsafe or unimplemented features.
+If synchronous hostname resolution becomes a demonstrated startup bottleneck, it may be replaced behind the existing injectable `HostnameResolver` seam with bounded cancellation and deterministic A/AAAA ordering; it must not create an unreviewed worker or reactor architecture. Further packet semantics may be added only when they fit the current typed models, strict correlation, bounded payload policies, shared composition, existing schedulers, canonical result states, and capability reporting.
+
+Any broader service or OS corpus must have project-owned provenance, deterministic parser tests, bounded memory and execution behavior, and an explicit safety review. Optional scripting would require a separate sandbox, authorization, resource budget, cancellation contract, and output model. It is not an automatic extension of scanning.
 
 ## Non-goals
 
-The project continues to reject evasion, spoofing, decoys, fragmentation attacks, idle scanning, exploitation, credential handling, persistence, public-target automation, implicit raw-interface selection, and any fallback that disguises missing live capability. Phase 16 is not started by this roadmap update.
+Skan continues to reject evasion, spoofing, decoys, fragmentation attacks, idle scanning, exploitation, credential handling, persistence, public-target automation, implicit raw-interface selection, and any fallback that disguises missing live capability. Nmap feature breadth remains a comparison reference rather than an implementation obligation.

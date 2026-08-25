@@ -16,17 +16,7 @@ namespace {
 
 std::optional<core::IpAddress> parse_target_address(std::string_view text) noexcept
 {
-    in_addr ipv4{};
-    if (::inet_pton(AF_INET, std::string(text).c_str(), &ipv4) == 1) {
-        return core::IpAddress::from_ipv4(ntohl(ipv4.s_addr));
-    }
-    in6_addr ipv6{};
-    if (::inet_pton(AF_INET6, std::string(text).c_str(), &ipv6) == 1) {
-        std::array<std::uint8_t, 16U> bytes{};
-        std::copy(std::begin(ipv6.s6_addr), std::end(ipv6.s6_addr), bytes.begin());
-        return core::IpAddress::from_ipv6(bytes);
-    }
-    return std::nullopt;
+    return core::parse_ip_address(text);
 }
 
 std::optional<core::IpAddress> submission_address(const PortSubmission &submission) noexcept
@@ -175,9 +165,19 @@ core::StatusCode TcpConnectTransport::submit(
     sockaddr_storage socket_address{};
     socklen_t socket_address_size = 0U;
     if (address->is_ipv6()) {
+        if (address->is_ipv6_link_local() && !address->has_scope()) {
+            ::close(file_descriptor);
+            return core::StatusCode::InvalidArgument;
+        }
+        const auto scope_id = core::ipv6_scope_id(*address);
+        if (!scope_id.has_value()) {
+            ::close(file_descriptor);
+            return core::StatusCode::InvalidArgument;
+        }
         auto *ipv6_address = reinterpret_cast<sockaddr_in6 *>(&socket_address);
         ipv6_address->sin6_family = AF_INET6;
         ipv6_address->sin6_port = htons(submission.port.number);
+        ipv6_address->sin6_scope_id = *scope_id;
         std::copy(address->bytes.begin(), address->bytes.end(), ipv6_address->sin6_addr.s6_addr);
         socket_address_size = static_cast<socklen_t>(sizeof(sockaddr_in6));
     } else {

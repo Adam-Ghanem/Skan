@@ -447,6 +447,7 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
     portscan::PortResponse response;
     response.id = *matched_id;
     response.source_address = ipv4_text(source_address);
+    response.source_ip = core::IpAddress::from_ipv4(source_address);
     response.kind = portscan::PortResponseKind::Packet;
     response.bytes = std::move(bytes);
     response.received_at = observation.received_at;

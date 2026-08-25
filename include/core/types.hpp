@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace skan::core {
@@ -18,12 +19,20 @@ enum class AddressFamily : std::uint8_t {
 struct IpAddress final {
     AddressFamily family{AddressFamily::Unknown};
     std::array<std::uint8_t, 16U> bytes{};
+    // A scope is meaningful only for IPv6 and is preserved exactly in the
+    // typed identity; it is never silently discarded during normalization.
+    std::optional<std::string> scope;
 
     static IpAddress from_ipv4(std::uint32_t address) noexcept;
     static IpAddress from_ipv6(const std::array<std::uint8_t, 16U> &address) noexcept;
 
     bool is_ipv4() const noexcept { return family == AddressFamily::IPv4; }
     bool is_ipv6() const noexcept { return family == AddressFamily::IPv6; }
+    bool is_ipv6_link_local() const noexcept
+    {
+        return is_ipv6() && bytes[0] == 0xFEU && (bytes[1] & 0xC0U) == 0x80U;
+    }
+    bool has_scope() const noexcept { return is_ipv6() && scope.has_value() && !scope->empty(); }
     bool valid() const noexcept { return is_ipv4() || is_ipv6(); }
     std::string to_string() const;
 
@@ -36,6 +45,8 @@ struct IpAddressHash final {
 };
 
 const char *address_family_name(AddressFamily family) noexcept;
+std::optional<IpAddress> parse_ip_address(std::string_view text) noexcept;
+std::optional<std::uint32_t> ipv6_scope_id(const IpAddress &address) noexcept;
 
 inline bool operator!=(const IpAddress &left, const IpAddress &right) noexcept
 {

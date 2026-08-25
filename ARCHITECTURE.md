@@ -637,7 +637,7 @@ Phase 15 adds bounded IPv6 parsing and offline/Connect dual-stack behavior while
 
 ## Phase 15 — IPv6 foundation and dual-stack boundaries
 
-Phase 15 preserves the Phase 0–14 architecture and extends the existing contracts with typed dual-stack identity. `core::IpAddress` stores an address family and binary bytes; canonical text formatting is a presentation concern. `core::Host`, `target::ResolvedTarget`, probe submissions, correlation keys, and `output::HostResult` carry the typed identity. Equality, hashing, deduplication, filtering, and ordering therefore cannot confuse an IPv4 address with an IPv6 address that has similar text or mapped representation.
+Phase 15–16 preserve the Phase 0–14 architecture and extend the existing contracts with typed dual-stack identity. `core::IpAddress` stores an address family and binary bytes; canonical text formatting is a presentation concern. `core::Host`, `target::ResolvedTarget`, probe submissions, correlation keys, and `output::HostResult` carry the typed identity. Equality, hashing, deduplication, filtering, and ordering therefore cannot confuse an IPv4 address with an IPv6 address that has similar text or mapped representation.
 
 The target path is:
 
@@ -655,7 +655,7 @@ deterministic typed TargetSet
 existing ScanOrchestrator and ScanPipeline
 ```
 
-IPv4 and IPv6 literals, CIDR, inclusive ranges, comma-separated mixtures, and bounded A+AAAA hostname resolution are handled before the shared reactor starts. IPv6 CIDR/range expansion performs size checks before iteration and never materializes an uncontrolled address space. Downstream modules receive only normalized hosts and do not add another target parser.
+IPv4 and IPv6 literals, one validated IPv6 `%zone` token, CIDR, inclusive ranges, comma-separated mixtures, and bounded A+AAAA hostname resolution are handled before the shared reactor starts. IPv6 CIDR/range expansion performs size checks before iteration and never materializes an uncontrolled address space. Hard ceilings bound target and hostname expansion, and a zone resolves only an explicitly named or numeric interface. Downstream modules receive only normalized hosts and do not add another target parser.
 
 The packet path remains singular:
 
@@ -672,10 +672,21 @@ PacketReceiver observations
 family-aware filters and one correlation boundary
 ```
 
-The IPv6 packet model validates the fixed 40-byte base header, version, payload length, traffic class, flow label, next-header, hop-limit, and binary addresses. The shared extension parser recognizes Hop-by-Hop Options, Routing, Fragment, and Destination Options headers under explicit count and byte budgets and returns typed malformed, unsupported, or limit outcomes. It is a recognition/parser boundary, not a fragmentation or evasion mechanism. TCP, UDP, and ICMPv6 checksums use the RFC-style IPv6 pseudo-header through one shared checksum helper.
+The IPv6 packet model validates the fixed 40-byte base header, version, payload length, traffic class, flow label, next-header, hop-limit, and binary addresses. The shared extension parser recognizes Hop-by-Hop Options, Routing, Fragment, and Destination Options headers under explicit count and byte budgets and returns typed malformed, unsupported, or limit outcomes. The quoted-IPv6 parser reuses those bounds to extract only validated UDP identity fields from ICMPv6 errors. It is a recognition/parser boundary, not a fragmentation or evasion mechanism. TCP, UDP, and ICMPv6 checksums use the RFC-style IPv6 pseudo-header through one shared checksum helper; receive validation rejects bad TCP/UDP checksums, permits zero IPv4 UDP checksums, and rejects zero IPv6 UDP checksums.
 
-The same Phase 1 `io::IOEngine`, event lifecycle, one-shot timers, schedulers, capture path, and output model are reused for both families. AF_INET6 TCP Connect and bounded service detection use the existing nonblocking stream lifecycle. Offline discovery, UDP construction, ICMPv6 Echo, and synthetic receiver/correlation tests use the existing recording/injected seams. Canonical reports carry `family=ipv4` or `family=ipv6`; JSON, XML, normal, and grepable writers expose it without reconstructing another report model.
+The same Phase 1 `io::IOEngine`, event lifecycle, one-shot timers, schedulers, capture path, and output model are reused for both families. AF_INET6 TCP Connect and bounded service detection use the existing nonblocking stream lifecycle. Offline discovery, UDP construction, ICMPv6 Echo/error correlation, scoped SYN construction, and synthetic receiver/correlation tests use the existing recording/injected seams. Interface enumeration exposes typed IPv6 addresses and family-specific capability fields. Canonical reports carry `family=ipv4` or `family=ipv6`; JSON, XML, normal, and grepable writers expose it without reconstructing another report model.
 
 Linux raw IPv6 capture/injection is an explicit unavailable capability in this phase. The existing Linux discovery, raw SYN, raw UDP, and live OS adapters remain IPv4/ARP-specific and require an explicitly selected interface. An IPv6 request to those paths returns an explicit unavailable/capability error; it is never changed to offline or Connect mode, and no interface is selected implicitly. IPv6 OS fingerprinting returns structured `UNAVAILABLE` with zero confidence rather than deriving identity from address, port, service, or local platform data. Limited ICMPv6 Neighbor Discovery recognition does not claim a complete ND implementation.
 
-Phase 15 introduces no second reactor, worker threads, polling loops, sleeps, duplicate packet stack, evasion, spoofing, decoys, fragmentation attacks, exploitation, credentials, persistence, or public-target traffic. Phase 16 is intentionally not part of this repository state.
+Phase 16 introduces no second reactor, worker threads, polling loops, sleeps, duplicate packet stack, evasion, spoofing, decoys, fragmentation attacks, exploitation, credentials, persistence, or public-target traffic. Native Linux raw IPv6 discovery/SYN/UDP, complete ND, and IPv6 OS fingerprinting remain explicit unavailable capabilities; requested IPv6 raw work never falls back to another transport.
+
+
+## Phase 16 — production dual-stack completion
+
+Phase 16 completes the safe dual-stack integration within the same architecture. Scoped IPv6 identity is carried as binary address bytes plus optional validated zone text through target resolution, Host values, probe submissions, correlation, Connect/service socket construction, and output formatting. Numeric zones are checked as nonzero interface indices; named zones are resolved with `if_nametoindex`; no caller path strips a zone or invents an interface.
+
+The target and packet hardening boundaries are explicit. Target and hostname expansion are rejected above documented hard ceilings. TCP and UDP receive checksums are validated for both address families, with zero IPv4 UDP checksum accepted as the IPv4 exception and zero IPv6 UDP checksum rejected. ICMPv6 error quotes are parsed through one bounded packet-layer IPv6/extension/UDP helper and correlated by exact family, binary source/destination identity, and ports before the existing UDP scheduler classifies the evidence.
+
+`skan interfaces` reports typed IPv6 addresses, link-local zones, and separate IPv6 capture/injection capability fields. The local service fixture exercises AF_INET6 `::1` HTTP-like and SSH-like banners when available. Offline discovery, UDP, SYN construction, mixed-family orchestration, fuzz entry points, and 10,000-host IPv6/mixed scheduler tests remain on the existing recording/injected seams.
+
+The Linux raw adapter boundary remains intentionally narrow. Raw IPv6 discovery, TCP SYN, and UDP transmission are not claimed because complete source selection, Ethernet neighbor resolution, and capture/injection behavior are not implemented as one coherent capability. Complete Neighbor Discovery and IPv6 OS fingerprinting also remain unavailable. Selecting a Linux raw path for IPv6 returns an explicit capability error; it never falls back to Connect, offline mode, or an implicitly selected interface. This keeps the implementation capability-honest while leaving the shared transport, capture, correlation, and orchestrator seams reusable for a future explicitly scoped extension.

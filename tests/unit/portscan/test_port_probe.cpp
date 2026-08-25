@@ -102,6 +102,29 @@ int main()
     assert(syn_probe.assess(unrelated, syn_submission, state, reason) == skan::core::StatusCode::NotFound);
     assert(!tcp_syn_network_capability_available());
 
+    const auto scoped_ip = skan::core::parse_ip_address("fe80::1%lo");
+    assert(scoped_ip.has_value());
+    PortSubmission ipv6_syn_submission;
+    const skan::core::Host ipv6_host{"fe80::1%lo", std::nullopt, true, *scoped_ip};
+    assert(syn_probe.build(8U, ipv6_host, port, PortScanConfig{}, ipv6_syn_submission) ==
+           skan::core::StatusCode::Ok);
+    assert(ipv6_syn_submission.target_ip == *scoped_ip);
+    const auto parsed_ipv6_request = skan::packet::TCP::parse(ipv6_syn_submission.packet);
+    assert(parsed_ipv6_request.has_value());
+    skan::packet::TCP ipv6_syn_ack;
+    ipv6_syn_ack.set_source_port(port.number);
+    ipv6_syn_ack.set_destination_port(ipv6_syn_submission.source_port);
+    ipv6_syn_ack.set_sequence_number(123U);
+    ipv6_syn_ack.set_acknowledgment_number(ipv6_syn_submission.sequence_number + 1U);
+    ipv6_syn_ack.set_flags(skan::packet::TcpFlag::Syn | skan::packet::TcpFlag::Ack);
+    ipv6_syn_ack.set_window(4096U);
+    PortResponse ipv6_syn_ack_response{8U, "fe80::1%lo", PortResponseKind::Packet, 0,
+                                       serialize_tcp(ipv6_syn_ack), PortScanClock::now(), *scoped_ip};
+    assert(syn_probe.assess(ipv6_syn_ack_response, ipv6_syn_submission, state, reason) ==
+           skan::core::StatusCode::Ok);
+    assert(state == PortState::Open);
+    assert(reason == ScanReason::SynAck);
+
     RecordingPortScanTransport recording;
     bool delivered = false;
     assert(recording.submit(connect_submission, [&delivered](const PortResponse &) { delivered = true; }) ==

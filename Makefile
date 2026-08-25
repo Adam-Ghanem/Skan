@@ -51,8 +51,9 @@ CPP_SOURCES := \
 	src/packet/ethernet.cpp \
 			src/packet/ipv4.cpp \
 					src/packet/ipv6.cpp \
-			src/packet/ipv6_extensions.cpp \
-			src/packet/tcp.cpp \
+					src/packet/ipv6_extensions.cpp \
+				 src/packet/ipv6_quote.cpp \
+				src/packet/tcp.cpp \
 		src/packet/udp.cpp \
 		src/packet/icmp.cpp \
 				src/packet/icmpv6.cpp \
@@ -127,7 +128,7 @@ NET_OBJECTS := $(BUILD_DIR)/net/interface.o $(BUILD_DIR)/net/interface_types.o \
 		$(BUILD_DIR)/net/linux_discovery_transport.o
 
 PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packet.o \
-		$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/ipv6.o $(BUILD_DIR)/packet/ipv6_extensions.o $(BUILD_DIR)/packet/tcp.o \
+		$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/ipv6.o $(BUILD_DIR)/packet/ipv6_extensions.o $(BUILD_DIR)/packet/ipv6_quote.o $(BUILD_DIR)/packet/tcp.o \
 		$(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/icmp.o $(BUILD_DIR)/packet/icmpv6.o $(BUILD_DIR)/packet/checksum.o
 
 PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o \

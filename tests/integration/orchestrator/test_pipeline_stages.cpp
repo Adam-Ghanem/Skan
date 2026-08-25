@@ -90,7 +90,7 @@ private:
 int main()
 {
     skan::orchestrator::ScanConfig config;
-    config.targets = {{"127.0.0.1", {{"127.0.0.1", std::nullopt, false}}}};
+    config.targets = {{"127.0.0.1,::1", {{"127.0.0.1", std::nullopt, false}, {"::1", std::nullopt, false}}}};
     config.transport = skan::orchestrator::ScanTransport::Connect;
     config.port_method = skan::portscan::ScanProbeType::TcpConnect;
     config.ports = {80U};
@@ -121,7 +121,7 @@ int main()
     assert(pipeline.state() == skan::orchestrator::PipelineState::Completed);
     assert(pipeline.report().has_value());
     const auto summary = skan::output::calculate_summary(*pipeline.report());
-    assert(summary.open_ports == 1U);
+    assert(summary.open_ports == 2U);
     assert(summary.services_detected == 0U);
     assert(summary.os_matches == 0U);
     assert(!pipeline.report()->warnings.empty());

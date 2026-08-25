@@ -52,6 +52,8 @@ private:
         const PacketObservation &observation) const noexcept;
     std::optional<portscan::UDPProbeId> match_icmp(
         const PacketObservation &observation) const noexcept;
+    std::optional<portscan::UDPProbeId> match_icmpv6(
+        const PacketObservation &observation) const noexcept;
 
     io::IOEngine &io_engine_;
     NetworkScanConfig config_;

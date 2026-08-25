@@ -137,7 +137,8 @@ PacketObservation PacketReceiver::parse(
                 return observation;
             }
             observation.tcp = packet::TCP::parse(transport);
-            if (!observation.tcp.has_value()) {
+            if (!observation.tcp.has_value() || packet::checksum::ipv6_pseudo_header(
+                    observation.ipv6->source_address(), observation.ipv6->destination_address(), 6U, transport) != 0U) {
                 observation.status = ParseStatus::MalformedTCP;
                 return observation;
             }
@@ -156,8 +157,10 @@ PacketObservation PacketReceiver::parse(
                 observation.status = ParseStatus::TruncatedUDP;
                 return observation;
             }
-            observation.udp = packet::UDP::parse(transport.first(udp_length));
-            if (!observation.udp.has_value()) {
+            const std::span<const std::uint8_t> udp_packet = transport.first(udp_length);
+            observation.udp = packet::UDP::parse(udp_packet);
+            if (!observation.udp.has_value() || observation.udp->checksum() == 0U || packet::checksum::ipv6_pseudo_header(
+                    observation.ipv6->source_address(), observation.ipv6->destination_address(), 17U, udp_packet) != 0U) {
                 observation.status = ParseStatus::MalformedUDP;
                 return observation;
             }
@@ -227,7 +230,8 @@ PacketObservation PacketReceiver::parse(
             return observation;
         }
         observation.tcp = packet::TCP::parse(transport);
-        if (!observation.tcp.has_value()) {
+        if (!observation.tcp.has_value() || packet::checksum::ipv4_pseudo_header(
+                observation.ipv4->source_address(), observation.ipv4->destination_address(), 6U, transport) != 0U) {
             observation.status = ParseStatus::MalformedTCP;
             return observation;
         }
@@ -246,8 +250,11 @@ PacketObservation PacketReceiver::parse(
             observation.status = ParseStatus::TruncatedUDP;
             return observation;
         }
-        observation.udp = packet::UDP::parse(transport.first(udp_length));
-        if (!observation.udp.has_value()) {
+        const std::span<const std::uint8_t> udp_packet = transport.first(udp_length);
+        observation.udp = packet::UDP::parse(udp_packet);
+        if (!observation.udp.has_value() ||
+            (observation.udp->checksum() != 0U && packet::checksum::ipv4_pseudo_header(
+                observation.ipv4->source_address(), observation.ipv4->destination_address(), 17U, udp_packet) != 0U)) {
             observation.status = ParseStatus::MalformedUDP;
             return observation;
         }

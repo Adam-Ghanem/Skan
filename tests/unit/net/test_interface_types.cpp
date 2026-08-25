@@ -11,14 +11,21 @@ int main()
     const std::array<std::uint8_t, 4U> expected_ipv4{192U, 0U, 2U, 1U};
     assert(address.ipv4 == expected_ipv4);
     assert(address.prefix_length == 24U);
+    const auto ipv6 = skan::core::parse_ip_address("fe80::1%zeta0");
+    assert(ipv6.has_value());
+    skan::net::InterfaceIPv6Address ipv6_address{*ipv6, 64U};
+    assert(ipv6_address.address.to_string() == "fe80::1%zeta0");
 
     skan::net::NetworkInterface first;
     first.name = "zeta0";
     first.index = 9U;
     first.ipv4_addresses.push_back(address);
+    first.ipv6_addresses.push_back(ipv6_address);
     first.is_up = true;
     first.supports_capture = true;
     first.supports_injection = false;
+    first.supports_ipv6_capture = true;
+    first.supports_ipv6_injection = false;
     skan::net::NetworkInterface second;
     second.name = "alpha0";
     second.index = 4U;

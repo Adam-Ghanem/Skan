@@ -10,6 +10,7 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <span>
 #include <unistd.h>
 
 namespace skan::net {
@@ -31,6 +32,23 @@ std::uint8_t prefix_length(const sockaddr_in *netmask) noexcept
     return prefix;
 }
 
+std::uint8_t prefix_length(const sockaddr_in6 *netmask) noexcept
+{
+    if (netmask == nullptr) {
+        return 0U;
+    }
+    std::uint8_t prefix = 0U;
+    for (const std::uint8_t byte : std::span<const std::uint8_t>{netmask->sin6_addr.s6_addr, 16U}) {
+        for (int bit = 7; bit >= 0; --bit) {
+            if ((byte & (static_cast<std::uint8_t>(1U) << static_cast<unsigned int>(bit))) == 0U) {
+                return prefix;
+            }
+            ++prefix;
+        }
+    }
+    return prefix;
+}
+
 void add_ipv4_address(NetworkInterface &interface, const ifaddrs *address)
 {
     if (address == nullptr || address->ifa_addr == nullptr || address->ifa_addr->sa_family != AF_INET) {
@@ -44,6 +62,28 @@ void add_ipv4_address(NetworkInterface &interface, const ifaddrs *address)
     if (std::find(interface.ipv4_addresses.begin(), interface.ipv4_addresses.end(), value) ==
         interface.ipv4_addresses.end()) {
         interface.ipv4_addresses.push_back(value);
+    }
+}
+
+void add_ipv6_address(NetworkInterface &interface, const ifaddrs *address)
+{
+    if (address == nullptr || address->ifa_addr == nullptr || address->ifa_addr->sa_family != AF_INET6 ||
+        address->ifa_name == nullptr || address->ifa_name[0] == '\0') {
+        return;
+    }
+    const auto *ipv6 = reinterpret_cast<const sockaddr_in6 *>(address->ifa_addr);
+    std::array<std::uint8_t, 16U> bytes{};
+    std::memcpy(bytes.data(), ipv6->sin6_addr.s6_addr, bytes.size());
+    InterfaceIPv6Address value;
+    value.address = core::IpAddress::from_ipv6(bytes);
+    if (value.address.is_ipv6_link_local()) {
+        value.address.scope = std::string(address->ifa_name);
+    }
+    const auto *netmask = reinterpret_cast<const sockaddr_in6 *>(address->ifa_netmask);
+    value.prefix_length = prefix_length(netmask);
+    if (std::find(interface.ipv6_addresses.begin(), interface.ipv6_addresses.end(), value) ==
+        interface.ipv6_addresses.end()) {
+        interface.ipv6_addresses.push_back(value);
     }
 }
 
@@ -94,6 +134,7 @@ InterfaceEnumerationResult enumerate_interfaces_result()
         interface.index = if_nametoindex(address->ifa_name);
         interface.is_up = interface.is_up || ((address->ifa_flags & IFF_UP) != 0U);
         add_ipv4_address(interface, address);
+        add_ipv6_address(interface, address);
     }
     ::freeifaddrs(addresses);
 
@@ -102,10 +143,19 @@ InterfaceEnumerationResult enumerate_interfaces_result()
         const auto capabilities = probe_capabilities(interface.index);
         interface.supports_capture = capabilities.first;
         interface.supports_injection = capabilities.second;
+        interface.supports_ipv6_capture = capabilities.first;
+        interface.supports_ipv6_injection = capabilities.second;
         std::sort(interface.ipv4_addresses.begin(), interface.ipv4_addresses.end(),
                   [](const InterfaceAddress &left, const InterfaceAddress &right) {
                       if (left.ipv4 != right.ipv4) {
                           return left.ipv4 < right.ipv4;
+                      }
+                      return left.prefix_length < right.prefix_length;
+                  });
+        std::sort(interface.ipv6_addresses.begin(), interface.ipv6_addresses.end(),
+                  [](const InterfaceIPv6Address &left, const InterfaceIPv6Address &right) {
+                      if (left.address != right.address) {
+                          return left.address < right.address;
                       }
                       return left.prefix_length < right.prefix_length;
                   });

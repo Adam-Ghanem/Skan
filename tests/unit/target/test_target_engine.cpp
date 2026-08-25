@@ -96,6 +96,25 @@ int main()
     assert(ipv6_range.success());
     assert(ipv6_range.target_set.size() == 3U);
 
+    const auto scoped = parse_ip_address("fe80::1%lo");
+    assert(scoped.has_value());
+    assert(scoped->is_ipv6());
+    assert(scoped->has_scope());
+    assert(scoped->scope == std::optional<std::string>{"lo"});
+    assert(scoped->to_string() == "fe80::1%lo");
+    const TargetResolutionResult scoped_target = TargetEngine::resolve("fe80::1%lo");
+    assert(scoped_target.success());
+    assert(scoped_target.target_set.targets.front().ip_address == *scoped);
+    assert(TargetEngine::resolve("fe80::1%lo/128").success());
+    const TargetParseResult mixed_scoped_range = TargetParser::parse("fe80::1%lo-fe80::2%eth0");
+    assert(!mixed_scoped_range.success());
+    assert(mixed_scoped_range.error.code == TargetErrorCode::InvalidRange);
+    const std::vector<ResolvedTarget> scoped_duplicates = {
+        ResolvedTarget{0U, std::nullopt, ip_address("fe80::1%lo")},
+        ResolvedTarget{0U, std::nullopt, ip_address("fe80::1%eth0")},
+        ResolvedTarget{0U, std::nullopt, ip_address("fe80::1%lo")}};
+    assert(TargetDeduplicator::deduplicate(scoped_duplicates).size() == 2U);
+
     const TargetResolutionResult mixed = TargetEngine::resolve("::1,127.0.0.1");
     assert(mixed.success());
     assert(mixed.target_set.size() == 2U);
@@ -135,6 +154,17 @@ int main()
     assert(exhausted.status == skan::core::StatusCode::ResourceExhausted);
     assert(exhausted.error.code == TargetErrorCode::ResourceExhausted);
 
+    const TargetResolutionResult hard_limit_exhausted = TargetEngine::resolve(
+        "::1", TargetLimits{TargetLimits::kMaximumTargets + 1U, 64U});
+    assert(!hard_limit_exhausted.success());
+    assert(hard_limit_exhausted.status == skan::core::StatusCode::ResourceExhausted);
+    assert(hard_limit_exhausted.error.code == TargetErrorCode::ResourceExhausted);
+    const TargetResolutionResult hostname_hard_limit_exhausted = TargetEngine::resolve(
+        "lab.example", TargetLimits{4096U, TargetLimits::kMaximumHostnameResults + 1U}, controlled_resolver);
+    assert(!hostname_hard_limit_exhausted.success());
+    assert(hostname_hard_limit_exhausted.status == skan::core::StatusCode::ResourceExhausted);
+    assert(hostname_hard_limit_exhausted.error.code == TargetErrorCode::ResourceExhausted);
+
     const TargetResolutionResult hostname_exhausted = TargetEngine::resolve("lab.example", TargetLimits{4096U, 1U}, controlled_resolver);
     assert(!hostname_exhausted.success());
     assert(hostname_exhausted.status == skan::core::StatusCode::ResourceExhausted);
@@ -148,6 +178,8 @@ int main()
         {"-bad.example", TargetErrorCode::InvalidHostname},
         {"192.168.1.1,,192.168.1.2", TargetErrorCode::InvalidTarget},
         {"2001:db8:::1", TargetErrorCode::InvalidTarget},
+        {"fe80::1%", TargetErrorCode::InvalidScope},
+        {"fe80::1%lo%eth0", TargetErrorCode::InvalidScope},
         {"2001:db8::/129", TargetErrorCode::InvalidCIDR}};
     for (const auto &[input, expected] : invalid) {
         const TargetParseResult result = TargetParser::parse(input);

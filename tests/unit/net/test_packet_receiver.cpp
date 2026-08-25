@@ -10,6 +10,7 @@
 #include "net/capture.hpp"
 #include "packet/checksum.hpp"
 #include "packet/packet.hpp"
+#include "packet/ipv6_quote.hpp"
 
 #include "net_test_fixture.hpp"
 
@@ -169,6 +170,15 @@ int main()
     malformed_tcp[14U + 20U + 12U] = 0x40U;
     assert(skan::net::PacketReceiver::parse(malformed_tcp).status == skan::net::ParseStatus::MalformedTCP);
 
+    auto ipv4_zero_checksum_udp = udp_frame;
+    ipv4_zero_checksum_udp[14U + 20U + 6U] = 0U;
+    ipv4_zero_checksum_udp[14U + 20U + 7U] = 0U;
+    assert(skan::net::PacketReceiver::parse(ipv4_zero_checksum_udp).status == skan::net::ParseStatus::Valid);
+
+    auto malformed_udp_checksum = udp_frame;
+    malformed_udp_checksum[14U + 20U + 6U] ^= 0x01U;
+    assert(skan::net::PacketReceiver::parse(malformed_udp_checksum).status == skan::net::ParseStatus::MalformedUDP);
+
     auto malformed_udp = udp_frame;
     malformed_udp[14U + 20U + 4U] = 0U;
     malformed_udp[14U + 20U + 5U] = 1U;
@@ -184,6 +194,47 @@ int main()
     assert(ipv6.ipv6.has_value());
     assert(ipv6.icmpv6.has_value());
     assert(ipv6.icmpv6->sequence() == 8U);
+
+    const auto ipv6_tcp_frame = skan::test::test_ipv6_tcp_frame();
+    assert(skan::net::PacketReceiver::parse(ipv6_tcp_frame).status == skan::net::ParseStatus::Valid);
+    auto malformed_ipv6_tcp_checksum = ipv6_tcp_frame;
+    malformed_ipv6_tcp_checksum[14U + 40U + 16U] ^= 0x01U;
+    assert(skan::net::PacketReceiver::parse(malformed_ipv6_tcp_checksum).status ==
+           skan::net::ParseStatus::MalformedTCP);
+
+    const auto ipv6_udp_frame = skan::test::test_ipv6_udp_frame();
+    assert(skan::net::PacketReceiver::parse(ipv6_udp_frame).status == skan::net::ParseStatus::Valid);
+    auto malformed_ipv6_udp_checksum = ipv6_udp_frame;
+    malformed_ipv6_udp_checksum[14U + 40U + 6U] ^= 0x01U;
+    assert(skan::net::PacketReceiver::parse(malformed_ipv6_udp_checksum).status ==
+           skan::net::ParseStatus::MalformedUDP);
+    auto zero_ipv6_udp_checksum = ipv6_udp_frame;
+    zero_ipv6_udp_checksum[14U + 40U + 6U] = 0U;
+    zero_ipv6_udp_checksum[14U + 40U + 7U] = 0U;
+    assert(skan::net::PacketReceiver::parse(zero_ipv6_udp_checksum).status == skan::net::ParseStatus::MalformedUDP);
+
+    auto ipv6_extension_udp = ipv6_udp_frame;
+    const std::vector<std::uint8_t> hop_by_hop{17U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
+    ipv6_extension_udp.insert(ipv6_extension_udp.begin() + 14 + 40, hop_by_hop.begin(), hop_by_hop.end());
+    ipv6_extension_udp[14U + 6U] = 0U;
+    const std::uint16_t extension_payload_length = static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(ipv6_extension_udp[14U + 4U]) << 8U) | ipv6_extension_udp[14U + 5U]);
+    ipv6_extension_udp[14U + 4U] = static_cast<std::uint8_t>((extension_payload_length + 8U) >> 8U);
+    ipv6_extension_udp[14U + 5U] = static_cast<std::uint8_t>((extension_payload_length + 8U) & 0xFFU);
+    assert(skan::net::PacketReceiver::parse(ipv6_extension_udp).status == skan::net::ParseStatus::Valid);
+    auto malformed_ipv6_extension_udp = ipv6_extension_udp;
+    malformed_ipv6_extension_udp[14U + 40U + 8U + 6U] ^= 0x01U;
+    assert(skan::net::PacketReceiver::parse(malformed_ipv6_extension_udp).status ==
+           skan::net::ParseStatus::MalformedUDP);
+
+    const auto ipv6_quote_input = std::span<const std::uint8_t>{ipv6_udp_frame}.subspan(14U).first(48U);
+    const auto ipv6_quote = skan::packet::parse_ipv6_udp_quote(ipv6_quote_input);
+    assert(ipv6_quote.has_value());
+    assert(ipv6_quote->source_port == 5353U);
+    assert(ipv6_quote->destination_port == 53U);
+    auto malformed_ipv6_quote = std::vector<std::uint8_t>{ipv6_quote_input.begin(), ipv6_quote_input.end()};
+    malformed_ipv6_quote[6U] = 6U;
+    assert(!skan::packet::parse_ipv6_udp_quote(malformed_ipv6_quote).has_value());
 
     auto malformed_ipv6 = ipv6_frame;
     malformed_ipv6[14U] = 0x45U;

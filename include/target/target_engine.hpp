@@ -33,6 +33,7 @@ enum class TargetErrorCode : std::uint8_t {
     InvalidCIDR,
     InvalidRange,
     InvalidHostname,
+    InvalidScope,
     ResolutionFailed,
     ResourceExhausted,
     UnsupportedTarget,
@@ -74,8 +75,17 @@ struct TargetSet final {
 };
 
 struct TargetLimits final {
+    static constexpr std::size_t kMaximumTargets = 1'000'000U;
+    static constexpr std::size_t kMaximumHostnameResults = 4096U;
+
     std::size_t max_targets{4096U};
     std::size_t max_hostname_results{64U};
+
+    bool valid() const noexcept
+    {
+        return max_targets > 0U && max_targets <= kMaximumTargets && max_hostname_results > 0U &&
+               max_hostname_results <= kMaximumHostnameResults;
+    }
 };
 
 struct TargetParseResult final {
@@ -134,7 +144,7 @@ class TargetResolver final {
 public:
     /**
      * Expand parsed specifications and resolve hostnames. The default resolver
-     * calls getaddrinfo(AF_INET) synchronously; callers should invoke this
+     * calls getaddrinfo(AF_UNSPEC) synchronously; callers should invoke this
      * boundary before entering the scan IOEngine loop.
      */
     static TargetExpansionResult expand(

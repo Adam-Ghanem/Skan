@@ -45,6 +45,7 @@ struct PortResponse final {
     int system_error{0};
     std::vector<std::uint8_t> bytes;
     PortScanTimePoint received_at{};
+    core::IpAddress source_ip{};
 };
 
 class PortScanTransport {

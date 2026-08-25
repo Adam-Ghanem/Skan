@@ -1,4 +1,5 @@
 #include <cassert>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
@@ -141,6 +142,27 @@ int main()
     assert(ipv6_scheduler.results().front().state == PortState::Open);
     assert(ipv6_scheduler.run() == core::StatusCode::Ok);
 
+    const auto scoped_ipv6 = core::parse_ip_address("fe80::1%lo");
+    assert(scoped_ipv6.has_value());
+    const core::Target scoped_target{"fe80::1%lo", {core::Host{"fe80::1%lo", std::nullopt, false, *scoped_ipv6}}};
+    RecordingUDPTransport scoped_transport;
+    UDPScheduler scoped_scheduler(engine, scoped_transport, database, ipv6_config);
+    assert(scoped_scheduler.submit(scoped_target, {{53U, Protocol::Udp}}) == core::StatusCode::Ok);
+    const UDPSubmission &scoped_submission = scoped_transport.submissions().front();
+    assert(scoped_submission.destination_ip == *scoped_ipv6);
+    UDPResponse scoped_error;
+    scoped_error.id = scoped_submission.id;
+    scoped_error.source_ip = *scoped_ipv6;
+    scoped_error.source_port = 53U;
+    scoped_error.destination_port = scoped_submission.source_port;
+    scoped_error.kind = UDPResponseKind::IcmpPortUnreachable;
+    scoped_transport.deliver(scoped_error);
+    assert(scoped_scheduler.results().size() == 1U);
+    assert(scoped_scheduler.results().front().state == PortState::Closed);
+    scoped_transport.deliver(scoped_error);
+    assert(scoped_scheduler.results().size() == 1U);
+    assert(scoped_scheduler.run() == core::StatusCode::Ok);
+
     RecordingUDPTransport malformed_transport;
     PortScanConfig malformed_config = config;
     malformed_config.retries = 0U;
@@ -201,6 +223,47 @@ int main()
     drain_recording(hundred_thousand_transport);
     assert(hundred_thousand_scheduler.run() == core::StatusCode::Ok);
     assert(hundred_thousand_scheduler.results().size() == 100000U);
+
+    std::vector<core::Host> ten_k_ipv6_hosts;
+    ten_k_ipv6_hosts.reserve(10000U);
+    for (std::size_t index = 0U; index < 10000U; ++index) {
+        std::array<std::uint8_t, 16U> bytes{0x20U, 0x01U, 0x0DU, 0xB8U};
+        bytes[12U] = static_cast<std::uint8_t>(index >> 24U);
+        bytes[13U] = static_cast<std::uint8_t>(index >> 16U);
+        bytes[14U] = static_cast<std::uint8_t>(index >> 8U);
+        bytes[15U] = static_cast<std::uint8_t>(index);
+        const core::IpAddress address = core::IpAddress::from_ipv6(bytes);
+        ten_k_ipv6_hosts.push_back(core::Host{address.to_string(), std::nullopt, true, address});
+    }
+    RecordingUDPTransport ten_k_ipv6_transport;
+    UDPScheduler ten_k_ipv6_scheduler(engine, ten_k_ipv6_transport, database, stress_config);
+    assert(ten_k_ipv6_scheduler.submit(core::Target{"ipv6-10k", ten_k_ipv6_hosts}, {{53U, Protocol::Udp}}) ==
+           core::StatusCode::Ok);
+    drain_recording(ten_k_ipv6_transport);
+    assert(ten_k_ipv6_scheduler.run() == core::StatusCode::Ok);
+    assert(ten_k_ipv6_scheduler.results().size() == 10000U);
+
+    std::vector<core::Host> ten_k_mixed_hosts;
+    ten_k_mixed_hosts.reserve(10000U);
+    for (std::size_t index = 0U; index < 5000U; ++index) {
+        const core::IpAddress ipv4 = core::IpAddress::from_ipv4(0xC6120001U + static_cast<std::uint32_t>(index));
+        ten_k_mixed_hosts.push_back(core::Host{ipv4.to_string(), std::nullopt, true, ipv4});
+        std::array<std::uint8_t, 16U> bytes{0x20U, 0x01U, 0x0DU, 0xB8U};
+        bytes[12U] = static_cast<std::uint8_t>(index >> 24U);
+        bytes[13U] = static_cast<std::uint8_t>(index >> 16U);
+        bytes[14U] = static_cast<std::uint8_t>(index >> 8U);
+        bytes[15U] = static_cast<std::uint8_t>(index);
+        const core::IpAddress ipv6 = core::IpAddress::from_ipv6(bytes);
+        ten_k_mixed_hosts.push_back(core::Host{ipv6.to_string(), std::nullopt, true, ipv6});
+    }
+    RecordingUDPTransport ten_k_mixed_transport;
+    UDPScheduler ten_k_mixed_scheduler(engine, ten_k_mixed_transport, database, stress_config);
+    assert(ten_k_mixed_scheduler.submit(core::Target{"mixed-10k", ten_k_mixed_hosts}, {{53U, Protocol::Udp}}) ==
+           core::StatusCode::Ok);
+    drain_recording(ten_k_mixed_transport);
+    assert(ten_k_mixed_scheduler.run() == core::StatusCode::Ok);
+    assert(ten_k_mixed_scheduler.results().size() == 10000U);
+
     std::cout << "udp scan tests passed\n";
     return 0;
 }

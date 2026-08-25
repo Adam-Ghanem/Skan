@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <netinet/in.h>
+#include <utility>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -27,18 +28,41 @@ int make_listener()
     return socket_fd;
 }
 
-std::uint16_t listener_port(int socket_fd)
+int make_ipv6_listener()
 {
-    sockaddr_in address{};
-    socklen_t length = sizeof(address);
-    assert(::getsockname(socket_fd, reinterpret_cast<sockaddr *>(&address), &length) == 0);
-    return ntohs(address.sin_port);
+    const int socket_fd = ::socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (socket_fd < 0) {
+        return -1;
+    }
+    int enabled = 1;
+    (void)::setsockopt(socket_fd, IPPROTO_IPV6, IPV6_V6ONLY, &enabled, sizeof(enabled));
+    sockaddr_in6 address{};
+    address.sin6_family = AF_INET6;
+    address.sin6_port = htons(0U);
+    address.sin6_addr = in6addr_loopback;
+    if (::bind(socket_fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
+        ::listen(socket_fd, 2) != 0) {
+        (void)::close(socket_fd);
+        return -1;
+    }
+    return socket_fd;
 }
 
-skan::portscan::PortResult open_result(std::uint16_t port)
+std::uint16_t listener_port(int socket_fd)
+{
+    sockaddr_storage address{};
+    socklen_t length = sizeof(address);
+    assert(::getsockname(socket_fd, reinterpret_cast<sockaddr *>(&address), &length) == 0);
+    if (address.ss_family == AF_INET6) {
+        return ntohs(reinterpret_cast<const sockaddr_in6 *>(&address)->sin6_port);
+    }
+    return ntohs(reinterpret_cast<const sockaddr_in *>(&address)->sin_port);
+}
+
+skan::portscan::PortResult open_result(std::string target, std::uint16_t port)
 {
     skan::portscan::PortResult result;
-    result.target = "127.0.0.1";
+    result.target = std::move(target);
     result.port = {port, skan::portscan::Protocol::Tcp};
     result.state = skan::portscan::PortState::Open;
     result.probe = skan::portscan::ScanProbeType::TcpConnect;
@@ -88,7 +112,8 @@ int main()
         engine,
         transport,
         skan::detect::ServiceDetectionConfig{2U, std::chrono::milliseconds{500}, 4096U, 1U});
-    assert(detector.submit({open_result(ssh_port), open_result(http_port)}) == skan::core::StatusCode::Ok);
+    assert(detector.submit({open_result("127.0.0.1", ssh_port), open_result("127.0.0.1", http_port)}) ==
+           skan::core::StatusCode::Ok);
     assert(detector.run() == skan::core::StatusCode::Ok);
     assert(detector.complete());
     assert(detector.results().size() == 2U);
@@ -116,5 +141,62 @@ int main()
     assert(WIFEXITED(http_status));
     assert(WEXITSTATUS(ssh_status) == EXIT_SUCCESS);
     assert(WEXITSTATUS(http_status) == EXIT_SUCCESS);
+
+    const int ipv6_ssh_listener = make_ipv6_listener();
+    const int ipv6_http_listener = make_ipv6_listener();
+    if (ipv6_ssh_listener >= 0 && ipv6_http_listener >= 0) {
+        const std::uint16_t ipv6_ssh_port = listener_port(ipv6_ssh_listener);
+        const std::uint16_t ipv6_http_port = listener_port(ipv6_http_listener);
+        const pid_t ipv6_ssh_child = ::fork();
+        assert(ipv6_ssh_child >= 0);
+        if (ipv6_ssh_child == 0) {
+            (void)::close(ipv6_http_listener);
+            serve_once(ipv6_ssh_listener, "SSH-2.0-OpenSSH_9.6\\r\\n");
+        }
+        const pid_t ipv6_http_child = ::fork();
+        assert(ipv6_http_child >= 0);
+        if (ipv6_http_child == 0) {
+            (void)::close(ipv6_ssh_listener);
+            serve_once(ipv6_http_listener, "HTTP/1.1 200 OK\\r\\nServer: TestHTTP/1.2\\r\\n\\r\\n");
+        }
+        skan::detect::ServiceTcpTransport ipv6_transport(engine);
+        skan::detect::ServiceDetector ipv6_detector(
+            engine,
+            ipv6_transport,
+            skan::detect::ServiceDetectionConfig{2U, std::chrono::milliseconds{500}, 4096U, 1U});
+        assert(ipv6_detector.submit({open_result("::1", ipv6_ssh_port), open_result("::1", ipv6_http_port)}) ==
+               skan::core::StatusCode::Ok);
+        assert(ipv6_detector.run() == skan::core::StatusCode::Ok);
+        assert(ipv6_detector.complete());
+        bool ipv6_saw_ssh = false;
+        bool ipv6_saw_http = false;
+        for (const skan::detect::ServiceResult &result : ipv6_detector.results()) {
+            if (result.port.number == ipv6_ssh_port) {
+                ipv6_saw_ssh = result.service == "ssh" && result.product == "OpenSSH" && result.version == "9.6";
+            }
+            if (result.port.number == ipv6_http_port) {
+                ipv6_saw_http = result.service == "http" && result.product == "HTTP" && result.version == "1.1";
+            }
+        }
+        assert(ipv6_saw_ssh);
+        assert(ipv6_saw_http);
+        (void)::close(ipv6_ssh_listener);
+        (void)::close(ipv6_http_listener);
+        int ipv6_ssh_status = 0;
+        int ipv6_http_status = 0;
+        assert(::waitpid(ipv6_ssh_child, &ipv6_ssh_status, 0) == ipv6_ssh_child);
+        assert(::waitpid(ipv6_http_child, &ipv6_http_status, 0) == ipv6_http_child);
+        assert(WIFEXITED(ipv6_ssh_status));
+        assert(WIFEXITED(ipv6_http_status));
+        assert(WEXITSTATUS(ipv6_ssh_status) == EXIT_SUCCESS);
+        assert(WEXITSTATUS(ipv6_http_status) == EXIT_SUCCESS);
+    } else {
+        if (ipv6_ssh_listener >= 0) {
+            (void)::close(ipv6_ssh_listener);
+        }
+        if (ipv6_http_listener >= 0) {
+            (void)::close(ipv6_http_listener);
+        }
+    }
     return 0;
 }

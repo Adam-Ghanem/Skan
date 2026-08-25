@@ -13,6 +13,7 @@
 #include "packet/ipv4.hpp"
 #include "packet/ipv6.hpp"
 #include "packet/ipv6_extensions.hpp"
+#include "packet/ipv6_quote.hpp"
 #include "packet/tcp.hpp"
 #include "packet/udp.hpp"
 #include "portscan/port_types.hpp"
@@ -32,6 +33,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     (void)skan::packet::IPv4::parse(bytes);
     (void)skan::packet::IPv6::parse(bytes);
     (void)skan::packet::parse_ipv6_extensions(bytes, size > 0U ? data[0] : 59U);
+    (void)skan::packet::parse_ipv6_udp_quote(bytes);
     (void)skan::packet::TCP::parse(bytes);
     (void)skan::packet::UDP::parse(bytes);
     (void)skan::packet::ICMP::parse(bytes);
@@ -46,6 +48,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     (void)skan::scanengine::TimingProfile::parse(text, profile);
     (void)skan::target::TargetParser::parse(text);
     (void)skan::target::parse_ip_address(text);
+    (void)skan::core::parse_ip_address(text);
 
     const skan::core::Host host{"192.0.2.10", std::nullopt, true};
     skan::osdetect::OSProbeConfig probe_config;

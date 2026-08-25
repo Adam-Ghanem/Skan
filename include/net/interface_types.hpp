@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "core/types.hpp"
+
 namespace skan::net {
 
 enum class InterfaceStatus {
@@ -27,13 +29,23 @@ struct InterfaceAddress final {
     bool operator==(const InterfaceAddress &) const noexcept = default;
 };
 
+struct InterfaceIPv6Address final {
+    core::IpAddress address{};
+    std::uint8_t prefix_length{0U};
+
+    bool operator==(const InterfaceIPv6Address &) const noexcept = default;
+};
+
 struct NetworkInterface final {
     std::string name;
     std::uint32_t index{0U};
     std::vector<InterfaceAddress> ipv4_addresses;
+    std::vector<InterfaceIPv6Address> ipv6_addresses;
     bool is_up{false};
     bool supports_capture{false};
     bool supports_injection{false};
+    bool supports_ipv6_capture{false};
+    bool supports_ipv6_injection{false};
 };
 
 struct InterfaceResult final {

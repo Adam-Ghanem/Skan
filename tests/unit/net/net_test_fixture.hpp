@@ -7,6 +7,7 @@
 #include "packet/ethernet.hpp"
 #include "packet/icmp.hpp"
 #include "packet/ipv4.hpp"
+#include "packet/ipv6.hpp"
 #include "packet/packet.hpp"
 #include "packet/tcp.hpp"
 #include "packet/udp.hpp"
@@ -59,6 +60,45 @@ inline std::vector<std::uint8_t> test_udp_frame(
     packet::Packet composed;
     composed.set_ethernet(test_ethernet());
     composed.set_ipv4(test_ipv4(17U));
+    composed.set_udp(udp);
+    return composed.serialize();
+}
+
+inline packet::IPv6 test_ipv6(std::uint8_t next_header)
+{
+    packet::IPv6 ipv6;
+    ipv6.set_next_header(next_header);
+    ipv6.set_source_address({0x20U, 0x01U, 0x0DU, 0xB8U, 0x00U, 0x00U, 0x00U, 0x01U,
+                             0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U});
+    ipv6.set_destination_address({0x20U, 0x01U, 0x0DU, 0xB8U, 0x00U, 0x00U, 0x00U, 0x02U,
+                                  0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x02U});
+    return ipv6;
+}
+
+inline std::vector<std::uint8_t> test_ipv6_tcp_frame()
+{
+    packet::TCP tcp;
+    tcp.set_source_port(12345U);
+    tcp.set_destination_port(80U);
+    tcp.set_sequence_number(0x11223344U);
+    tcp.set_flags(static_cast<std::uint16_t>(packet::TcpFlag::Syn));
+    tcp.set_window(0xFAF0U);
+    packet::Packet composed;
+    composed.set_ethernet(test_ethernet(0x86DDU));
+    composed.set_ipv6(test_ipv6(6U));
+    composed.set_tcp(tcp);
+    return composed.serialize();
+}
+
+inline std::vector<std::uint8_t> test_ipv6_udp_frame()
+{
+    packet::UDP udp;
+    udp.set_source_port(5353U);
+    udp.set_destination_port(53U);
+    udp.set_payload({0x01U, 0x02U, 0x03U});
+    packet::Packet composed;
+    composed.set_ethernet(test_ethernet(0x86DDU));
+    composed.set_ipv6(test_ipv6(17U));
     composed.set_udp(udp);
     return composed.serialize();
 }

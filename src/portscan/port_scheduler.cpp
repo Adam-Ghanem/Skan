@@ -1,7 +1,6 @@
 #include "portscan/port_scheduler.hpp"
 
 #include <algorithm>
-#include <arpa/inet.h>
 #include <chrono>
 #include <limits>
 #include <new>
@@ -14,11 +13,7 @@ namespace {
 
 bool valid_host_address(const core::Host &host) noexcept
 {
-    if (host.ip_address.valid() || discovery::parse_ipv4_address(host.address).has_value()) {
-        return true;
-    }
-    in6_addr address{};
-    return ::inet_pton(AF_INET6, host.address.c_str(), &address) == 1;
+    return host.ip_address.valid() || core::parse_ip_address(host.address).has_value();
 }
 
 bool result_less(const PortResult &left, const PortResult &right) noexcept

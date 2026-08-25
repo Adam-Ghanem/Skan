@@ -1,7 +1,6 @@
 #include "discovery/icmp_discovery.hpp"
 
 #include <algorithm>
-#include <arpa/inet.h>
 #include <array>
 #include <cstdint>
 #include <string>
@@ -15,18 +14,7 @@ namespace {
 
 std::optional<core::IpAddress> parse_ip(std::string_view text) noexcept
 {
-    in_addr ipv4{};
-    const std::string value(text);
-    if (::inet_pton(AF_INET, value.c_str(), &ipv4) == 1) {
-        return core::IpAddress::from_ipv4(ntohl(ipv4.s_addr));
-    }
-    in6_addr ipv6{};
-    if (::inet_pton(AF_INET6, value.c_str(), &ipv6) == 1) {
-        std::array<std::uint8_t, 16U> bytes{};
-        std::copy(std::begin(ipv6.s6_addr), std::end(ipv6.s6_addr), bytes.begin());
-        return core::IpAddress::from_ipv6(bytes);
-    }
-    return std::nullopt;
+    return core::parse_ip_address(text);
 }
 
 } // namespace

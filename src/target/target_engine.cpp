@@ -31,27 +31,9 @@ std::string_view trim(std::string_view value) noexcept
     return value.substr(first, last - first);
 }
 
-std::optional<core::IpAddress> parse_ipv6_text(std::string_view text) noexcept
-{
-    if (text.empty() || text.find('%') != std::string_view::npos) {
-        return std::nullopt;
-    }
-    in6_addr address{};
-    const std::string value(text);
-    if (::inet_pton(AF_INET6, value.c_str(), &address) != 1) {
-        return std::nullopt;
-    }
-    std::array<std::uint8_t, 16U> bytes{};
-    std::copy(std::begin(address.s6_addr), std::end(address.s6_addr), bytes.begin());
-    return core::IpAddress::from_ipv6(bytes);
-}
-
 std::optional<core::IpAddress> parse_any_ip(std::string_view text) noexcept
 {
-    if (const auto ipv4 = parse_ipv4(text); ipv4.has_value()) {
-        return core::IpAddress::from_ipv4(*ipv4);
-    }
-    return parse_ipv6_text(text);
+    return core::parse_ip_address(text);
 }
 
 core::IpAddress mask_ipv6(core::IpAddress address, std::uint8_t prefix) noexcept
@@ -194,13 +176,14 @@ TargetParseResult parse_one(std::string_view token)
         }
         const std::string_view left_text = trim(token.substr(0U, dash));
         const std::string_view right_text = trim(token.substr(dash + 1U));
-        const auto first_ip = parse_any_ip(left_text);
+            const auto first_ip = parse_any_ip(left_text);
         const auto last_ip = parse_any_ip(right_text);
         const bool range_candidate = first_ip.has_value() || last_ip.has_value() ||
                                      looks_like_ipv4(left_text) || looks_like_ipv4(right_text) ||
                                      left_text.find(':') != std::string_view::npos || right_text.find(':') != std::string_view::npos;
         if (range_candidate) {
-            if (!first_ip.has_value() || !last_ip.has_value() || first_ip->family != last_ip->family) {
+            if (!first_ip.has_value() || !last_ip.has_value() || first_ip->family != last_ip->family ||
+                first_ip->scope != last_ip->scope) {
                 return {core::StatusCode::InvalidArgument, {}, make_error(TargetErrorCode::InvalidRange, "invalid or mixed-family IP range: " + std::string(token))};
             }
             if (*last_ip < *first_ip) {
@@ -233,10 +216,13 @@ TargetParseResult parse_one(std::string_view token)
     if (looks_like_ipv4(token)) {
         return {core::StatusCode::InvalidArgument, {}, make_error(TargetErrorCode::InvalidIPv4, "invalid IPv4 address: " + std::string(token))};
     }
-    if (const auto address = parse_ipv6_text(token); address.has_value()) {
+    if (const auto address = core::parse_ip_address(token); address.has_value() && address->is_ipv6()) {
         return {core::StatusCode::Ok,
                 {TargetSpec{TargetKind::IPv6, std::string(token), 0U, 0U, 128U, {}, *address, *address}},
                 {}};
+    }
+    if (token.find('%') != std::string_view::npos) {
+        return {core::StatusCode::InvalidArgument, {}, make_error(TargetErrorCode::InvalidScope, "invalid IPv6 scope or zone identifier: " + std::string(token))};
     }
     if (token.find(':') != std::string_view::npos) {
         return {core::StatusCode::InvalidArgument, {}, make_error(TargetErrorCode::InvalidTarget, "invalid IPv6 address: " + std::string(token))};
@@ -265,7 +251,7 @@ HostnameResolution resolve_hostname(std::string_view hostname, std::size_t max_r
     HostnameResolution resolved;
     std::unordered_set<core::IpAddress, core::IpAddressHash> seen;
     try {
-        seen.reserve(max_results);
+        seen.reserve(std::min(max_results, TargetLimits::kMaximumHostnameResults));
     } catch (const std::bad_alloc &) {
         return {core::StatusCode::ResourceExhausted, {}, "unable to allocate hostname result set", {}};
     }
@@ -282,6 +268,9 @@ HostnameResolution resolve_hostname(std::string_view hostname, std::size_t max_r
             std::array<std::uint8_t, 16U> bytes{};
             std::copy(std::begin(ipv6->sin6_addr.s6_addr), std::end(ipv6->sin6_addr.s6_addr), bytes.begin());
             address = core::IpAddress::from_ipv6(bytes);
+            if (ipv6->sin6_scope_id != 0U) {
+                address.scope = std::to_string(ipv6->sin6_scope_id);
+            }
         } else {
             continue;
         }
@@ -348,6 +337,8 @@ const char *target_error_name(TargetErrorCode code) noexcept
         return "INVALID_RANGE";
     case TargetErrorCode::InvalidHostname:
         return "INVALID_HOSTNAME";
+    case TargetErrorCode::InvalidScope:
+        return "INVALID_SCOPE";
     case TargetErrorCode::ResolutionFailed:
         return "RESOLUTION_FAILED";
     case TargetErrorCode::ResourceExhausted:
@@ -391,7 +382,7 @@ std::optional<IPv4Address> parse_ipv4(std::string_view text) noexcept
 
 std::optional<core::IpAddress> parse_ip_address(std::string_view text) noexcept
 {
-    return parse_any_ip(trim(text));
+    return core::parse_ip_address(trim(text));
 }
 
 std::string format_ipv4(IPv4Address address)
@@ -444,6 +435,10 @@ TargetExpansionResult TargetResolver::expand(
         }
         if (limits.max_targets == 0U || limits.max_hostname_results == 0U) {
             return {core::StatusCode::InvalidArgument, {}, make_error(TargetErrorCode::InvalidTarget, "target limits must be positive")};
+        }
+        if (limits.max_targets > TargetLimits::kMaximumTargets ||
+            limits.max_hostname_results > TargetLimits::kMaximumHostnameResults) {
+            return {core::StatusCode::ResourceExhausted, {}, make_error(TargetErrorCode::ResourceExhausted, "target limits exceed the configured hard maximum")};
         }
         if (!resolver) {
             resolver = resolve_hostname;

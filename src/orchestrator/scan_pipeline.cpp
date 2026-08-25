@@ -1,7 +1,6 @@
 #include "orchestrator/scan_pipeline.hpp"
 
 #include <algorithm>
-#include <arpa/inet.h>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -24,16 +23,7 @@ core::IpAddress host_ip(const core::Host &host) noexcept
     if (host.ip_address.valid()) {
         return host.ip_address;
     }
-    if (const auto ipv4 = discovery::parse_ipv4_address(host.address); ipv4.has_value()) {
-        return core::IpAddress::from_ipv4(*ipv4);
-    }
-    in6_addr ipv6{};
-    if (::inet_pton(AF_INET6, host.address.c_str(), &ipv6) == 1) {
-        std::array<std::uint8_t, 16U> bytes{};
-        std::copy(std::begin(ipv6.s6_addr), std::end(ipv6.s6_addr), bytes.begin());
-        return core::IpAddress::from_ipv6(bytes);
-    }
-    return {};
+    return core::parse_ip_address(host.address).value_or(core::IpAddress{});
 }
 
 core::Target aggregate_targets(const std::vector<core::Target> &targets)

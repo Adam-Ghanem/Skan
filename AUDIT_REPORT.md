@@ -209,10 +209,10 @@ The benchmark demonstrates approximately linear growth over the tested range. Th
 | P2 | Add measured output-path and report-builder profiling | Reduce avoidable copying/sorting only after profiling; retain canonical ordering and all four output contracts. |
 | P2 | Add direct CLI parser fuzzing and long-run cancellation/resource tests | Exercise malformed options, extreme target limits, repeated cancellation, timer exhaustion, and output-path failures without public traffic. |
 | P2 | Expand TCP/UDP protocol coverage within the existing packet layer | Consider additional safe scan semantics or UDP service evidence only with typed models, strict correlation, bounded payloads, and canonical `PortResult` states. |
-| P3 | Native Linux IPv6 raw capability | Requires a separately reviewed, explicit-interface capture/injection implementation and controlled lab acceptance; current Phase 15 behavior remains unavailable with no fallback. |
+| P3 | Native Linux IPv6 raw capability | Remains explicitly unavailable until a separately reviewed, explicit-interface capture/injection implementation and controlled lab acceptance exist; current Phase 16 behavior remains unavailable with no fallback. |
 | P3 | Optional scripting/extensibility | Requires a separate sandbox, resource, authorization, and output design; it is not a small Phase 15 patch and is intentionally not started. |
 
-Phase 15 implementation is now present in the working tree and is audited below; Phase 16 is not started.
+Phase 15 implementation was audited above; Phase 16 is complete within the capability boundary documented in the addendum below.
 
 ## M. Additional references
 
@@ -246,3 +246,23 @@ Phase 15 extends the existing single-reactor architecture with a typed binary IP
 | Safety | Passed | Tests and smoke checks use loopback, documentation-space, synthetic, or injected data only; no public-target traffic, evasion, spoofing, credentials, exploitation, or persistence exists. |
 
 The environment continued to lack AF_PACKET permission, so raw Linux tests remained clear `SKIPPED` cases with `Operation not permitted`. The optional libFuzzer target also remained a clear `SKIPPED` case because `clang++` is unavailable; the harness itself is extended with IPv6, extension, ICMPv6, PacketReceiver, and typed-address entry points.
+
+
+## O. Phase 16 production dual-stack verification addendum
+
+Phase 16 was implemented on top of the existing Phase 0–15 architecture. The historical Phase 15 findings remain preserved above; this addendum records their Phase 16 resolution status and the final capability boundary.
+
+| Finding or area | Phase 16 result | Evidence and boundary |
+| --- | --- | --- |
+| Typed scoped IPv6 identity | Resolved within scope | Shared `core::parse_ip_address` accepts one strict `%zone` token, preserves it in `IpAddress`, canonical text, equality, ordering, hashing, target expansion, Connect/service construction, and output. Numeric and named zones require explicit resolvable interface metadata for live link-local use. |
+| Target resource ceilings | Resolved | `TargetLimits` and CLI paths reject values above 1,000,000 targets or 4,096 hostname results; resolver reservation is bounded and expansion remains checked before materialization. |
+| TCP/UDP receive integrity | Resolved within protocol scope | PacketReceiver validates IPv4/IPv6 TCP and UDP pseudo-header checksums. IPv4 UDP checksum zero is accepted; IPv6 UDP checksum zero is malformed. Odd-length payloads and IPv6 extension-chain vectors are covered. |
+| ICMPv6 quoted UDP correlation | Implemented offline/injected | A bounded shared IPv6/extension/UDP quote parser validates identity and ports. ICMPv6 Destination Unreachable code 4 maps to UDP closed evidence; malformed, unsupported, unrelated, duplicate, and late quotes do not create results. |
+| Interface inventory | Resolved | Existing `NetworkInterface` now carries typed IPv6 addresses with link-local scope and separate IPv6 capture/injection capability fields. `interfaces` normal and JSON output expose the fields deterministically. |
+| AF_INET6 Connect and service detection | Resolved | Existing single IOEngine/event/timer lifecycle supports scoped and unscoped AF_INET6 stream construction; local `::1` HTTP-like and SSH-like service fixtures pass when IPv6 loopback is available. |
+| Offline and orchestrated dual-stack behavior | Resolved within scope | Shared discovery/port/UDP/service/OS/orchestrator/output contracts remain in use. Mixed-family stage and 10,000-host IPv6/mixed UDP scheduler workloads are deterministic and bounded. |
+| Fuzz and benchmark coverage | Extended | The offline fuzz harness covers core scoped parsing and quoted IPv6 parsing. The benchmark contains IPv6 expansion, IPv6 receiver parsing, and mixed UDP scheduler rows. `make fuzz` remains a clean environmental skip when `clang++` is unavailable. |
+| Native Linux raw IPv6 | Explicitly unavailable | Linux discovery, raw SYN, and raw UDP adapters remain IPv4/ARP-specific because a complete explicit-interface IPv6 source/neighbor/capture/injection path was not safely completed. IPv6 raw requests fail clearly without fallback. |
+| Complete ND and IPv6 OS detection | Explicitly unavailable | Limited ICMPv6 ND parsing is not represented as a state machine. IPv6 OS results remain structured unavailable with zero confidence; no identity is inferred from address, port, service, or local platform. |
+
+The complete registered test suite passed after the Phase 16 changes. AF_PACKET-dependent tests continued to skip cleanly with `Operation not permitted` in the sandbox. The final build, sanitizer, coverage, fuzz, benchmark, CLI capability matrix, output validation, whitespace, and prohibited-API gates are recorded with their exact results in the Phase 16 delivery record. No public target was contacted and no evasion, spoofing, exploitation, credential, persistence, or stealth path was introduced.

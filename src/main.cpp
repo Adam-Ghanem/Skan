@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <net/if.h>
 #include <memory>
 #include <optional>
 #include <algorithm>
@@ -117,10 +118,41 @@ bool parse_unsigned(std::string_view text, unsigned int &value)
     return parsed.ec == std::errc{} && parsed.ptr == last;
 }
 
+bool validate_raw_ipv6_scope(const skan::core::IpAddress &address,
+                             const std::optional<std::string> &interface_name,
+                             std::string &error)
+{
+    if (!address.is_ipv6()) {
+        return true;
+    }
+    if (address.is_ipv6_link_local() && !address.has_scope()) {
+        error = "IPv6 link-local targets require an explicit %zone scope";
+        return false;
+    }
+    if (!address.has_scope()) {
+        return true;
+    }
+    if (!interface_name.has_value()) {
+        error = "scoped IPv6 targets require an explicit --interface <name>";
+        return false;
+    }
+    const unsigned int interface_index = ::if_nametoindex(interface_name->c_str());
+    const auto scope_index = skan::core::ipv6_scope_id(address);
+    if (interface_index == 0U || !scope_index.has_value()) {
+        error = "IPv6 scope zone or interface could not be resolved";
+        return false;
+    }
+    if (*scope_index != interface_index) {
+        error = "IPv6 scope zone does not match --interface";
+        return false;
+    }
+    return true;
+}
+
 int run_discover(int argc, char **argv)
 {
     if (argc < 3) {
-        std::cerr << "Error: discover requires an explicit IPv4 target. Use --help for usage.\n";
+        std::cerr << "Error: discover requires an explicit IPv4 or IPv6 target. Use --help for usage.\n";
         return EXIT_FAILURE;
     }
 
@@ -195,6 +227,14 @@ int run_discover(int argc, char **argv)
         return EXIT_FAILURE;
     }
     if (transport_mode == "linux" && parsed_target_address->is_ipv6()) {
+        std::string scope_error;
+        if (!validate_raw_ipv6_scope(*parsed_target_address,
+                                     interface_name.empty() ? std::nullopt
+                                                             : std::optional<std::string>{interface_name},
+                                     scope_error)) {
+            std::cerr << "Error: " << scope_error << ".\n";
+            return EXIT_FAILURE;
+        }
         std::cerr << "Error: Linux IPv6 discovery is unavailable in this phase; no fallback transport is used.\n";
         return EXIT_FAILURE;
     }
@@ -341,6 +381,11 @@ std::string interface_address_text(const skan::net::InterfaceAddress &address)
            std::to_string(address.ipv4[2]) + "." + std::to_string(address.ipv4[3]);
 }
 
+std::string interface_ipv6_address_text(const skan::net::InterfaceIPv6Address &address)
+{
+    return address.address.to_string();
+}
+
 void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &interfaces)
 {
     std::cout << "{\"interfaces\":[";
@@ -361,8 +406,19 @@ void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &inter
             std::cout << "{\"ipv4\":\"" << interface_address_text(address)
                       << "\",\"prefix_length\":" << static_cast<unsigned int>(address.prefix_length) << '}';
         }
+        std::cout << "],\"ipv6_addresses\":[";
+        for (std::size_t address_index = 0U; address_index < interface.ipv6_addresses.size(); ++address_index) {
+            const skan::net::InterfaceIPv6Address &address = interface.ipv6_addresses[address_index];
+            if (address_index != 0U) {
+                std::cout << ',';
+            }
+            std::cout << "{\"ipv6\":\"" << json_escape(interface_ipv6_address_text(address))
+                      << "\",\"prefix_length\":" << static_cast<unsigned int>(address.prefix_length) << '}';
+        }
         std::cout << "],\"capture\":" << (interface.supports_capture ? "true" : "false")
-                  << ",\"injection\":" << (interface.supports_injection ? "true" : "false") << '}';
+                  << ",\"injection\":" << (interface.supports_injection ? "true" : "false")
+                  << ",\"ipv6_capture\":" << (interface.supports_ipv6_capture ? "true" : "false")
+                  << ",\"ipv6_injection\":" << (interface.supports_ipv6_injection ? "true" : "false") << '}';
     }
     std::cout << "]}\n";
 }
@@ -387,9 +443,25 @@ void write_interfaces_normal(const std::vector<skan::net::NetworkInterface> &int
             }
             std::cout << '\n';
         }
+        if (interface.ipv6_addresses.empty()) {
+            std::cout << "IPv6: none\n";
+        } else {
+            std::cout << "IPv6: ";
+            for (std::size_t index = 0U; index < interface.ipv6_addresses.size(); ++index) {
+                if (index != 0U) {
+                    std::cout << ", ";
+                }
+                const skan::net::InterfaceIPv6Address &address = interface.ipv6_addresses[index];
+                std::cout << interface_ipv6_address_text(address) << '/'
+                          << static_cast<unsigned int>(address.prefix_length);
+            }
+            std::cout << '\n';
+        }
         std::cout << "State: " << (interface.is_up ? "UP" : "DOWN") << '\n'
                   << "Capture: " << (interface.supports_capture ? "available" : "unavailable") << '\n'
-                  << "Injection: " << (interface.supports_injection ? "available" : "unavailable") << "\n\n";
+                  << "Injection: " << (interface.supports_injection ? "available" : "unavailable") << '\n'
+                  << "IPv6 capture: " << (interface.supports_ipv6_capture ? "available" : "unavailable") << '\n'
+                  << "IPv6 injection: " << (interface.supports_ipv6_injection ? "available" : "unavailable") << "\n\n";
     }
 }
 
@@ -530,8 +602,11 @@ int run_os_detect(int argc, char **argv)
             }
         } else if ((argument == "--max-targets" || argument == "--max-hostname-results") && index + 1 < argc) {
             unsigned int value = 0U;
-            if (!parse_unsigned(argv[++index], value) || value == 0U) {
-                std::cerr << "Error: target limits must be positive integers.\n";
+            const unsigned int maximum = argument == "--max-targets"
+                                             ? static_cast<unsigned int>(skan::target::TargetLimits::kMaximumTargets)
+                                             : static_cast<unsigned int>(skan::target::TargetLimits::kMaximumHostnameResults);
+            if (!parse_unsigned(argv[++index], value) || value == 0U || value > maximum) {
+                std::cerr << "Error: target limit must be between 1 and " << maximum << ".\n";
                 return EXIT_FAILURE;
             }
             if (argument == "--max-targets") {
@@ -565,6 +640,15 @@ int run_os_detect(int argc, char **argv)
         target.resolved_hosts.push_back(skan::core::Host{
             skan::target::format_ip_address(resolved_target.ip_address), resolved_target.source_hostname, false,
             resolved_target.ip_address});
+    }
+    if (transport_mode == "linux") {
+        for (const skan::core::Host &host : target.resolved_hosts) {
+            std::string scope_error;
+            if (!validate_raw_ipv6_scope(host.ip_address, interface_name, scope_error)) {
+                std::cerr << "Error: " << scope_error << ".\n";
+                return EXIT_FAILURE;
+            }
+        }
     }
     skan::orchestrator::ScanConfig config;
     config.targets.push_back(std::move(target));
@@ -718,8 +802,11 @@ int run_scan(int argc, char **argv)
             }
         } else if ((argument == "--max-targets" || argument == "--max-hostname-results") && index + 1 < argc) {
             unsigned int value = 0U;
-            if (!parse_unsigned(argv[++index], value) || value == 0U) {
-                std::cerr << "Error: target limits must be positive integers.\n";
+            const unsigned int maximum = argument == "--max-targets"
+                                             ? static_cast<unsigned int>(skan::target::TargetLimits::kMaximumTargets)
+                                             : static_cast<unsigned int>(skan::target::TargetLimits::kMaximumHostnameResults);
+            if (!parse_unsigned(argv[++index], value) || value == 0U || value > maximum) {
+                std::cerr << "Error: target limit must be between 1 and " << maximum << ".\n";
                 return EXIT_FAILURE;
             }
             if (argument == "--max-targets") {
@@ -839,6 +926,15 @@ int run_scan(int argc, char **argv)
                                                     : skan::core::IpAddress::from_ipv4(target.address);
         normalized_target.resolved_hosts.push_back(
             skan::core::Host{skan::target::format_ip_address(ip_address), target.source_hostname, false, ip_address});
+    }
+    if (config.transport == skan::orchestrator::ScanTransport::Linux) {
+        for (const skan::core::Host &host : normalized_target.resolved_hosts) {
+            std::string scope_error;
+            if (!validate_raw_ipv6_scope(host.ip_address, config.interface_name, scope_error)) {
+                std::cerr << "Error: " << scope_error << ".\n";
+                return EXIT_FAILURE;
+            }
+        }
     }
     config.targets.push_back(std::move(normalized_target));
     skan::orchestrator::ScanOrchestrator orchestrator(config);

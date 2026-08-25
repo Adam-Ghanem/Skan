@@ -31,6 +31,7 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 13 — Bounded UDP Scan Engine | **COMPLETE** |
 | Phase 14 — Live OS Fingerprinting Engine | **COMPLETE** |
 | Phase 15 — IPv6 Foundation and Dual-Stack Extension | **COMPLETE** |
+| Phase 16 — Production Dual-Stack IPv6 Completion | **COMPLETE** |
 
 Phase 3 began with normalized IPv4 targets; Phase 15 extends the same boundary to typed IPv4/IPv6 identities. Phase 12/15 now own strict target parsing, bounded CIDR/range expansion, platform A+AAAA resolution, deduplication, and deterministic family-aware ordering before discovery or scanning begins. Its default transport remains a deterministic recording transport for offline tests and safe CLI exercises, while Phase 10 adds an explicit Linux transport option that requires an interface. Phase 4 retains that pipeline boundary, while Phase 15 extends real nonblocking TCP Connect to typed IPv4/IPv6 targets; capability-gated Linux SYN transmission only through `--transport linux --interface <name>`; no raw mode is selected implicitly. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds the OS fingerprinting architecture and Phase 14 adds deterministic live-capable packet probes, bounded evidence collection, and an explicit Linux raw-packet transport; capability failures remain visible and never fall back silently. Phase 10 adds real ICMP/TCP/ARP discovery adapters under the same explicit interface boundary. No public Internet target is used by the test suite.
 
@@ -235,7 +236,7 @@ The infrastructure-only CLI command is:
 ./bin/skan interfaces --interface lo --json
 ```
 
-Normal output lists interface name, index, IPv4/prefix values, state, capture capability, and injection capability. JSON output uses stable interface and address ordering and contains only interface data. A missing raw-socket privilege is reported as unavailable capability in the listing or as a structured `PermissionDenied` result when opening a Linux transport or capture backend; no fake successful transmission or fabricated packet response is produced.
+Normal output lists interface name, index, IPv4 and typed IPv6/prefix values (including link-local zones), state, and family-specific capture/injection capability. JSON output uses stable interface and address ordering and contains only interface data. A missing raw-socket privilege is reported as unavailable capability in the listing or as a structured `PermissionDenied` result when opening a Linux transport or capture backend; no fake successful transmission or fabricated packet response is produced.
 
 > Skan's network transport is capability-honest. When packet capture or injection is unavailable, Skan reports the unavailable capability and does not fabricate successful network operations or packet responses.
 
@@ -554,7 +555,7 @@ The Phase 14 tests cover strict OS database parsing, optional metadata, ranges, 
 
 ## Post-Phase-14 deep audit
 
-The post-Phase-14 audit, scoped Nmap capability comparison, benchmark methodology/results, repaired defects, and remaining limitations are documented in [`AUDIT_REPORT.md`](AUDIT_REPORT.md). Reproduce the offline measurements with the opt-in `make benchmark` target; the detailed results and raw CSV are in [`BENCHMARKS.md`](BENCHMARKS.md) and [`benchmarks/results_2026-08-25.csv`](benchmarks/results_2026-08-25.csv). The post-Phase-15 remaining work and capability boundaries are recorded in [`NEXT_PHASE_ROADMAP.md`](NEXT_PHASE_ROADMAP.md); Phase 16 is not started.
+The post-Phase-14 audit, scoped Nmap capability comparison, benchmark methodology/results, repaired defects, and remaining limitations are documented in [`AUDIT_REPORT.md`](AUDIT_REPORT.md). Reproduce the offline measurements with the opt-in `make benchmark` target; the detailed results and raw CSV are in [`BENCHMARKS.md`](BENCHMARKS.md) and [`benchmarks/results_2026-08-25.csv`](benchmarks/results_2026-08-25.csv). The Phase 16 implementation, validation gates, and remaining capability boundaries are recorded in [`AUDIT_REPORT.md`](AUDIT_REPORT.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`BENCHMARKS.md`](BENCHMARKS.md), and [`NEXT_PHASE_ROADMAP.md`](NEXT_PHASE_ROADMAP.md).
 
 
 ## Phase 15 — IPv6 Foundation and Dual-Stack Extension
@@ -599,7 +600,7 @@ Connect/service    IPv4/IPv6 model   IPv6 unavailable boundary
 Canonical family-aware ScanReport and writers
 ```
 
-Phase 16 is not part of this implementation. Full native Linux IPv6 raw discovery/scanning, a complete Neighbor Discovery stack, IPv6 OS fingerprinting, evasion, spoofing, fragmentation attacks, exploitation, credential handling, persistence, and public-target scanning remain outside the Phase 15 boundary.
+Phase 16 completes the production-safe dual-stack boundary described below. Native Linux raw IPv6 discovery/scanning, complete Neighbor Discovery, IPv6 OS fingerprinting, evasion, spoofing, fragmentation attacks, exploitation, credential handling, persistence, and public-target scanning remain explicitly outside the capability boundary.
 
 ## Phase 15 audit note
 
@@ -608,3 +609,29 @@ The Phase 15 implementation reuses the single reactor, existing timers, packet c
 ## License
 
 The repository currently contains a `License: TBD` placeholder. No open-source license has been selected.
+
+
+## Phase 16 — Production Dual-Stack IPv6 Completion
+
+Phase 16 hardens the typed dual-stack boundary without introducing another scanner, scheduler, packet stack, reactor, thread, polling loop, sleep, fallback, or implicit interface choice. `core::parse_ip_address` is the shared strict parser for IPv4 and IPv6 literals. IPv6 zones use one validated `%zone` token, preserve the zone in canonical text and binary identity, and resolve only the explicitly supplied numeric interface index or interface name. Link-local live behavior never selects an interface implicitly. Target expansion and hostname A/AAAA results are bounded by hard ceilings of 1,000,000 targets and 4,096 hostname results in addition to caller-selected lower limits.
+
+The shared packet layer now provides a bounded quoted IPv6/UDP extractor for ICMPv6 errors. It validates the quoted base header, supported extension chain, fragmentation constraints, transport header length, and UDP identity before the existing UDP scheduler correlation map can classify a response. ICMPv6 Destination Unreachable code 4 is classified as UDP closed; unsupported or malformed quotes remain non-conclusive. PacketReceiver validates IPv4 and IPv6 TCP/UDP checksums, accepts the standards-defined zero IPv4 UDP checksum, rejects a zero IPv6 UDP checksum, and continues to validate ICMPv6 checksums and all existing length/extension budgets.
+
+AF_INET6 TCP Connect, service detection, offline discovery, offline UDP, typed SYN construction, scoped target propagation, mixed-family orchestration, family-aware output, fuzz entry points, and deterministic 10,000-host IPv6/mixed scheduler workloads are integrated through the existing contracts. `skan interfaces` reports typed IPv6 addresses, link-local zones, and separate family capability fields. Local `::1` service tests cover HTTP-like and SSH-like banners when IPv6 loopback is available. The benchmark includes IPv6 target expansion, IPv6 receiver parsing, and mixed-family UDP scheduler rows.
+
+Native Linux raw IPv6 discovery, raw IPv6 TCP SYN transmission, raw IPv6 UDP transmission, complete Neighbor Discovery, and IPv6 OS fingerprinting remain explicitly unavailable. The current Linux raw adapters require an explicit interface and retain their tested IPv4/ARP capability boundary; an IPv6 request fails with a capability result and never falls back to Connect or offline mode. The sandbox’s AF_PACKET tests are expected to skip when the host denies `Operation not permitted`. These limitations are deliberate: Skan reports only evidence and capabilities that the selected transport can actually provide.
+
+Scoped and mixed-family examples are:
+
+```sh
+./bin/skan resolve 'fe80::1%lo,127.0.0.1' --json
+./bin/skan scan '127.0.0.1,::1' --method connect --tcp-ports 1 --output json
+./bin/skan scan 'fe80::1%lo' --method connect --tcp-ports 80 --output json
+./bin/skan interfaces --json
+```
+
+All Phase 16 test and benchmark inputs are local, documentation-space, synthetic, or injected. No public-target traffic, evasion, spoofing, exploitation, credential handling, persistence, or stealth mechanism is introduced.
+
+## Phase 16 audit note
+
+The Phase 16 implementation preserves the single `io::IOEngine` and existing timer lifecycle across discovery, TCP/UDP scanning, service detection, OS detection, capture, orchestration, and output. The retained [`POST_PHASE15_AUDIT.md`](POST_PHASE15_AUDIT.md) records the pre-Phase-16 findings and their resolution status; it is historical audit evidence, not a second implementation boundary.

@@ -16,6 +16,7 @@
 
 #include "discovery/discovery_types.hpp"
 #include "packet/checksum.hpp"
+#include "packet/ipv6_quote.hpp"
 #include "packet/packet.hpp"
 
 namespace skan::net {
@@ -295,17 +296,24 @@ void LinuxUDPScanTransport::on_capture_event(io::Event &event) noexcept
 std::optional<portscan::UDPProbeId> LinuxUDPScanTransport::match_udp(
     const PacketObservation &observation) const noexcept
 {
-    if (!observation.valid() || !observation.ipv4.has_value() || !observation.udp.has_value() ||
-        observation.ipv4->destination_address() != source_ipv4_) {
+    if (!observation.valid() || !observation.udp.has_value()) {
         return std::nullopt;
     }
-    const packet::UDP &udp = *observation.udp;
     std::optional<portscan::UDPProbeId> matched;
     for (const auto &[id, pending] : pending_) {
-        const auto target = parse_ipv4(pending.submission.target);
-        if (!target.has_value() || observation.ipv4->source_address() != *target ||
-            udp.source_port() != pending.submission.port.number ||
-            udp.destination_port() != pending.submission.source_port) {
+        bool addresses_match = false;
+        if (observation.ipv4.has_value()) {
+            const auto target = parse_ipv4(pending.submission.target);
+            addresses_match = target.has_value() && observation.ipv4->source_address() == *target &&
+                              observation.ipv4->destination_address() == source_ipv4_;
+        } else if (observation.ipv6.has_value()) {
+            addresses_match = pending.submission.source_ip.valid() && pending.submission.source_ip.is_ipv6() &&
+                              pending.submission.destination_ip.valid() && pending.submission.destination_ip.is_ipv6() &&
+                              observation.ipv6->source_address() == pending.submission.destination_ip.bytes &&
+                              observation.ipv6->destination_address() == pending.submission.source_ip.bytes;
+        }
+        if (!addresses_match || observation.udp->source_port() != pending.submission.port.number ||
+            observation.udp->destination_port() != pending.submission.source_port) {
             continue;
         }
         if (matched.has_value()) {
@@ -366,24 +374,74 @@ std::optional<portscan::UDPProbeId> LinuxUDPScanTransport::match_icmp(
     return matched;
 }
 
+std::optional<portscan::UDPProbeId> LinuxUDPScanTransport::match_icmpv6(
+    const PacketObservation &observation) const noexcept
+{
+    if (!observation.valid() || !observation.ipv6.has_value() || !observation.icmpv6.has_value() ||
+        observation.icmpv6->type() != packet::Icmpv6Type::DestinationUnreachable ||
+        observation.icmpv6->code() > 4U) {
+        return std::nullopt;
+    }
+    const auto quote = packet::parse_ipv6_udp_quote(
+        std::span<const std::uint8_t>{observation.icmpv6->payload()});
+    if (!quote.has_value()) {
+        return std::nullopt;
+    }
+    std::optional<portscan::UDPProbeId> matched;
+    for (const auto &[id, pending] : pending_) {
+        if (!pending.submission.source_ip.valid() || !pending.submission.destination_ip.valid() ||
+            !pending.submission.source_ip.is_ipv6() || !pending.submission.destination_ip.is_ipv6() ||
+            quote->ip.source_address() != pending.submission.source_ip.bytes ||
+            quote->ip.destination_address() != pending.submission.destination_ip.bytes ||
+            observation.ipv6->destination_address() != pending.submission.source_ip.bytes ||
+            quote->source_port != pending.submission.source_port ||
+            quote->destination_port != pending.submission.port.number ||
+            observation.ipv6->source_address() != pending.submission.destination_ip.bytes) {
+            continue;
+        }
+        if (matched.has_value()) {
+            return std::nullopt;
+        }
+        matched = id;
+    }
+    return matched;
+}
+
 void LinuxUDPScanTransport::dispatch_observation(const PacketObservation &observation) noexcept
 {
     std::optional<portscan::UDPProbeId> id = match_udp(observation);
     portscan::UDPResponseKind kind = portscan::UDPResponseKind::Datagram;
     if (!id.has_value()) {
-        id = match_icmp(observation);
-        if (!id.has_value()) {
-            return;
-        }
-        const std::uint8_t code = observation.icmp->code();
-        if (code == 3U) {
-            kind = portscan::UDPResponseKind::IcmpPortUnreachable;
-        } else if (code == 9U || code == 10U || code == 13U) {
-            kind = portscan::UDPResponseKind::IcmpAdministrativelyProhibited;
-        } else if (code == 0U || code == 1U) {
-            kind = portscan::UDPResponseKind::IcmpNetworkUnreachable;
+        if (observation.icmpv6.has_value()) {
+            id = match_icmpv6(observation);
+            if (!id.has_value()) {
+                return;
+            }
+            const std::uint8_t code = observation.icmpv6->code();
+            if (code == 4U) {
+                kind = portscan::UDPResponseKind::IcmpPortUnreachable;
+            } else if (code == 1U) {
+                kind = portscan::UDPResponseKind::IcmpAdministrativelyProhibited;
+            } else if (code == 0U || code == 2U || code == 3U) {
+                kind = portscan::UDPResponseKind::IcmpNetworkUnreachable;
+            } else {
+                kind = portscan::UDPResponseKind::Malformed;
+            }
         } else {
-            kind = portscan::UDPResponseKind::Malformed;
+            id = match_icmp(observation);
+            if (!id.has_value()) {
+                return;
+            }
+            const std::uint8_t code = observation.icmp->code();
+            if (code == 3U) {
+                kind = portscan::UDPResponseKind::IcmpPortUnreachable;
+            } else if (code == 9U || code == 10U || code == 13U) {
+                kind = portscan::UDPResponseKind::IcmpAdministrativelyProhibited;
+            } else if (code == 0U || code == 1U) {
+                kind = portscan::UDPResponseKind::IcmpNetworkUnreachable;
+            } else {
+                kind = portscan::UDPResponseKind::Malformed;
+            }
         }
     }
     const auto found = pending_.find(*id);
@@ -392,8 +450,14 @@ void LinuxUDPScanTransport::dispatch_observation(const PacketObservation &observ
     }
     portscan::UDPResponse response;
     response.id = *id;
-    response.source_address = ipv4_text(observation.ipv4->source_address());
-    response.source_ipv4 = observation.ipv4->source_address();
+    if (observation.ipv4.has_value()) {
+        response.source_address = ipv4_text(observation.ipv4->source_address());
+        response.source_ipv4 = observation.ipv4->source_address();
+        response.source_ip = core::IpAddress::from_ipv4(observation.ipv4->source_address());
+    } else if (observation.ipv6.has_value()) {
+        response.source_ip = core::IpAddress::from_ipv6(observation.ipv6->source_address());
+        response.source_address = response.source_ip.to_string();
+    }
     response.kind = kind;
     response.received_at = observation.received_at;
     if (observation.udp.has_value()) {

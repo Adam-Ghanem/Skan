@@ -1,8 +1,6 @@
 #include "portscan/udp_scan.hpp"
 
 #include <algorithm>
-#include <arpa/inet.h>
-#include <array>
 #include <cctype>
 #include <charconv>
 #include <fstream>
@@ -27,18 +25,7 @@ std::optional<core::IpAddress> parse_target_ip(const core::Host &host) noexcept
     if (host.ip_address.valid()) {
         return host.ip_address;
     }
-    const std::string value(host.address);
-    in_addr ipv4{};
-    if (::inet_pton(AF_INET, value.c_str(), &ipv4) == 1) {
-        return core::IpAddress::from_ipv4(ntohl(ipv4.s_addr));
-    }
-    in6_addr ipv6{};
-    if (::inet_pton(AF_INET6, value.c_str(), &ipv6) == 1) {
-        std::array<std::uint8_t, 16U> bytes{};
-        std::copy(std::begin(ipv6.s6_addr), std::end(ipv6.s6_addr), bytes.begin());
-        return core::IpAddress::from_ipv6(bytes);
-    }
-    return std::nullopt;
+    return core::parse_ip_address(host.address);
 }
 
 std::string trim_copy(std::string_view value)
@@ -607,7 +594,7 @@ void UDPScheduler::pump() noexcept
                 (static_cast<std::uint32_t>(destination->bytes[2]) << 8U) |
                 static_cast<std::uint32_t>(destination->bytes[3]);
         }
-        submission.source_ip = core::IpAddress::from_ipv6({});
+        submission.source_ip = core::IpAddress{};
         submission.destination_ip = *destination;
         submission.source_port = source_port;
         submission.packet = bytes;
