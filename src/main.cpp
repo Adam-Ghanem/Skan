@@ -24,6 +24,7 @@
 #include "net/interface.hpp"
 #include "net/linux_discovery_transport.hpp"
 #include "net/network_scan_transport.hpp"
+#include "orchestrator/scan_orchestrator.hpp"
 #include "portscan/portscan.hpp"
 #include "scanengine/timing_profile.hpp"
 
@@ -55,7 +56,11 @@ void print_help()
               << "  --min-parallelism <n>  Set adaptive minimum parallelism\n"
               << "  --max-parallelism <n>  Set adaptive maximum parallelism\n"
               << "  --retries <n>          Set bounded adaptive timeout retries\n"
+              << "  --adaptive-timing      Enable adaptive timing controls\n"
+              << "  --discovery            Run host discovery before port scanning\n"
+              << "  --no-discovery         Skip host discovery (default)\n"
               << "  --service-detect       Detect services on OPEN TCP ports\n"
+              << "  --os-detect            Run capability-honest OS detection\n"
               << "  --service-db <path>    Use a project-owned service probe database\n"
               << "  --max-response-bytes <n> Bound service response bytes\n"
               << "  --max-probes <n>       Bound probes per OPEN port\n"
@@ -73,9 +78,12 @@ void print_help()
               << "  Phase 7 — Adaptive Timing + Scan Engine\n"
               << "  Phase 8 — Output & Result Serialization\n"
               << "  Phase 9 — Network Transport & Packet Capture\n"
+              << "  Phase 10 — Real Network Integration\n"
+              << "  Phase 11 — Unified Scan Orchestrator\n"
               << "\nDiscovery CLI mode uses an offline recording transport.\n"
               << "Scan Connect mode uses normal nonblocking TCP sockets unless --transport offline is selected.\n"
               << "Scan SYN mode requires explicit --transport offline or --transport linux --interface <name>.\n"
+              << "The scan pipeline runs Discovery, Port, Service, OS, and Output stages sequentially.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
               << "OS fingerprinting is an offline/injected architecture; live raw-packet transport is unavailable.\n"
               << "Linux raw-packet failures are reported; Skan never silently falls back or fabricates results.\n";
@@ -409,18 +417,11 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: scan requires an explicit IPv4 target. Use --help for usage.\n";
         return EXIT_FAILURE;
     }
-
-    skan::portscan::PortScanConfig config;
-    std::vector<skan::portscan::Port> ports;
+    skan::orchestrator::ScanConfig config;
+    const std::string target_address = argv[2];
     bool explicit_ports = false;
-    bool service_detect = false;
-    std::string service_database_path;
-    skan::detect::ServiceDetectionConfig service_config;
-    skan::output::OutputFormat output_format = skan::output::OutputFormat::Normal;
-    std::string output_file_path;
-    std::string transport_mode;
-    std::string interface_name;
     bool adaptive_timing = false;
+    std::string transport_mode;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "--tcp-ports" && index + 1 < argc) {
@@ -430,14 +431,17 @@ int run_scan(int argc, char **argv)
                 std::cerr << "Error: invalid TCP port selection.\n";
                 return EXIT_FAILURE;
             }
-            ports = selection.ports;
+            config.ports.clear();
+            for (const skan::portscan::Port &port : selection.ports) {
+                config.ports.push_back(port.number);
+            }
             explicit_ports = true;
         } else if (argument == "--method" && index + 1 < argc) {
             const std::string_view method(argv[++index]);
             if (method == "connect") {
-                config.method = skan::portscan::ScanProbeType::TcpConnect;
+                config.port_method = skan::portscan::ScanProbeType::TcpConnect;
             } else if (method == "syn") {
-                config.method = skan::portscan::ScanProbeType::TcpSyn;
+                config.port_method = skan::portscan::ScanProbeType::TcpSyn;
             } else {
                 std::cerr << "Error: method must be connect or syn.\n";
                 return EXIT_FAILURE;
@@ -450,12 +454,12 @@ int run_scan(int argc, char **argv)
             }
             config.timeout = std::chrono::milliseconds{timeout};
         } else if (argument == "--max-outstanding" && index + 1 < argc) {
-            unsigned int max_outstanding = 0U;
-            if (!parse_unsigned(argv[++index], max_outstanding) || max_outstanding == 0U) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
                 std::cerr << "Error: invalid max outstanding value.\n";
                 return EXIT_FAILURE;
             }
-            config.max_outstanding = static_cast<std::size_t>(max_outstanding);
+            config.max_parallelism = static_cast<std::size_t>(value);
         } else if (argument == "--timing" && index + 1 < argc) {
             if (skan::scanengine::TimingProfile::parse(argv[++index], config.timing_profile) !=
                 skan::core::StatusCode::Ok) {
@@ -466,18 +470,22 @@ int run_scan(int argc, char **argv)
         } else if ((argument == "--min-parallelism" || argument == "--max-parallelism" || argument == "--retries") &&
                    index + 1 < argc) {
             unsigned int value = 0U;
-            if (!parse_unsigned(argv[++index], value) ||
-                (argument != "--retries" && value == 0U)) {
+            if (!parse_unsigned(argv[++index], value) || (argument != "--retries" && value == 0U)) {
                 std::cerr << "Error: adaptive timing values must be valid and parallelism must be positive.\n";
                 return EXIT_FAILURE;
             }
             if (argument == "--min-parallelism") {
+                config.min_parallelism = static_cast<std::size_t>(value);
                 config.timing_profile.min_parallelism = static_cast<std::size_t>(value);
             } else if (argument == "--max-parallelism") {
+                config.max_parallelism = static_cast<std::size_t>(value);
                 config.timing_profile.max_parallelism = static_cast<std::size_t>(value);
             } else {
+                config.retries = static_cast<std::size_t>(value);
                 config.timing_profile.max_retries = static_cast<std::size_t>(value);
             }
+            adaptive_timing = true;
+        } else if (argument == "--adaptive-timing") {
             adaptive_timing = true;
         } else if (argument == "--transport" && index + 1 < argc) {
             transport_mode = argv[++index];
@@ -486,51 +494,58 @@ int run_scan(int argc, char **argv)
                 return EXIT_FAILURE;
             }
         } else if (argument == "--interface" && index + 1 < argc) {
-            interface_name = argv[++index];
-            if (interface_name.empty()) {
+            config.interface_name = argv[++index];
+            if (config.interface_name->empty()) {
                 std::cerr << "Error: interface name cannot be empty.\n";
                 return EXIT_FAILURE;
             }
+        } else if (argument == "--discovery") {
+            config.discovery_enabled = true;
+        } else if (argument == "--no-discovery") {
+            config.discovery_enabled = false;
+        } else if (argument == "--service-detect") {
+            config.service_detection_enabled = true;
+        } else if (argument == "--os-detect") {
+            config.os_detection_enabled = true;
         } else if (argument == "--output" && index + 1 < argc) {
-            if (skan::output::parse_output_format(argv[++index], output_format) != skan::output::OutputStatus::Ok) {
+            if (skan::output::parse_output_format(argv[++index], config.output_format) !=
+                skan::output::OutputStatus::Ok) {
                 std::cerr << "Error: output format must be normal, json, xml, or grepable.\n";
                 return EXIT_FAILURE;
             }
         } else if ((argument == "-o" || argument == "--output-file") && index + 1 < argc) {
-            output_file_path = argv[++index];
-            if (output_file_path.empty()) {
+            config.output_file = argv[++index];
+            if (config.output_file->empty()) {
                 std::cerr << "Error: output file path cannot be empty.\n";
                 return EXIT_FAILURE;
             }
-        } else if (argument == "--service-detect") {
-            service_detect = true;
         } else if (argument == "--service-db" && index + 1 < argc) {
-            service_database_path = argv[++index];
-            if (service_database_path.empty()) {
+            config.service_db_path = argv[++index];
+            if (config.service_db_path.empty()) {
                 std::cerr << "Error: service database path cannot be empty.\n";
                 return EXIT_FAILURE;
             }
         } else if (argument == "--max-response-bytes" && index + 1 < argc) {
-            unsigned int max_response_bytes = 0U;
-            if (!parse_unsigned(argv[++index], max_response_bytes) || max_response_bytes == 0U) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
                 std::cerr << "Error: invalid max response byte count.\n";
                 return EXIT_FAILURE;
             }
-            service_config.max_response_bytes = static_cast<std::size_t>(max_response_bytes);
+            config.max_response_bytes = static_cast<std::size_t>(value);
         } else if (argument == "--max-probes" && index + 1 < argc) {
-            unsigned int max_probes = 0U;
-            if (!parse_unsigned(argv[++index], max_probes) || max_probes == 0U) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
                 std::cerr << "Error: invalid max probes value.\n";
                 return EXIT_FAILURE;
             }
-            service_config.max_probes_per_port = static_cast<std::size_t>(max_probes);
+            config.max_probes_per_port = static_cast<std::size_t>(value);
         } else {
             std::cerr << "Error: unknown or incomplete scan option. Use --help for usage.\n";
             return EXIT_FAILURE;
         }
     }
     if (!explicit_ports) {
-        ports = skan::portscan::default_tcp_ports();
+        config.ports.clear();
     }
     if (adaptive_timing) {
         config.timing_profile.maximum_timeout = config.timeout;
@@ -542,140 +557,41 @@ int run_scan(int argc, char **argv)
                      config.timing_profile.max_parallelism);
     }
     config.adaptive_timing = adaptive_timing;
-    service_config.adaptive_timing = adaptive_timing;
-    service_config.timing_profile = config.timing_profile;
-    if (config.method == skan::portscan::ScanProbeType::TcpSyn && transport_mode.empty()) {
-        std::cerr << "Error: TCP SYN requires an explicit --transport linux --interface <name> "
-                     "or --transport offline; no raw transport is selected implicitly.\n";
+    if (transport_mode == "offline") {
+        config.transport = skan::orchestrator::ScanTransport::Offline;
+    } else if (transport_mode == "linux") {
+        config.transport = skan::orchestrator::ScanTransport::Linux;
+    } else {
+        config.transport = skan::orchestrator::ScanTransport::Connect;
+    }
+    if (config.port_method == skan::portscan::ScanProbeType::TcpSyn && transport_mode.empty()) {
+        std::cerr << "Error: TCP SYN requires an explicit --transport linux --interface <name> or --transport offline; "
+                     "no raw transport is selected implicitly.\n";
         return EXIT_FAILURE;
     }
-    if (config.method == skan::portscan::ScanProbeType::TcpConnect && transport_mode == "linux") {
-        std::cerr << "Error: the linux packet transport is only available for --method syn; "
-                     "Connect mode uses normal TCP sockets.\n";
+    if (config.transport == skan::orchestrator::ScanTransport::Linux &&
+        config.port_method != skan::portscan::ScanProbeType::TcpSyn) {
+        std::cerr << "Error: the linux packet transport is only available for --method syn; Connect mode uses normal TCP sockets.\n";
         return EXIT_FAILURE;
     }
-    if (transport_mode == "linux" && interface_name.empty()) {
+    if (config.transport == skan::orchestrator::ScanTransport::Linux && !config.interface_name.has_value()) {
         std::cerr << "Error: --transport linux requires an explicit --interface <name>.\n";
         return EXIT_FAILURE;
     }
-
-    const std::string target_address = argv[2];
-    skan::core::Target target{target_address, {skan::core::Host{target_address, std::nullopt, false}}};
-    skan::io::IOEngine io_engine;
-    if (io_engine.initialization_status() != skan::core::StatusCode::Ok) {
-        std::cerr << "Error: unable to initialize the asynchronous I/O engine.\n";
+    if (config.discovery_enabled && transport_mode.empty()) {
+        std::cerr << "Error: --discovery requires --transport offline or --transport linux --interface <name>.\n";
         return EXIT_FAILURE;
     }
-    const auto scan_started = std::chrono::steady_clock::now();
-    std::unique_ptr<skan::portscan::PortScanTransport> transport;
-    std::unique_ptr<skan::portscan::TcpConnectTransport> connect_transport;
-    std::unique_ptr<skan::portscan::RecordingPortScanTransport> offline_transport;
-    std::unique_ptr<skan::net::LinuxNetworkScanTransport> linux_transport;
-    if (transport_mode == "offline") {
-        offline_transport = std::make_unique<skan::portscan::RecordingPortScanTransport>();
-        transport = std::move(offline_transport);
-    } else if (transport_mode == "linux") {
-        linux_transport = std::make_unique<skan::net::LinuxNetworkScanTransport>(
-            io_engine,
-            skan::net::NetworkScanConfig{interface_name, 65535U, true, std::nullopt});
-        const skan::net::NetworkScanResult network_status = linux_transport->open();
-        if (!network_status.success()) {
-            std::cerr << "Error: unable to open Linux scan transport: "
-                      << skan::net::network_scan_status_name(network_status.status);
-            if (!network_status.message.empty()) {
-                std::cerr << " (" << network_status.message << ')';
-            }
-            std::cerr << '\n';
-            return EXIT_FAILURE;
+    config.targets.push_back(
+        skan::core::Target{target_address, {skan::core::Host{target_address, std::nullopt, false}}});
+    skan::orchestrator::ScanOrchestrator orchestrator(config);
+    const skan::core::StatusCode status = orchestrator.run(std::cout);
+    if (status != skan::core::StatusCode::Ok) {
+        std::cerr << "Error: scan orchestration failed: " << skan::core::status_to_string(status);
+        if (!orchestrator.session().error_message().empty()) {
+            std::cerr << " (" << orchestrator.session().error_message() << ')';
         }
-        transport = std::move(linux_transport);
-    } else {
-        connect_transport = std::make_unique<skan::portscan::TcpConnectTransport>(io_engine);
-        transport = std::move(connect_transport);
-    }
-    skan::portscan::PortScanScheduler scanner(
-        io_engine,
-        *transport,
-        config);
-    const skan::core::StatusCode submit_status = scanner.submit(target, ports);
-    if (submit_status != skan::core::StatusCode::Ok) {
-        std::cerr << "Error: scan submission failed: "
-                  << skan::core::status_to_string(submit_status) << '\n';
-        return EXIT_FAILURE;
-    }
-    const skan::core::StatusCode run_status = scanner.run();
-    if (run_status != skan::core::StatusCode::Ok) {
-        std::cerr << "Error: scan engine failed: " << skan::core::status_to_string(run_status) << '\n';
-        return EXIT_FAILURE;
-    }
-    std::vector<skan::detect::ServiceResult> service_results;
-    if (service_detect) {
-        service_config.timeout = config.timeout;
-        skan::core::StatusCode database_status = skan::core::StatusCode::Ok;
-        skan::detect::ServiceProbeDatabase database = service_database_path.empty()
-                                                           ? skan::detect::ServiceProbeDatabase::built_in()
-                                                           : skan::detect::ServiceProbeDatabase::load_file(
-                                                                 service_database_path, database_status);
-        if (service_database_path.empty()) {
-            database_status = database.status();
-        }
-        if (database_status != skan::core::StatusCode::Ok) {
-            std::cerr << "Error: unable to load service probe database: "
-                      << skan::core::status_to_string(database_status) << '\n';
-            return EXIT_FAILURE;
-        }
-        skan::detect::ServiceTcpTransport service_transport(io_engine);
-        skan::detect::ServiceDetector detector(
-            io_engine,
-            service_transport,
-            service_config,
-            std::move(database));
-        const skan::core::StatusCode detection_submit = detector.submit(scanner.results());
-        if (detection_submit != skan::core::StatusCode::Ok) {
-            std::cerr << "Error: service detection submission failed: "
-                      << skan::core::status_to_string(detection_submit) << '\n';
-            return EXIT_FAILURE;
-        }
-        const skan::core::StatusCode detection_run = detector.run();
-        if (detection_run != skan::core::StatusCode::Ok) {
-            std::cerr << "Error: service detection failed: "
-                      << skan::core::status_to_string(detection_run) << '\n';
-            return EXIT_FAILURE;
-        }
-        service_results = detector.results();
-    }
-    skan::output::ScanReport report;
-    report.target_spec = target_address;
-    if (adaptive_timing) {
-        report.timing_profile = config.timing_profile.id;
-    }
-    if (scanner.timing_controller() != nullptr) {
-        report.timing_metrics = scanner.timing_controller()->metrics();
-    }
-    report.duration_ms = std::chrono::duration<double, std::milli>(
-                             std::chrono::steady_clock::now() - scan_started)
-                             .count();
-    skan::output::HostResult host;
-    host.address = target_address;
-    host.ports = scanner.results();
-    host.services = std::move(service_results);
-    report.hosts.push_back(std::move(host));
-
-    std::ofstream output_file;
-    std::ostream *serialized_output = &std::cout;
-    if (!output_file_path.empty()) {
-        output_file.open(output_file_path, std::ios::out | std::ios::trunc);
-        if (!output_file.is_open()) {
-            std::cerr << "Error: unable to open output file: " << output_file_path << '\n';
-            return EXIT_FAILURE;
-        }
-        serialized_output = &output_file;
-    }
-    const skan::output::OutputStatus output_status = skan::output::OutputManager::write(
-        output_format, report, *serialized_output);
-    if (output_status != skan::output::OutputStatus::Ok) {
-        std::cerr << "Error: unable to serialize scan report: "
-                  << skan::output::output_status_name(output_status) << '\n';
+        std::cerr << '\n';
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;

@@ -415,6 +415,70 @@ The scan command validates explicit IPv4 targets before running. `scan --method 
 
 Discovery maps invalid IPv4 input to `InvalidArgument` and `INVALID_TARGET`, transport I/O failure to `IoError` and `SOCKET_FAILURE`, parser rejection to `ParseError` and `MALFORMED_RESPONSE`, timer or internal construction failures to `InternalError`, and late responses to `NotFound` without corrupting state. Port scanning maps Connect success to `OPEN/IMMEDIATE_SUCCESS`, refusal to `CLOSED/CONNECTION_REFUSED`, deadline expiry to `FILTERED/TIMEOUT`, and other local socket failures to `UNKNOWN/SOCKET_ERROR`. SYN capability absence is explicit `PermissionDenied`/`CAPABILITY_UNAVAILABLE`; malformed and unrelated synthetic responses leave pending state unchanged. Service detection maps timeout, close, oversized response, malformed response, invalid target, no match, and transport failure to explicit `DetectionError` values without fabricating a service identity.
 
+## Phase 11 unified scan orchestrator
+
+Phase 11 is a coordination layer over Phases 0–10. It does not introduce a new network engine, packet format, scheduler family, timing implementation, matcher, database corpus, or output writer. The public `ScanOrchestrator` facade constructs a `ScanPipeline`; the pipeline owns a `ScanSession`, stage adapters, and the accumulated existing result types. `ScanSession` owns exactly one `io::IOEngine`, which is borrowed by the existing asynchronous schedulers and transports throughout the run.
+
+```text
+explicit core::Target values
+          |
+          v
+     ScanConfig validation
+          |
+          v
+     ScanOrchestrator / ScanPipeline
+          |
+          +--> DiscoveryStage -------> Discovery + selected transport
+          |
+          +--> PortScanStage --------> PortScanScheduler + selected transport
+          |
+          +--> ServiceDetectionStage -> ServiceDetector + ServiceTransport
+          |
+          +--> OSDetectionStage ------> OSDetector + injected/capability seam
+          |
+          +--> ScanReportBuilder ----> canonical output::ScanReport
+          |
+          +--> OutputManager --------> normal / JSON / XML / grepable
+```
+
+### Pipeline state and event contract
+
+The state machine is explicit: `Created`, `Initializing`, `Discovering`, `PortScanning`, `DetectingServices`, `DetectingOS`, `Serializing`, `Completed`, `Failed`, and `Cancelled`. Configuration validation and target aggregation happen before operational stages. Disabled stages are skipped by a direct valid transition to the next enabled stage or serialization; an invalid transition is rejected by `ScanSession` rather than silently mutating state.
+
+Typed `ScanEvent` values provide stable stage and lifecycle notifications. A successful run emits `ScanStarted`, zero or more `StageStarted`/`StageCompleted` pairs for enabled stages, `Serializing`, and `ScanCompleted`. Warnings and errors are emitted at the point where existing subsystem status is translated. A cancellation emits `ScanCancelled` once and prevents subsequent completion events. Events emitted after a terminal state are ignored, and repeated cancellation is idempotent.
+
+| Pipeline concern | Phase 11 responsibility | Existing implementation retained |
+| --- | --- | --- |
+| Target scope | Aggregate explicit targets and preserve host ordering. | `core::Target` and `core::Host` validation. |
+| Discovery | Invoke only when enabled and pass discovered-UP hosts onward. | Phase 3 `Discovery`, scheduler, probes, timers, and Phase 10 Linux adapter. |
+| Ports | Invoke the bounded port scheduler for the selected method. | Phase 4 scheduler, Connect transport, SYN model, and Phase 10 network adapter. |
+| Services | Submit only OPEN TCP results after port completion. | Phase 5 stream transport, detector, probe database, and matcher. |
+| OS | Preserve existing injected/unsupported behavior without guessing. | Phase 6 detector, evidence model, database, and matcher. |
+| Timing | Pass the validated Phase 7 profile and bounds. | Timing controller, RTT estimator, congestion controller, and schedulers. |
+| Output | Build and serialize one canonical report. | Phase 8 `ScanReportBuilder` boundary and `OutputManager`. |
+
+### Configuration and transport policy
+
+`ScanConfig` defaults are deliberately compatible with the earlier `scan` command: TCP Connect, no discovery, no service detection, no OS detection, the existing Phase 4 default ports when the port vector is empty, the Phase 7 default timing profile, bounded timeout and parallelism, normal output, and no file. Validation rejects empty or invalid targets, malformed dotted-decimal IPv4 addresses, port zero, invalid positive bounds, incompatible method/transport combinations, missing Linux interface requirements, unsupported discovery transport selections, invalid service limits, invalid timing profiles, and unusable output paths.
+
+Offline mode uses the existing recording transports and is deterministic. Linux mode is selected explicitly and uses the Phase 10 adapters; raw capability or interface failures are surfaced as errors. There is no implicit fallback from Linux to offline. Explicit targets are the only supported scope mechanism, so Phase 11 adds no CIDR or range parser.
+
+### Stage boundary and cancellation semantics
+
+Each adapter translates `ScanConfig` into the existing subsystem configuration and delegates submission, callback correlation, timeout handling, bounded concurrency, and result collection to that subsystem. The pipeline does not create worker threads or a second event loop and does not poll or sleep. The active stage is retained only long enough to collect its result; cancellation destroys or cancels it through its existing lifecycle and then stops the shared session reactor.
+
+Cancellation may occur before `run()`, between stages, or from an event sink. It is cooperative and idempotent. The pipeline stops starting later stages, closes active scheduler/transport resources through their existing cancellation paths, maps all results collected so far, and still serializes a valid partial report through `OutputManager`. In particular, a discovery timeout remains `UNKNOWN`, and an unavailable live OS transport yields a warning with no fabricated match, empty match list, and zero confidence.
+
+### Canonical report mapping
+
+`ScanReportBuilder` is the sole Phase 11 conversion boundary. It combines explicit target hosts, discovery results, port results, service results, and OS results into Phase 8 `output::HostResult` and `output::ScanReport` values. Host and child-result ordering is deterministic, unknown states and RTTs are retained, and derived summary counters come from the existing Phase 8 summary calculation. The pipeline never hand-builds JSON, XML, normal, or grepable output; `OutputManager` remains the only serialization boundary, and its file writer uses replacement/RAII semantics.
+
+### Failure and capability model
+
+A configuration failure occurs before network work and is returned as an invalid-argument status. A stage submission, transport, timer, parser, or internal construction error produces a typed pipeline error and a diagnostic event; the session enters `Failed` unless cancellation has already won the race. Late and duplicate responses remain governed by the existing schedulers and cannot corrupt pending state. Linux AF_PACKET tests may skip when the environment lacks permission; a real Linux scan instead fails clearly and never reports offline data as live evidence.
+
+Phase 11 tests cover state and event contracts, report ordering, adapter delegation, deterministic offline execution, cancellation, multi-host sequencing, discovery response handling, service/OS stage order, and a bounded 100-host × 100-port workload. This preserves the existing Phase 0–10 tests and keeps capability-dependent raw-network tests environment-aware.
+
 ## Platform and network boundary
 
 Phase 3 is Linux-first because Phase 1 uses Linux `epoll`; Phase 9/10 additionally use Linux interface and raw-packet capabilities. Default tests and default CLI paths do not require raw-network privileges, external hosts, or public Internet access.

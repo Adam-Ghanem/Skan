@@ -80,8 +80,15 @@ CPP_SOURCES := \
 			src/osdetect/os_probe.cpp \
 			src/osdetect/os_matcher.cpp \
 			src/osdetect/os_scheduler.cpp \
-			src/osdetect/os_detector.cpp \
-			src/main.cpp
+				src/osdetect/os_detector.cpp \
+				src/orchestrator/scan_config.cpp \
+				src/orchestrator/scan_events.cpp \
+				src/orchestrator/scan_session.cpp \
+				src/orchestrator/scan_stage.cpp \
+				src/orchestrator/scan_report_builder.cpp \
+				src/orchestrator/scan_pipeline.cpp \
+				src/orchestrator/scan_orchestrator.cpp \
+				src/main.cpp
 
 C_SOURCES := src/c_api/status.c
 CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
@@ -118,9 +125,13 @@ DETECT_OBJECTS := $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/detect/servic
 		$(BUILD_DIR)/detect/service_scheduler.o $(BUILD_DIR)/detect/service_detector.o
 DB_OBJECTS := $(BUILD_DIR)/db/db_types.o $(BUILD_DIR)/db/os_db.o $(BUILD_DIR)/db/os_db_loader.o
 OSDETECT_OBJECTS := $(BUILD_DIR)/osdetect/os_probe_types.o $(BUILD_DIR)/osdetect/os_types.o \
-	$(BUILD_DIR)/osdetect/os_fingerprint.o $(BUILD_DIR)/osdetect/os_probe.o \
-	$(BUILD_DIR)/osdetect/os_matcher.o $(BUILD_DIR)/osdetect/os_scheduler.o \
-	$(BUILD_DIR)/osdetect/os_detector.o
+		$(BUILD_DIR)/osdetect/os_fingerprint.o $(BUILD_DIR)/osdetect/os_probe.o \
+		$(BUILD_DIR)/osdetect/os_matcher.o $(BUILD_DIR)/osdetect/os_scheduler.o \
+		$(BUILD_DIR)/osdetect/os_detector.o
+ORCHESTRATOR_OBJECTS := $(BUILD_DIR)/orchestrator/scan_config.o \
+	$(BUILD_DIR)/orchestrator/scan_events.o $(BUILD_DIR)/orchestrator/scan_session.o \
+	$(BUILD_DIR)/orchestrator/scan_stage.o $(BUILD_DIR)/orchestrator/scan_report_builder.o \
+	$(BUILD_DIR)/orchestrator/scan_pipeline.o $(BUILD_DIR)/orchestrator/scan_orchestrator.o
 
 TEST_SOURCES := \
 	tests/unit/core/test_types.cpp \
@@ -181,7 +192,18 @@ TEST_SOURCES := \
 			tests/unit/net/test_linux_transport.cpp \
 		tests/unit/net/test_network_scan_transport.cpp \
 		tests/unit/net/test_linux_discovery_transport.cpp \
-				tests/integration/net/test_linux_loopback.cpp
+				 tests/integration/net/test_linux_loopback.cpp \
+			tests/unit/orchestrator/test_scan_config.cpp \
+			tests/unit/orchestrator/test_scan_state.cpp \
+			tests/unit/orchestrator/test_scan_session.cpp \
+			tests/unit/orchestrator/test_scan_events.cpp \
+			tests/unit/orchestrator/test_scan_report_builder.cpp \
+			tests/unit/orchestrator/test_scan_stage.cpp \
+			tests/unit/orchestrator/test_pipeline.cpp \
+			tests/integration/orchestrator/test_pipeline_cancellation.cpp \
+			tests/integration/orchestrator/test_pipeline_discovery.cpp \
+			tests/integration/orchestrator/test_pipeline_stages.cpp \
+			tests/integration/orchestrator/test_pipeline_stress.cpp
 
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
@@ -243,7 +265,18 @@ TEST_BINARIES := \
 			$(BUILD_DIR)/test_linux_transport \
 			$(BUILD_DIR)/test_network_scan_transport \
 			$(BUILD_DIR)/test_linux_discovery_transport \
-			$(BUILD_DIR)/test_linux_loopback
+				$(BUILD_DIR)/test_linux_loopback \
+			$(BUILD_DIR)/test_scan_config \
+			$(BUILD_DIR)/test_scan_state \
+			$(BUILD_DIR)/test_scan_session \
+			$(BUILD_DIR)/test_scan_events \
+			$(BUILD_DIR)/test_scan_report_builder \
+			$(BUILD_DIR)/test_scan_stage \
+			$(BUILD_DIR)/test_pipeline \
+			$(BUILD_DIR)/test_pipeline_cancellation \
+			$(BUILD_DIR)/test_pipeline_discovery \
+			$(BUILD_DIR)/test_pipeline_stages \
+			$(BUILD_DIR)/test_pipeline_stress
 
 .PHONY: all debug test clean
 
@@ -441,6 +474,40 @@ $(BUILD_DIR)/test_linux_discovery_transport: $(BUILD_DIR)/tests/unit/net/test_li
 $(BUILD_DIR)/test_linux_loopback: $(BUILD_DIR)/tests/integration/net/test_linux_loopback.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+ORCHESTRATOR_TEST_OBJECTS := $(OUTPUT_TEST_OBJECTS) $(NET_OBJECTS) $(ORCHESTRATOR_OBJECTS)
+$(BUILD_DIR)/test_scan_config: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_config.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_state: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_state.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_session: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_session.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_events: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_events.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_report_builder: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_report_builder.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_scan_stage: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_stage.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_pipeline: $(BUILD_DIR)/tests/unit/orchestrator/test_pipeline.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_pipeline_cancellation: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_cancellation.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_pipeline_discovery: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_discovery.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_pipeline_stages: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_stages.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_pipeline_stress: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_stress.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
@@ -524,7 +591,20 @@ test: $(TEST_BINARIES)
 			./$(BUILD_DIR)/test_linux_transport
 			./$(BUILD_DIR)/test_network_scan_transport
 			./$(BUILD_DIR)/test_linux_discovery_transport
-			./$(BUILD_DIR)/test_linux_loopback
+							./$(BUILD_DIR)/test_linux_loopback
+			./$(BUILD_DIR)/test_scan_config
+			./$(BUILD_DIR)/test_scan_state
+			./$(BUILD_DIR)/test_scan_session
+			./$(BUILD_DIR)/test_scan_events
+			./$(BUILD_DIR)/test_scan_report_builder
+			./$(BUILD_DIR)/test_scan_stage
+			./$(BUILD_DIR)/test_pipeline
+			./$(BUILD_DIR)/test_pipeline_cancellation
+			./$(BUILD_DIR)/test_pipeline_discovery
+			./$(BUILD_DIR)/test_pipeline_stages
+			./$(BUILD_DIR)/test_pipeline_stress
+
+
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

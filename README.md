@@ -370,6 +370,38 @@ The default is `normal`. `-o` and `--output-file` explicitly replace the selecte
 
 The `interfaces` command does not scan or transmit; it reports the interfaces visible to the current Linux environment. `scan --method connect` retains normal TCP sockets without requiring an interface. `scan --method syn` requires explicit `--transport offline` or `--transport linux --interface <name>`, while `discover --transport linux` also requires an explicit interface. Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, UDP option, alternate TCP flag option, or full-port-range default.
 
+## Phase 11 — Unified scan orchestrator
+
+Phase 11 adds the production scan entry point that coordinates the existing Phase 0–10 subsystems without replacing them. `ScanOrchestrator` owns a `ScanPipeline`, and each `ScanSession` owns exactly one Phase 1 `io::IOEngine`. The pipeline runs the stages in a deterministic order: **Discovery → Port Scan → Service Detection → OS Detection → Output**. Discovery, service detection, and OS detection are optional; port scanning remains the normal scan operation unless configuration validation rejects the selected combination.
+
+### Configuration and transport selection
+
+`ScanConfig` is the typed boundary for targets, transport selection, probe method, ports, timing, concurrency, service limits, database paths, and output settings. An empty port list means the existing Phase 4 default TCP port set. The default scan uses TCP Connect, no discovery, no service detection, no OS detection, the Phase 7 timing profile, normal output, bounded timeout and parallelism, and no output file. Explicit `--transport offline` selects deterministic recording transports. Explicit `--transport linux` selects the Phase 10 Linux adapters and requires the relevant interface and raw-packet capability; failures are returned clearly and never silently downgraded to offline behavior.
+
+The orchestrator accepts explicit IPv4 targets and the existing host model only. It does not add CIDR, range expansion, Internet-wide scanning, worker threads, polling loops, sleeps, or a second event loop. Bounded asynchronous work remains inside the existing discovery scheduler, port scheduler, service detector, OS detector, transports, and timing controllers.
+
+| Scan option | Meaning |
+| --- | --- |
+| `--discovery` / `--no-discovery` | Enable or skip the discovery stage; skipping is the default. |
+| `--method connect` / `--method syn` | Select the existing TCP Connect or capability-gated SYN method. |
+| `--transport offline` / `--transport linux` | Select deterministic recording behavior or explicit Phase 10 Linux networking. |
+| `--service-detect` | Run bounded TCP stream service detection only for OPEN ports. |
+| `--os-detect` | Run the existing OS detection seam; unavailable live capability produces no fabricated matches. |
+| `--adaptive-timing` and timing bounds | Enable or configure the existing Phase 7 timing profile and bounded concurrency controls. |
+| `--output normal\|json\|xml\|grepable`, `-o` | Select the existing Phase 8 writer and optionally replace an output file through RAII. |
+
+### State, events, cancellation, and reports
+
+The session state machine explicitly represents initialization, each operational stage, serialization, completion, failure, and cancellation. Typed events identify scan start, stage start/completion, warnings, errors, serialization, completion, and cancellation. Event emission is deterministic and guarded after terminal states. Cancellation is cooperative and idempotent: active schedulers and transports are released through their existing cancellation/destructor paths, the session retains a valid partial canonical report, and output still crosses the existing `OutputManager` boundary.
+
+`ScanReportBuilder` is the only Phase 11 mapping layer from existing discovery, port, service, and OS result types to the canonical Phase 8 `output::ScanReport`. Output formats are not reimplemented in the orchestrator. stdout contains serialized machine output when requested, while diagnostics remain on stderr. Discovery timeouts remain `UNKNOWN`; OS detection does not fabricate a result when live fingerprint transport is unavailable, leaving matches empty and confidence zero while recording a warning.
+
+### Testing and capability behavior
+
+Phase 11 includes unit coverage for configuration validation, state transitions, session ownership and cancellation, typed events, report ordering and summaries, and stage adapters. Integration coverage exercises deterministic multi-host sequencing, cancellation from a stage event, discovery response handling, service/OS stage ordering, and a bounded **100-host × 100-port** offline workload. Linux raw transport tests skip cleanly when AF_PACKET capability is unavailable in the execution environment; they do not substitute a different transport or report fabricated network results.
+
+The CLI retains the earlier `discover`, `interfaces`, and `os-detect` commands. The `scan` command now uses the unified orchestrator while preserving the prior Connect defaults and existing output formats. `--discovery --transport offline` intentionally reports nonresponsive discovery as `UNKNOWN` and therefore does not port-scan those hosts, because only discovered-UP hosts proceed to the next stage.
+
 ## Network and safety boundary
 
 Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. Phase 9 adds explicit-interface Linux `AF_PACKET` byte transport and bounded capture as reusable infrastructure. Phase 10 connects that infrastructure to the existing TCP SYN and discovery scheduler seams without moving scan strategy into the transport. These classes do not implement spoofing, ARP attack behavior, host-range expansion, public-target defaults, UDP scanning, alternate TCP flag scanning, evasion, live operating-system fingerprinting, Lua scripting, or dashboard functionality. Phase 6 provides packet-model-backed synthetic/injected OS evidence collection and deterministic matching only; it does not claim a live OS fingerprint. Linux mode reports unavailable capabilities rather than fabricating success.
