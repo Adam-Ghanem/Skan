@@ -20,6 +20,10 @@ namespace skan::detect {
 
 class ServiceScheduler final {
 public:
+    /**
+     * The probe database is borrowed and must outlive this scheduler. Use
+     * ServiceDetector when value ownership is required by the caller.
+     */
     ServiceScheduler(
         io::IOEngine &engine,
         ServiceTransport &transport,

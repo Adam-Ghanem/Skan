@@ -23,7 +23,7 @@ std::uint16_t internet(std::span<const std::uint8_t> bytes) noexcept
         offset += 2U;
     }
     if (offset < bytes.size()) {
-        sum = add_word(sum, static_cast<std::uint16_t>(bytes[offset]) << 8U);
+        sum = add_word(sum, static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes[offset]) << 8U));
     }
 
     while ((sum >> 16U) != 0U) {
@@ -58,7 +58,7 @@ std::uint16_t ipv4_pseudo_header(
         offset += 2U;
     }
     if (offset < transport_bytes.size()) {
-        sum = add_word(sum, static_cast<std::uint16_t>(transport_bytes[offset]) << 8U);
+        sum = add_word(sum, static_cast<std::uint16_t>(static_cast<std::uint16_t>(transport_bytes[offset]) << 8U));
     }
 
     while ((sum >> 16U) != 0U) {

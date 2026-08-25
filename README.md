@@ -83,7 +83,7 @@ Only TCP is supported. `--tcp-ports` accepts a single port, a comma-separated li
 
 The scheduler is bounded by `max_outstanding`, uses the shared Phase 1 `IOEngine` for epoll events and one-shot timers, and retains deterministic target/port/probe ordering. TCP Connect uses actual nonblocking IPv4 sockets and classifies immediate success or `SO_ERROR==0` as `OPEN`, `ECONNREFUSED` as `CLOSED`, and deadline expiry as `FILTERED`; other local socket failures are `UNKNOWN`. Socket events, timers, and descriptors are removed or closed on every terminal path.
 
-The TCP SYN probe reuses the Phase 2 `packet::TCP` model for deterministic offline construction and validates source/destination addresses and ports, SYN/ACK acknowledgment correlation, and RST responses. This build intentionally reports the raw-packet network capability as unavailable; synthetic responses can still exercise the probe and scheduler through an injected transport. It does not claim a real SYN scan.
+The TCP SYN probe reuses the Phase 2 `packet::TCP` model for deterministic offline construction and validates source/destination addresses and ports, SYN/ACK acknowledgment correlation, and RST responses. The explicit Linux transport path can perform a real capability-gated SYN scan when the user selects `--transport linux --interface <name>` and the host permits AF_PACKET; otherwise the result is an explicit capability failure or deterministic offline result, never an implicit fallback.
 
 The minimal CLI is:
 
@@ -200,7 +200,7 @@ All writers implement the same `OutputWriter` interface and are independently us
 
 Hosts are sorted by canonical address, ports by numeric port and protocol, services by associated port, and OS matches by descending confidence followed by ascending name. Repeated serialization of one report is byte-identical. Untrusted banner/product/version data is escaped or control-sanitized in every format; machine formats never emit terminal color codes.
 
-The scan CLI accepts `--output normal|json|xml|grepable` and defaults to `normal`. `-o <file>` and `--output-file <file>` write the selected serialization through an RAII `std::ofstream`, explicitly truncating/replacing the selected path. File-open and serialization failures are reported on stderr and do not create a partial success message on stdout. Standard output contains only the selected serialization; operational logs and diagnostics go to stderr. Existing `--version`, target validation, port selection, service detection, OS capability behavior, and Phase 7 timing flags remain additive and unchanged.
+The scan CLI accepts `--output normal|json|xml|grepable` and defaults to `normal`. `-o <file>` and `--output-file <file>` serialize completely before writing through a securely created same-directory temporary file, flush and sync it, and atomically rename it over the selected path. File-open, serialization, and replacement failures are reported on stderr and do not create a partial success message on stdout. Standard output contains only the selected serialization; operational logs and diagnostics go to stderr. Existing `--version`, target validation, port selection, service detection, OS capability behavior, and Phase 7 timing flags remain additive and unchanged.
 
 Examples:
 
@@ -548,3 +548,7 @@ Normal, JSON, XML, and grepable reports preserve OS state, error, confidence, pr
 ## Phase 14 verification scope
 
 The Phase 14 tests cover strict OS database parsing, optional metadata, ranges, UDP signatures, all probe families, packet-backed TCP/UDP/ICMP assessment, malformed and unrelated evidence, scheduler retries/timeouts/cancellation, injected multi-host completion, a 1,000-host/12,000-probe offline stress case, structured output fields, CLI validation, and explicit Linux capability skips. Sanitizer, coverage, fuzz, debug, release, and clean production builds use the same source and test registration paths as earlier phases.
+
+## Post-Phase-14 deep audit
+
+The post-Phase-14 audit, scoped Nmap capability comparison, benchmark methodology/results, repaired defects, and remaining limitations are documented in [`AUDIT_REPORT.md`](AUDIT_REPORT.md). Reproduce the offline measurements with the opt-in `make benchmark` target; the detailed results and raw CSV are in [`BENCHMARKS.md`](BENCHMARKS.md) and [`benchmarks/results_2026-08-25.csv`](benchmarks/results_2026-08-25.csv). The planning-only next-phase work is recorded in [`NEXT_PHASE_ROADMAP.md`](NEXT_PHASE_ROADMAP.md); no Phase 15 implementation was started.

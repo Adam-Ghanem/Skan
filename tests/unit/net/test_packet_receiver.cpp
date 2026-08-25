@@ -102,6 +102,18 @@ int main()
     assert(udp.udp.has_value());
     assert(udp.udp->destination_port() == 53U);
 
+    auto padded_udp_frame = udp_frame;
+    padded_udp_frame.insert(padded_udp_frame.end(), {0xAAU, 0xBBU, 0xCCU, 0xDDU});
+    const auto original_ip_total_length = static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(padded_udp_frame[16U]) << 8U) | padded_udp_frame[17U]);
+    set_ipv4_total_length(
+        padded_udp_frame,
+        static_cast<std::uint16_t>(original_ip_total_length + 4U));
+    const skan::net::PacketObservation padded_udp = skan::net::PacketReceiver::parse(padded_udp_frame, timestamp);
+    assert(padded_udp.status == skan::net::ParseStatus::Valid);
+    assert(padded_udp.udp.has_value());
+    assert(padded_udp.udp->payload() == udp.udp->payload());
+
     const auto icmp_frame = skan::test::test_icmp_frame();
     const skan::net::PacketObservation icmp = skan::net::PacketReceiver::parse(icmp_frame, timestamp);
     assert(icmp.status == skan::net::ParseStatus::Valid);
@@ -181,5 +193,14 @@ int main()
     close_receiver.close();
     assert(!close_receiver.is_open());
     assert(close_engine.run_once(0) == skan::core::StatusCode::Ok);
+
+    PipeCapture shutdown_capture;
+    skan::net::PacketReceiver shutdown_receiver(shutdown_capture);
+    skan::io::IOEngine shutdown_engine;
+    assert(shutdown_receiver.open(skan::net::CaptureConfig{"pipe", 65535U, true}).success());
+    assert(shutdown_receiver.attach(shutdown_engine, [](skan::io::Event &) {}) == skan::core::StatusCode::Ok);
+    assert(shutdown_engine.shutdown() == skan::core::StatusCode::Ok);
+    shutdown_receiver.close();
+    assert(!shutdown_receiver.is_open());
     return 0;
 }

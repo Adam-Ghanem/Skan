@@ -434,7 +434,7 @@ TargetResolutionResult TargetEngine::resolve(
             return failure(expanded.status, expanded.error);
         }
         TargetSet target_set;
-        target_set.targets = TargetDeduplicator::deduplicate(expanded.targets);
+        target_set.targets = std::move(expanded.targets);
         TargetNormalizer::sort_numeric(target_set.targets);
         if (target_set.empty()) {
             return failure(core::StatusCode::InvalidArgument, make_error(TargetErrorCode::EmptyTargetSet, "target resolution produced no IPv4 targets"));

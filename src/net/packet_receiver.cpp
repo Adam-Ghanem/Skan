@@ -144,7 +144,7 @@ PacketObservation PacketReceiver::parse(
             observation.status = ParseStatus::TruncatedUDP;
             return observation;
         }
-        observation.udp = packet::UDP::parse(transport);
+        observation.udp = packet::UDP::parse(transport.first(udp_length));
         if (!observation.udp.has_value()) {
             observation.status = ParseStatus::MalformedUDP;
             return observation;
@@ -189,7 +189,7 @@ void PacketReceiver::close() noexcept
 {
     if (attached_engine_ != nullptr && event_.has_value()) {
         const core::StatusCode status = attached_engine_->remove(*event_);
-        if (status != core::StatusCode::Ok && status != core::StatusCode::NotFound) {
+        if (status != core::StatusCode::Ok && status != core::StatusCode::NotFound && event_->registered()) {
             return;
         }
         event_.reset();
@@ -247,7 +247,7 @@ core::StatusCode PacketReceiver::detach(io::IOEngine &io_engine) noexcept
         return core::StatusCode::InvalidArgument;
     }
     const core::StatusCode status = io_engine.remove(*event_);
-    if (status != core::StatusCode::Ok && status != core::StatusCode::NotFound) {
+    if (status != core::StatusCode::Ok && status != core::StatusCode::NotFound && event_->registered()) {
         return status;
     }
     event_.reset();

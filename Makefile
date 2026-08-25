@@ -98,6 +98,7 @@ FUZZ_TARGET := $(BUILD_DIR)/fuzz_packet_parsers
 C_SOURCES := src/c_api/status.c
 
 CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
+LIB_CPP_OBJECTS := $(filter-out $(BUILD_DIR)/main.o,$(CPP_OBJECTS))
 C_OBJECTS := $(C_SOURCES:src/%.c=$(BUILD_DIR)/%.o)
 CORE_OBJECTS := $(BUILD_DIR)/core/types.o $(BUILD_DIR)/core/status.o
 CORE_LOG_OBJECT := $(BUILD_DIR)/core/log.o
@@ -298,11 +299,16 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_target_engine \
 				$(BUILD_DIR)/test_target_pipeline
 
-.PHONY: all release debug asan ubsan coverage fuzz test clean
+.PHONY: all release debug asan ubsan coverage fuzz benchmark test clean
 
 all: $(TARGET)
 
 $(TARGET): $(CPP_OBJECTS) $(C_OBJECTS) | bin
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+benchmark: $(BUILD_DIR)/benchmark_offline
+
+$(BUILD_DIR)/benchmark_offline: $(BUILD_DIR)/benchmarks/offline_benchmark.o $(LIB_CPP_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_types: $(BUILD_DIR)/tests/unit/core/test_types.o $(CORE_OBJECTS) $(C_API_OBJECTS) | $(BUILD_DIR)
@@ -550,6 +556,10 @@ $(BUILD_DIR)/tests/%.o: tests/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
+$(BUILD_DIR)/benchmarks/%.o: benchmarks/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
 bin:
 	mkdir -p $@
 
@@ -566,7 +576,9 @@ debug: clean all
 
 asan:
 	$(MAKE) clean
-	ASAN_OPTIONS="detect_leaks=1:halt_on_error=1" $(MAKE) test CXXFLAGS="$(CXXFLAGS) -g -O1 -fsanitize=address -fno-omit-frame-pointer" CFLAGS="$(CFLAGS) -g -O1 -fsanitize=address -fno-omit-frame-pointer" LDFLAGS="$(LDFLAGS) -fsanitize=address"
+	# GCC 13/libstdc++ emits a false-positive -Wmaybe-uninitialized diagnostic
+	# while inlining std::regex at ASan's -O1; ordinary builds retain the warning.
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=1" $(MAKE) test CXXFLAGS="$(CXXFLAGS) -Wno-maybe-uninitialized -g -O1 -fsanitize=address -fno-omit-frame-pointer" CFLAGS="$(CFLAGS) -g -O1 -fsanitize=address -fno-omit-frame-pointer" LDFLAGS="$(LDFLAGS) -fsanitize=address"
 
 ubsan:
 	$(MAKE) clean

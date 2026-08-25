@@ -144,3 +144,83 @@ Phase 14 adds live-capable OS fingerprinting through the existing typed probe, s
 | Stress and safety | Passed | Deterministic injected tests cover 1,000 hosts and 12,000 probes, cancellation, timeout, malformed, duplicate, and unrelated evidence. |
 
 The remaining limitations are intentional. Phase 14 is IPv4-only, uses a small project-owned fingerprint dataset rather than a broad corpus, does not implement UDP service inference, does not add evasion or spoofing, and does not generate public-target traffic. AF_PACKET tests remain environment-dependent and report `SKIPPED` when the sandbox returns `Operation not permitted`; this is not counted as live-network success.
+
+
+## L. Post-Phase-14 deep audit
+
+This follow-up audit was performed against revision `2a9e992b20e0e12dcee430a5e8169f6f443621e1` and the focused hardening changes in the working tree. The audit covered the reactor, timers, packet parsers, capture receiver, transports, schedulers, target expansion, orchestration, output, benchmark behavior, ownership boundaries, and the public capability surface. Nmap was not installed in the sandbox, so the comparison uses the official Nmap Reference Guide rather than an invented local runtime measurement.
+
+### L.1 Findings and repairs
+
+| Finding | Severity | Resolution | Verification |
+| --- | --- | --- | --- |
+| `PacketReceiver` passed the full IPv4 transport span to the UDP parser instead of the UDP header-declared datagram span. Valid packets with bounded IPv4 padding could therefore be rejected by a strict UDP checksum calculation. | High | Parse `transport.first(udp_length)` after validating the declared length, and add a regression with valid trailing IPv4 padding. | `tests/unit/net/test_packet_receiver.cpp`; targeted test passed |
+| `PacketReceiver::close()` could retain a logical event after reactor shutdown if the descriptor had already been detached. | High | Treat a stale `NotFound`/unregistered event as detached, reset receiver ownership, and close capture safely. | Shutdown-before-close regression passed |
+| Pipeline output-file writes serialized directly into the destination, risking truncation if later writing failed. | High | Serialize fully in memory, write through a securely created same-directory temporary file, flush and `fsync`, then rename atomically. | Pipeline output-file regression passed |
+| Service duplicate suppression used a linear scan over all prior target/port pairs. | Medium | Replace it with a hashed composite target/port key while preserving first-seen ordering. | Service scheduler suite passed; 10,000-target benchmark completed |
+| Target normalization performed a redundant second deduplication pass after expansion had already guaranteed uniqueness. | Low | Move the expansion vector directly into the normalized target set and retain the canonical numeric sort. | Target-engine suite passed |
+| User-supplied service databases had no explicit aggregate byte, line, probe, rule, or regex-pattern limits. | Medium | Bound service database input to 1 MiB, lines to 16 KiB, probes and rules to 256 each, and patterns to 4 KiB before regex compilation. | New parser regressions passed; normal builds remain warning-free |
+| The benchmark passed a temporary OS database to a scheduler whose public contract borrows the database. This was a benchmark lifetime error, not a production-orchestrator defect, but it surfaced as an ASan stack-use-after-scope. | High in test harness | Keep the database in a named local object for the scheduler lifetime and document the borrowed-database contract in both low-level scheduler headers. | ASan/LSan benchmark run passed; production detectors already own databases by value |
+
+No defect was found requiring a second reactor, a worker thread, polling, a sleep-based timing loop, a second packet serializer, or a live-network fallback. The low-level schedulers remain intentionally non-owning with respect to their databases; the new header comments make this lifetime requirement explicit, while the owning detector wrappers remain the preferred public integration path.
+
+### L.2 Architecture and safety assessment
+
+The reactor boundary remains coherent. Production event multiplexing is centralized in `IOEngine` using epoll; timers are represented by the existing timer mechanism; transport descriptors are attached through existing event ownership; and callbacks revalidate opaque registration tokens before dereferencing events. The audit found no production `std::thread`, `pthread`, `std::async`, `poll`, `select`, `sleep`, or additional epoll reactor outside the existing `IOEngine` implementation.
+
+The packet boundary remains coherent. IPv4 total length is validated before transport dispatch, UDP length is validated before parsing, TCP data offsets and recognized option lengths are bounded, and ICMP checksums are verified. Unknown TCP options are skipped with alignment checks rather than being treated as malformed solely because they are not represented in the compact public model. The project still does not claim IPv6 parsing or scanning.
+
+The primary remaining API caveat is borrowed database lifetime in direct `OSScheduler` and `ServiceScheduler` construction. It is now documented; direct callers must keep the database alive, and callers needing ownership should use `OSDetector` or `ServiceDetector`. Converting those low-level schedulers to value ownership would cause avoidable copies and broader API churn, so it is not included in this focused audit change.
+
+### L.3 Scoped Nmap comparison
+
+Nmap’s official guide describes a broader network exploration tool with host discovery, numerous TCP/UDP/SCTP/IP-protocol scan types, service/version probing, OS detection, NSE scripting, adaptive timing, multiple output formats, and advanced features such as traceroute and local-link ARP/IPv6 Neighbor Discovery [6] [7] [8]. Its OS detector compares many TCP/IP response properties against a database described as containing more than 2,600 known fingerprints [9]. Nmap’s service/version subsystem uses a much larger probe and match corpus with intensity controls [10].
+
+| Capability area | Skan after Phase 14 | Nmap documented capability | Audit conclusion |
+| --- | --- | --- | --- |
+| IPv4 target parsing and bounded expansion | IPv4 address, CIDR, range, hostname A-record resolution, mixed-target deduplication, explicit limits | Broad target specification and host-group controls | Skan is intentionally narrower but explicit and bounded |
+| Host discovery | Offline and explicit Linux ICMP/TCP/ARP paths in current scope | ICMP, TCP SYN/ACK, UDP, SCTP, IP protocol, ARP/ND, list scan, no-ping | Skan covers a bounded subset and must not claim Nmap parity |
+| TCP scanning | Connect and explicit Linux SYN path, with canonical port states | Connect, SYN, FIN, NULL, Xmas, ACK, Window, Maimon, custom flags, idle, and more | Skan covers only its implemented safe subset |
+| UDP scanning | Offline and capability-gated Linux UDP with bounded project-owned probes | UDP scan with broader payload corpus, rate-limit handling, and version-assisted disambiguation | Skan has honest bounded UDP coverage but no Nmap-scale corpus or inference |
+| SCTP/IP protocol scans | Not implemented | SCTP INIT/COOKIE-ECHO and IP protocol scan | Planned only if a future scope explicitly requires them |
+| Service/version detection | Bounded project-owned TCP probes and matcher | Large probe/match corpus, intensity, RPC and SSL behavior | Skan is a compact inventory detector, not a version-detection replacement |
+| OS fingerprinting | IPv4 TCP/ICMP/UDP typed probes, small project-owned database, explicit Linux capability gate, deterministic injection | Dozens of tests, broad OS database, device/CPE classification, fuzzy guesses and auxiliary TCP/IP tests | Skan is capability-honest but materially narrower |
+| Timing and parallelism | Single reactor, bounded outstanding work, retries, adaptive timing controller | Adaptive parallelism, host groups, RTT bounds, retries, host/script timeouts, rates, timing templates [11] | Skan has the right architectural seam but fewer controls |
+| Output | Normal, JSON, XML, grepable, structured OS status, atomic file replacement | Interactive/normal, XML, grepable, script-kiddie, append/clobber, resume [12] | Skan provides the required canonical formats for its scope |
+| Scripting and extensibility | No scripting engine | Lua NSE with discovery, version, vulnerability, and extensibility workflows [13] | Deliberately out of scope; not a hidden gap |
+| IPv6 | Not implemented | IPv6 support and Neighbor Discovery paths | Explicit roadmap item only if required |
+| Evasion/spoofing/exploitation | Not implemented and intentionally prohibited by scope | Nmap documents decoys, fragmentation, idle/FTP-bounce and scripting capabilities | Skan must not add these without a separate safety and authorization design |
+
+This comparison is a scope matrix, not a claim that Skan should reproduce Nmap. Skan’s strongest differentiators are its narrow explicit capability boundary, one-reactor design, deterministic offline injection, bounded resource policies, and refusal to fabricate live results when AF_PACKET capability is absent.
+
+### L.4 Benchmark summary
+
+The reproducible offline harness reports five-sample median and p95 timings for 100, 1,000, and 10,000 targets. Full measurements are in [`BENCHMARKS.md`](BENCHMARKS.md). At 10,000 targets, target expansion completed in 0.398 ms median, TCP/UDP/service scheduler stages completed in 42.488/41.082/45.431 ms, the twelve-probe-per-target OS stage completed in 544.160 ms for 120,000 logical probes, full single-TCP-port orchestration completed in 100.455 ms, JSON serialization in 5.540 ms, and XML serialization in 2.439 ms. Peak process RSS was 54,044 KiB after the OS stage. All benchmark workloads were offline and used documentation-space addresses.
+
+The benchmark demonstrates approximately linear growth over the tested range. The OS stage is the dominant intentional cost because it performs twelve logical probes per host and retains evidence for matching. In the refreshed run, the 10,000-target OS stage completed in 544.160 ms median and the full single-TCP-port orchestrator completed in 100.455 ms median, with 54,044 KiB peak RSS observed after the OS stage. These measurements are regression baselines on the sandbox host, not universal network-performance claims. Nmap’s own guide emphasizes adaptive parallelism, timeout, retry, host-group, rate, and timing controls as major performance factors [11], so live-network comparisons would not be meaningful without identical targets, privileges, interfaces, timing policies, and result requirements.
+
+### L.5 Prioritized next-phase roadmap
+
+| Priority | Candidate work | Rationale and acceptance boundary |
+| --- | --- | --- |
+| P1 | Async hostname resolution behind the existing `HostnameResolver` seam | Avoid blocking the single reactor when DNS latency matters; preserve IPv4-only, bounded result count, deterministic ordering, and injectable tests. |
+| P1 | Broaden OS corpus and response model only with project-owned data and explicit provenance | Improve identification quality without importing Nmap’s database; add corpus validation, confidence calibration, and unknown/insufficient-evidence semantics. |
+| P1 | Add live-network integration in a controlled lab environment | Validate AF_PACKET send/capture and neighbor behavior with an explicit interface and private fixtures; never convert capability failure into offline fallback. |
+| P2 | Add measured output-path and report-builder profiling | Reduce avoidable copying/sorting only after profiling; retain canonical ordering and all four output contracts. |
+| P2 | Add direct CLI parser fuzzing and long-run cancellation/resource tests | Exercise malformed options, extreme target limits, repeated cancellation, timer exhaustion, and output-path failures without public traffic. |
+| P2 | Expand TCP/UDP protocol coverage within the existing packet layer | Consider additional safe scan semantics or UDP service evidence only with typed models, strict correlation, bounded payloads, and canonical `PortResult` states. |
+| P3 | IPv6 architecture and implementation | Requires new IPv6 packet, ICMPv6, Neighbor Discovery, target, capture, database, and output semantics; do not begin piecemeal. |
+| P3 | Optional scripting/extensibility | Requires a separate sandbox, resource, authorization, and output design; it is not a small Phase 15 patch and is intentionally not started. |
+
+No Phase 15 implementation was started by this audit.
+
+## M. Additional references
+
+[6]: https://nmap.org/book/man.html "Nmap Reference Guide"
+[7]: https://nmap.org/book/man-host-discovery.html "Nmap Host Discovery"
+[8]: https://nmap.org/book/man-port-scanning-techniques.html "Nmap Port Scanning Techniques"
+[9]: https://nmap.org/book/man-os-detection.html "Nmap OS Detection"
+[10]: https://nmap.org/book/man-version-detection.html "Nmap Service and Version Detection"
+[11]: https://nmap.org/book/man-performance.html "Nmap Timing and Performance"
+[12]: https://nmap.org/book/man-output.html "Nmap Output"
+[13]: https://nmap.org/book/nse.html "Nmap Scripting Engine"

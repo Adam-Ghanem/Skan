@@ -32,7 +32,7 @@ int main()
     skan::osdetect::OSMatchResult os;
     os.fingerprint_name = "Synthetic OS";
     os.confidence = 0.9;
-    skan::orchestrator::OSReportEvidence evidence{"192.0.2.1", {os}};
+    skan::orchestrator::OSReportEvidence evidence{"192.0.2.1", {os}, std::nullopt};
     const std::vector<std::string> warnings{"OS unavailable"};
     const std::vector<skan::discovery::DiscoveryResult> discovery_results{up, unknown};
     const std::vector<skan::portscan::PortResult> port_results{port};

@@ -46,7 +46,9 @@ inline ScanReport make_report()
         portscan::ScanProbeType::TcpConnect,
         portscan::ScanReason::ImmediateSuccess,
         1.25,
-        {}});
+        {},
+        0U,
+        std::nullopt});
     second.ports.push_back(portscan::PortResult{
         second.address,
         portscan::Port{22U, portscan::Protocol::Tcp},
@@ -54,7 +56,9 @@ inline ScanReport make_report()
         portscan::ScanProbeType::TcpConnect,
         portscan::ScanReason::ConnectionRefused,
         std::nullopt,
-        {}});
+        {},
+        0U,
+        std::nullopt});
     second.ports.push_back(portscan::PortResult{
         second.address,
         portscan::Port{443U, portscan::Protocol::Tcp},
@@ -62,7 +66,9 @@ inline ScanReport make_report()
         portscan::ScanProbeType::TcpConnect,
         portscan::ScanReason::Timeout,
         std::nullopt,
-        {}});
+        {},
+        0U,
+        std::nullopt});
     second.services.push_back(detect::ServiceResult{
         second.address,
         portscan::Port{80U, portscan::Protocol::Tcp},

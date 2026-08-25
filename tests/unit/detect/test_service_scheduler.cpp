@@ -76,6 +76,27 @@ int main()
     {
         skan::io::IOEngine engine;
         RecordingServiceTransport transport;
+        ServiceDetectionConfig config{2U, std::chrono::milliseconds{100}, 32U, 1U};
+        const ServiceProbeDatabase database = demo_database();
+        ServiceScheduler scheduler(engine, transport, database, config);
+        const auto duplicate = open_port("127.0.0.1", 80U);
+        const auto distinct = open_port("127.0.0.2", 80U);
+        assert(scheduler.submit({duplicate, duplicate, distinct}) == skan::core::StatusCode::Ok);
+        assert(transport.submissions().size() == 2U);
+        assert(scheduler.pending_count() == 2U);
+        for (const auto &submission : transport.submissions()) {
+            transport.deliver({submission.id, submission.target, ServiceResponseKind::Closed, 0, {}, false,
+                               DetectionClock::now()});
+        }
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 2U);
+        assert(scheduler.results()[0].target == "127.0.0.1");
+        assert(scheduler.results()[1].target == "127.0.0.2");
+    }
+
+    {
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
         ServiceDetectionConfig config{1U, std::chrono::milliseconds{2}, 32U, 1U};
         const ServiceProbeDatabase database = ServiceProbeDatabase::built_in();
         ServiceScheduler scheduler(engine, transport, database, config);

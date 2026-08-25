@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <new>
+#include <unordered_set>
 #include <utility>
 
 namespace skan::detect {
@@ -24,15 +25,23 @@ DetectionError error_for_status(core::StatusCode status) noexcept
     }
 }
 
-bool already_seen(
-    const std::vector<std::pair<std::string, std::uint16_t>> &seen,
-    const std::string &target,
-    std::uint16_t port) noexcept
-{
-    return std::any_of(seen.begin(), seen.end(), [&target, port](const auto &entry) {
-        return entry.first == target && entry.second == port;
-    });
-}
+struct SeenService final {
+    std::string target;
+    std::uint16_t port{0U};
+
+    bool operator==(const SeenService &other) const noexcept
+    {
+        return port == other.port && target == other.target;
+    }
+};
+
+struct SeenServiceHash final {
+    std::size_t operator()(const SeenService &value) const noexcept
+    {
+        const std::size_t target_hash = std::hash<std::string>{}(value.target);
+        return target_hash ^ (static_cast<std::size_t>(value.port) * 0x9E3779B1U);
+    }
+};
 
 } // namespace
 
@@ -89,8 +98,9 @@ core::StatusCode ServiceScheduler::submit(const std::vector<portscan::PortResult
         return status_;
     }
     submitted_ = true;
-    std::vector<std::pair<std::string, std::uint16_t>> seen;
+    std::unordered_set<SeenService, SeenServiceHash> seen;
     try {
+        seen.reserve(open_ports.size());
         for (const portscan::PortResult &port_result : open_ports) {
             if (port_result.state != portscan::PortState::Open ||
                 port_result.port.protocol != portscan::Protocol::Tcp) {
@@ -106,10 +116,9 @@ core::StatusCode ServiceScheduler::submit(const std::vector<portscan::PortResult
                 status_ = core::StatusCode::InvalidArgument;
                 continue;
             }
-            if (already_seen(seen, port_result.target, port_result.port.number)) {
+            if (!seen.emplace(SeenService{port_result.target, port_result.port.number}).second) {
                 continue;
             }
-            seen.emplace_back(port_result.target, port_result.port.number);
             WorkItem work;
             work.port_result = port_result;
             work.probe_indices = database_.ordered_probe_indices(

@@ -1,8 +1,16 @@
 #include "orchestrator/scan_pipeline.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <string>
+#include <vector>
+#include <sys/types.h>
+#include <unistd.h>
 #include <utility>
 
 #include "output/output_manager.hpp"
@@ -36,6 +44,53 @@ core::Target aggregate_targets(const std::vector<core::Target> &targets)
                   return left.address < right.address;
               });
     return aggregate;
+}
+
+bool replace_output_file(const std::string &path, const std::string &contents)
+{
+    const std::string temporary_template = path + ".skan.tmp.XXXXXX";
+    std::vector<char> mutable_template(temporary_template.begin(), temporary_template.end());
+    mutable_template.push_back('\0');
+    const int temporary_descriptor = ::mkstemp(mutable_template.data());
+    if (temporary_descriptor < 0) {
+        return false;
+    }
+    const std::string temporary_path(mutable_template.data());
+    std::size_t offset = 0U;
+    bool write_succeeded = true;
+    while (offset < contents.size()) {
+        const ssize_t written = ::write(temporary_descriptor, contents.data() + offset, contents.size() - offset);
+        if (written < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            write_succeeded = false;
+            break;
+        }
+        if (written == 0) {
+            write_succeeded = false;
+            break;
+        }
+        offset += static_cast<std::size_t>(written);
+    }
+    if (write_succeeded && ::fsync(temporary_descriptor) < 0) {
+        write_succeeded = false;
+    }
+    if (::close(temporary_descriptor) < 0) {
+        write_succeeded = false;
+    }
+    if (!write_succeeded) {
+        (void)std::remove(temporary_path.c_str());
+        return false;
+    }
+
+    std::error_code error;
+    std::filesystem::rename(temporary_path, path, error);
+    if (error) {
+        (void)std::remove(temporary_path.c_str());
+        return false;
+    }
+    return true;
 }
 
 core::Target only_up_hosts(const core::Target &target, const DiscoveryStage &stage)
@@ -307,20 +362,25 @@ bool ScanPipeline::serialize_report(std::ostream &output)
         counters.peak_pending = timing_metrics_->maximum_observed_parallelism;
     }
     session_.set_report(built);
-    std::ofstream file;
-    std::ostream *destination = &output;
-    if (config_.output_file.has_value()) {
-        file.open(*config_.output_file, std::ios::out | std::ios::trunc);
-        if (!file.is_open()) {
-            fail("unable to open output file", core::StatusCode::IoError);
+    if (!config_.output_file.has_value()) {
+        const output::OutputStatus status = output::OutputManager::write(config_.output_format, built, output);
+        if (status != output::OutputStatus::Ok) {
+            fail(std::string("output serialization failed: ") + output::output_status_name(status),
+                 status == output::OutputStatus::IoError ? core::StatusCode::IoError : core::StatusCode::InternalError);
             return false;
         }
-        destination = &file;
+        return true;
     }
-    const output::OutputStatus status = output::OutputManager::write(config_.output_format, built, *destination);
+
+    std::ostringstream serialized;
+    const output::OutputStatus status = output::OutputManager::write(config_.output_format, built, serialized);
     if (status != output::OutputStatus::Ok) {
         fail(std::string("output serialization failed: ") + output::output_status_name(status),
              status == output::OutputStatus::IoError ? core::StatusCode::IoError : core::StatusCode::InternalError);
+        return false;
+    }
+    if (!serialized.good() || !replace_output_file(*config_.output_file, serialized.str())) {
+        fail("unable to atomically replace output file", core::StatusCode::IoError);
         return false;
     }
     return true;

@@ -1,6 +1,7 @@
 #include <cassert>
 #include <string>
 
+
 #include "detect/service_db.hpp"
 
 int main()
@@ -42,5 +43,44 @@ int main()
     assert(bad_status == skan::core::StatusCode::ParseError);
     assert(bad.status() == skan::core::StatusCode::ParseError);
     assert(bad.probes().empty());
+
+    const std::string oversized_text((1U << 20U) + 1U, '#');
+    skan::core::StatusCode oversized_status = skan::core::StatusCode::Ok;
+    const ServiceProbeDatabase oversized = ServiceProbeDatabase::parse(oversized_text, oversized_status);
+    assert(oversized_status == skan::core::StatusCode::ParseError);
+    assert(oversized.status() == skan::core::StatusCode::ParseError);
+
+    const std::string long_pattern(4097U, 'x');
+    const std::string long_pattern_text =
+        "Probe TCP LongPattern rarity=1\n"
+        "send \"x\"\n";
+    const std::string long_pattern_database = long_pattern_text +
+        "match type=prefix pattern=\"" + long_pattern + "\" service=x confidence=0.5\n";
+    skan::core::StatusCode long_pattern_status = skan::core::StatusCode::Ok;
+    const ServiceProbeDatabase long_pattern_result =
+        ServiceProbeDatabase::parse(long_pattern_database, long_pattern_status);
+    assert(long_pattern_status == skan::core::StatusCode::ParseError);
+    assert(long_pattern_result.probes().empty());
+
+    std::string too_many_rules = "Probe TCP ManyRules rarity=1\nsend \"x\"\n";
+    for (std::size_t index = 0U; index < 257U; ++index) {
+        too_many_rules += "match type=prefix pattern=\"x\" service=x confidence=0.5\n";
+    }
+    skan::core::StatusCode too_many_rules_status = skan::core::StatusCode::Ok;
+    const ServiceProbeDatabase too_many_rules_result =
+        ServiceProbeDatabase::parse(too_many_rules, too_many_rules_status);
+    assert(too_many_rules_status == skan::core::StatusCode::ParseError);
+    assert(too_many_rules_result.probes().empty());
+
+    std::string too_many_probes;
+    for (std::size_t index = 0U; index < 257U; ++index) {
+        too_many_probes += "Probe TCP P" + std::to_string(index) + " rarity=1\n";
+    }
+    skan::core::StatusCode too_many_probes_status = skan::core::StatusCode::Ok;
+    const ServiceProbeDatabase too_many_probes_result =
+        ServiceProbeDatabase::parse(too_many_probes, too_many_probes_status);
+    assert(too_many_probes_status == skan::core::StatusCode::ParseError);
+    assert(too_many_probes_result.probes().empty());
+
     return 0;
 }

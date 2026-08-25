@@ -1,8 +1,13 @@
 #include <cassert>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
+#include <unistd.h>
 
 #include "orchestrator/scan_pipeline.hpp"
 
@@ -101,5 +106,26 @@ int main()
     assert(cancelled.state() == skan::orchestrator::PipelineState::Cancelled);
     assert(cancelled.report().has_value());
     assert(partial.str().find("\"hosts\"") != std::string::npos);
+
+    auto file_config = config();
+    file_config.transport = skan::orchestrator::ScanTransport::Offline;
+    const std::string output_path = "/tmp/skan-pipeline-output-" +
+                                    std::to_string(static_cast<long long>(::getpid())) + ".json";
+    const std::string temporary_path = output_path + ".skan.tmp." +
+                                       std::to_string(static_cast<long long>(::getpid()));
+    {
+        std::ofstream seed(output_path, std::ios::out | std::ios::trunc);
+        seed << "stale output";
+    }
+    file_config.output_file = output_path;
+    skan::orchestrator::ScanPipeline file_pipeline(file_config);
+    std::ostringstream file_output;
+    assert(file_pipeline.run(file_output) == skan::core::StatusCode::Ok);
+    std::ifstream written(output_path);
+    const std::string written_contents((std::istreambuf_iterator<char>(written)), std::istreambuf_iterator<char>());
+    assert(written_contents.find("\"hosts\"") != std::string::npos);
+    assert(written_contents.find("stale output") == std::string::npos);
+    assert(!std::filesystem::exists(temporary_path));
+    (void)std::remove(output_path.c_str());
     return 0;
 }

@@ -34,6 +34,10 @@ struct OSSchedulerConfig final {
 
 class OSScheduler final {
 public:
+    /**
+     * The database is borrowed and must outlive this scheduler. Use OSDetector
+     * when value ownership is required by the caller.
+     */
     OSScheduler(
         io::IOEngine &engine,
         OSProbeTransport &transport,

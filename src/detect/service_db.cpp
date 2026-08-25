@@ -1,6 +1,7 @@
 #include "detect/service_db.hpp"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cctype>
 #include <fstream>
@@ -10,6 +11,12 @@
 
 namespace skan::detect {
 namespace {
+
+constexpr std::size_t kMaximumDatabaseBytes = 1U << 20U;
+constexpr std::size_t kMaximumLineBytes = 16U << 10U;
+constexpr std::size_t kMaximumProbeCount = 256U;
+constexpr std::size_t kMaximumRulesPerProbe = 256U;
+constexpr std::size_t kMaximumPatternBytes = 4096U;
 
 constexpr std::string_view kBuiltInDatabase = R"DB(
 # Skan-owned compact service probe database. This is not the Nmap database.
@@ -229,6 +236,11 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
 {
     ServiceProbeDatabase database;
     status = core::StatusCode::Ok;
+    if (text.size() > kMaximumDatabaseBytes) {
+        status = core::StatusCode::ParseError;
+        database.status_ = status;
+        return database;
+    }
     const auto fail = [&database, &status](core::StatusCode failure) {
         status = failure;
         database.status_ = status;
@@ -241,6 +253,10 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
         ServiceProbeDefinition *current = nullptr;
         std::vector<std::string> tokens;
         while (std::getline(lines, line)) {
+            if (line.size() > kMaximumLineBytes) {
+                status = core::StatusCode::ParseError;
+                return fail(status);
+            }
             const std::string_view content = trim(without_comment(line));
             if (content.empty()) {
                 continue;
@@ -253,6 +269,10 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
             }
             if (tokens[0] == "Probe") {
                 if (tokens.size() < 3U || tokens[1] != "TCP") {
+                    status = core::StatusCode::ParseError;
+                    return fail(status);
+                }
+                if (database.probes_.size() >= kMaximumProbeCount) {
                     status = core::StatusCode::ParseError;
                     return fail(status);
                 }
@@ -316,6 +336,10 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                             return database;
                         }
                     } else if (key == "pattern") {
+                        if (value.size() > kMaximumPatternBytes) {
+                            status = core::StatusCode::ParseError;
+                            return fail(status);
+                        }
                         rule.pattern = value;
                         has_pattern = true;
                     } else if (key == "service") {
@@ -339,7 +363,8 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                         return fail(status);
                     }
                 }
-                if (!has_pattern || !has_service || !has_confidence) {
+                if (!has_pattern || !has_service || !has_confidence ||
+                    current->rules.size() >= kMaximumRulesPerProbe) {
                     status = core::StatusCode::ParseError;
                     return fail(status);
                 }
@@ -383,9 +408,26 @@ ServiceProbeDatabase ServiceProbeDatabase::load_file(const std::string &path, co
         database.status_ = status;
         return database;
     }
-    std::ostringstream content;
-    content << input.rdbuf();
-    return parse(content.str(), status);
+    std::string contents;
+    contents.reserve(kMaximumDatabaseBytes);
+    std::array<char, 4096> buffer{};
+    while (input) {
+        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize count = input.gcount();
+        if (count > 0) {
+            const std::size_t bytes = static_cast<std::size_t>(count);
+            if (bytes > kMaximumDatabaseBytes - contents.size()) {
+                status = core::StatusCode::ParseError;
+                return {};
+            }
+            contents.append(buffer.data(), bytes);
+        }
+    }
+    if (input.bad()) {
+        status = core::StatusCode::IoError;
+        return {};
+    }
+    return parse(contents, status);
 }
 
 const std::vector<ServiceProbeDefinition> &ServiceProbeDatabase::probes() const noexcept
