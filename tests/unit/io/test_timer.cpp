@@ -104,8 +104,8 @@ int main()
 
     int many_timer_count = 0;
     std::vector<skan::io::TimerId> many_timer_ids;
-    many_timer_ids.reserve(1000U);
-    for (int index = 0; index < 1000; ++index) {
+    many_timer_ids.reserve(10000U);
+    for (int index = 0; index < 10000; ++index) {
         const skan::io::TimerId timer_id = engine.schedule(skan::io::TimerDuration::zero(), [&many_timer_count] {
             ++many_timer_count;
         });
@@ -113,7 +113,7 @@ int main()
         many_timer_ids.push_back(timer_id);
     }
     assert(engine.run_once(0) == skan::core::StatusCode::Ok);
-    assert(many_timer_count == 1000);
+    assert(many_timer_count == 10000);
 
     int integration_pair[2] = {-1, -1};
     assert(::pipe(integration_pair) == 0);

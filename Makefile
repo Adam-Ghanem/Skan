@@ -88,9 +88,11 @@ CPP_SOURCES := \
 				src/orchestrator/scan_report_builder.cpp \
 				src/orchestrator/scan_pipeline.cpp \
 				src/orchestrator/scan_orchestrator.cpp \
-				src/main.cpp
-
+										 src/main.cpp
+LIB_CPP_SOURCES := $(filter-out src/main.cpp,$(CPP_SOURCES))
+FUZZ_TARGET := $(BUILD_DIR)/fuzz_packet_parsers
 C_SOURCES := src/c_api/status.c
+
 CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
 C_OBJECTS := $(C_SOURCES:src/%.c=$(BUILD_DIR)/%.o)
 CORE_OBJECTS := $(BUILD_DIR)/core/types.o $(BUILD_DIR)/core/status.o
@@ -278,7 +280,7 @@ TEST_BINARIES := \
 			$(BUILD_DIR)/test_pipeline_stages \
 			$(BUILD_DIR)/test_pipeline_stress
 
-.PHONY: all debug test clean
+.PHONY: all release debug asan ubsan coverage fuzz test clean
 
 all: $(TARGET)
 
@@ -526,13 +528,36 @@ bin:
 $(BUILD_DIR):
 	mkdir -p $@
 
+release: CXXFLAGS += -O2
+release: CFLAGS += -O2
+release: clean all
+
 debug: CXXFLAGS += -g -O0
-
 debug: CFLAGS += -g -O0
-
 debug: clean all
 
+asan:
+	$(MAKE) clean
+	ASAN_OPTIONS="detect_leaks=1:halt_on_error=1" $(MAKE) test CXXFLAGS="$(CXXFLAGS) -g -O1 -fsanitize=address -fno-omit-frame-pointer" CFLAGS="$(CFLAGS) -g -O1 -fsanitize=address -fno-omit-frame-pointer" LDFLAGS="$(LDFLAGS) -fsanitize=address"
+
+ubsan:
+	$(MAKE) clean
+	UBSAN_OPTIONS="halt_on_error=1" $(MAKE) test CXXFLAGS="$(CXXFLAGS) -g -O1 -fsanitize=undefined -fno-omit-frame-pointer" CFLAGS="$(CFLAGS) -g -O1 -fsanitize=undefined -fno-omit-frame-pointer" LDFLAGS="$(LDFLAGS) -fsanitize=undefined"
+
+coverage:
+	$(MAKE) clean
+	$(MAKE) test CXXFLAGS="$(CXXFLAGS) -g -O0 --coverage" CFLAGS="$(CFLAGS) -g -O0 --coverage" LDFLAGS="$(LDFLAGS) --coverage"
+
+fuzz:
+	@if ! command -v clang++ >/dev/null 2>&1; then \
+		echo "SKIPPED: clang++ is unavailable; offline libFuzzer target not built"; \
+	else \
+		mkdir -p $(BUILD_DIR); \
+		clang++ $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer $(LIB_CPP_SOURCES) tests/fuzz/fuzz_packet_parsers.cpp -o $(FUZZ_TARGET); \
+	fi
+
 test: $(TEST_BINARIES)
+
 	./$(BUILD_DIR)/test_types
 	./$(BUILD_DIR)/test_status
 	./$(BUILD_DIR)/test_constants

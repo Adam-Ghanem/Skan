@@ -55,5 +55,13 @@ int main()
     assert(table.insert(live_one, 2U, timestamp + std::chrono::seconds{20}) == skan::net::CorrelationStatus::Inserted);
     assert(table.remove_expired(timestamp + std::chrono::seconds{2}) == 1U);
     assert(table.size() == 1U);
+    for (std::uint32_t index = 0U; index < 10000U; ++index) {
+        const skan::net::CorrelationKey stress_key{2U, 1000U, 2000U, index};
+        assert(table.insert(stress_key, index + 1U, timestamp + std::chrono::hours{1}) ==
+               skan::net::CorrelationStatus::Inserted);
+    }
+    assert(table.size() == 10001U);
+    table.clear();
+    assert(table.size() == 0U);
     return 0;
 }

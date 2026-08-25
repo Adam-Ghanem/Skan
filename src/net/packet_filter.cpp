@@ -107,6 +107,11 @@ CorrelationStatus CorrelationTable::remove(const CorrelationKey &key) noexcept
     return CorrelationStatus::Removed;
 }
 
+void CorrelationTable::clear() noexcept
+{
+    entries_.clear();
+}
+
 std::size_t CorrelationTable::remove_expired(std::chrono::steady_clock::time_point now)
 {
     std::size_t removed = 0U;

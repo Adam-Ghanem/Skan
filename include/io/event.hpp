@@ -1,6 +1,7 @@
 #ifndef SKAN_IO_EVENT_HPP
 #define SKAN_IO_EVENT_HPP
 
+#include <cstdint>
 #include <functional>
 
 namespace skan::io {
@@ -62,6 +63,7 @@ private:
     void *context_;
     bool registered_{false};
     const void *owner_{nullptr};
+    std::uint64_t registration_token_{0U};
 };
 
 } // namespace skan::io

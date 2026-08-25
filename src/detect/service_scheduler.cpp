@@ -281,6 +281,7 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
 
 const std::vector<ServiceResult> &ServiceScheduler::results() const noexcept
 {
+    sort_results();
     return results_;
 }
 
@@ -356,6 +357,12 @@ void ServiceScheduler::start_or_retry(WorkItem work) noexcept
     try {
         const std::chrono::milliseconds timeout = timing_ == nullptr ? config_.timeout : timing_->timeout();
         timer_id = engine_.schedule(timeout, [this, id]() { on_timeout(id); });
+        if (timer_id == 0U) {
+            status_ = core::StatusCode::InternalError;
+            append_result(work.port_result, &definition, DetectionState::Error,
+                          DetectionError::InternalError, nullptr);
+            return;
+        }
         pending.timer_id = timer_id;
         const auto inserted = pending_.emplace(id, std::move(pending));
         if (!inserted.second) {
@@ -464,6 +471,14 @@ void ServiceScheduler::on_timeout(ServiceProbeId id) noexcept
     pump();
 }
 
+void ServiceScheduler::sort_results() const noexcept
+{
+    if (!results_sorted_) {
+        std::sort(results_.begin(), results_.end(), service_result_less);
+        results_sorted_ = true;
+    }
+}
+
 void ServiceScheduler::append_result(
     const portscan::PortResult &port_result,
     const ServiceProbeDefinition *probe,
@@ -497,7 +512,7 @@ void ServiceScheduler::append_result(
             result.confidence = match->confidence;
         }
         results_.push_back(std::move(result));
-        std::sort(results_.begin(), results_.end(), service_result_less);
+        results_sorted_ = false;
     } catch (const std::bad_alloc &) {
         status_ = core::StatusCode::MemoryError;
     }

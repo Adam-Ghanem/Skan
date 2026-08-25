@@ -71,6 +71,7 @@ public:
         const CorrelationKey &key,
         std::chrono::steady_clock::time_point now);
     CorrelationStatus remove(const CorrelationKey &key) noexcept;
+    void clear() noexcept;
     std::size_t remove_expired(std::chrono::steady_clock::time_point now);
     bool contains(const CorrelationKey &key) const noexcept;
     std::size_t size() const noexcept;

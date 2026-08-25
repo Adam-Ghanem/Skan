@@ -58,6 +58,20 @@ int main()
     assert(parsed->payload() == tcp.payload());
     assert(!TCP::parse(std::span<const std::uint8_t>{bytes.data(), 19U}).has_value());
 
+    std::array<std::uint8_t, 24U> unknown_option{};
+    std::copy(bytes.begin(), bytes.begin() + 24, unknown_option.begin());
+    unknown_option[12] = 0x60U;
+    unknown_option[20] = 30U;
+    unknown_option[21] = 4U;
+    unknown_option[22] = 0xAAU;
+    unknown_option[23] = 0x55U;
+    const auto parsed_unknown = TCP::parse(std::span<const std::uint8_t>{unknown_option});
+    assert(parsed_unknown.has_value());
+    assert(parsed_unknown->options().empty());
+    auto malformed_option = unknown_option;
+    malformed_option[21] = 1U;
+    assert(!TCP::parse(std::span<const std::uint8_t>{malformed_option}).has_value());
+
     TCP syn;
     syn.set_source_port(12345U);
     syn.set_destination_port(80U);

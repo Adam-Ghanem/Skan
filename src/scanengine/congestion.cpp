@@ -59,7 +59,11 @@ void CongestionController::on_timeout() noexcept
     state_.drop_rate = config_.drop_rate_alpha + (1.0 - config_.drop_rate_alpha) * state_.drop_rate;
     if (state_.consecutive_timeouts >= config_.timeout_threshold) {
         const double scaled = static_cast<double>(state_.current_parallelism) * config_.backoff_factor;
-        const std::size_t next = scaled < 1.0 ? 1U : static_cast<std::size_t>(scaled);
+        const double maximum = static_cast<double>(std::numeric_limits<std::size_t>::max());
+        const std::size_t next = scaled < 1.0
+                                     ? 1U
+                                     : scaled >= maximum ? std::numeric_limits<std::size_t>::max()
+                                                        : static_cast<std::size_t>(scaled);
         state_.current_parallelism = std::max(config_.min_parallelism, next);
         ++state_.backoff_count;
         state_.consecutive_timeouts = 0U;

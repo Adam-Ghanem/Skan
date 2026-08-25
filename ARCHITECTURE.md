@@ -51,7 +51,7 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 | Language | Responsibility | Status |
 | --- | --- | --- |
-| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, and CLI | Phase 0–9 implemented where applicable |
+| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, and CLI | Phase 0–11 implemented where applicable |
 | C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
 | Lua 5.4 | Future scripting layer | Planned |
 | TypeScript/React | Future dashboard | Planned |
@@ -475,9 +475,17 @@ Cancellation may occur before `run()`, between stages, or from an event sink. It
 
 ### Failure and capability model
 
-A configuration failure occurs before network work and is returned as an invalid-argument status. A stage submission, transport, timer, parser, or internal construction error produces a typed pipeline error and a diagnostic event; the session enters `Failed` unless cancellation has already won the race. Late and duplicate responses remain governed by the existing schedulers and cannot corrupt pending state. Linux AF_PACKET tests may skip when the environment lacks permission; a real Linux scan instead fails clearly and never reports offline data as live evidence.
+A configuration failure occurs before network work and is returned as an invalid-argument status. A stage submission, transport, timer, parser, or internal construction error produces a typed pipeline error and a diagnostic event; the session enters `Failed` unless cancellation has already won the race. Scheduler timer-registration failure is terminal for the affected logical work item and cannot leave an unbounded pending entry. Late and duplicate responses remain governed by the existing schedulers and cannot corrupt pending state. Linux AF_PACKET tests may skip when the environment lacks permission; a real Linux scan instead fails clearly and never reports offline data as live evidence.
 
-Phase 11 tests cover state and event contracts, report ordering, adapter delegation, deterministic offline execution, cancellation, multi-host sequencing, discovery response handling, service/OS stage order, and a bounded 100-host × 100-port workload. This preserves the existing Phase 0–10 tests and keeps capability-dependent raw-network tests environment-aware.
+### Audit hardening
+
+The Phase 1 reactor dispatches epoll records through opaque per-registration tokens rather than raw `Event*` payloads. After every callback it revalidates the token mapping before touching the event, so callback-time cross-event removal and stale records from one `epoll_wait` batch cannot dereference destroyed events. Reactor shutdown detaches borrowed registrations and clears timers; event ownership remains with callers as documented.
+
+`PacketReceiver` clamps parser input to the Ethernet maximum frame size and its attached descriptor follows the shared reactor’s removal lifecycle. Linux TCP SYN transport teardown clears both pending submissions and correlation entries, and session identifiers are adapter-owned rather than process-global mutable state. Valid unknown TCP option kinds are skipped with strict length checks so legal future options do not make an otherwise usable response malformed; the public model still exposes only recognized options.
+
+The optional `make fuzz` target builds an offline libFuzzer harness when Clang’s fuzzer runtime is available. The harness feeds arbitrary in-memory bytes to Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, and timing-profile parsers. Missing fuzz tooling is reported as `SKIPPED`, not treated as a successful fuzz run. The dedicated target resolver for hostname, CIDR, ranges, mixed targets, normalization, deduplication, and deterministic expansion remains planned; Phase 11 continues to accept explicit resolved IPv4 hosts only.
+
+Phase 11 tests cover state and event contracts, report ordering, adapter delegation, deterministic offline execution, cancellation, multi-host sequencing, discovery response handling, service/OS stage order, and a bounded 1,000-host × 100-port workload. Timer and correlation tests cover 10,000 same-deadline timers and 10,000 live correlation entries. Port and service schedulers defer deterministic result sorting until their result vectors are observed, avoiding quadratic repeated sorting while preserving the public ordered-result contract. This preserves the existing Phase 0–10 tests and keeps capability-dependent raw-network tests environment-aware.
 
 ## Platform and network boundary
 

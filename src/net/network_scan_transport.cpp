@@ -269,9 +269,8 @@ NetworkScanResult LinuxNetworkScanTransport::open()
         receiver_.close();
         return {NetworkScanStatus::SystemError, 0, "capture descriptor registration failed"};
     }
-    static std::uint64_t next_session_id = 1U;
     session_ = ScanSession{};
-    session_.id = next_session_id++;
+    session_.id = next_session_id_++;
     session_.interface = interface_result.interface;
     session_.started_at = std::chrono::steady_clock::now();
     session_.active = true;
@@ -283,6 +282,7 @@ NetworkScanResult LinuxNetworkScanTransport::open()
 void LinuxNetworkScanTransport::close() noexcept
 {
     pending_.clear();
+    correlation_.clear();
     receiver_.close();
     transport_.close();
     session_.active = false;

@@ -12,8 +12,8 @@ void ScanMetrics::record_rtt(std::chrono::milliseconds sample) noexcept
     minimum_rtt_ms = minimum_rtt_ms.has_value() ? std::min(*minimum_rtt_ms, value) : value;
     maximum_rtt_ms = maximum_rtt_ms.has_value() ? std::max(*maximum_rtt_ms, value) : value;
     if (rtt_samples < std::numeric_limits<std::size_t>::max()) {
-        average_rtt_ms = ((average_rtt_ms * static_cast<double>(rtt_samples)) + value) /
-                         static_cast<double>(rtt_samples + 1U);
+        const double denominator = static_cast<double>(rtt_samples) + 1.0;
+        average_rtt_ms += (value - average_rtt_ms) / denominator;
         ++rtt_samples;
     }
 }

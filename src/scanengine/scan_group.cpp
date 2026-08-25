@@ -6,6 +6,22 @@
 #include <utility>
 
 namespace skan::scanengine {
+namespace {
+
+std::size_t outstanding_metric(const ScanMetrics &metrics) noexcept
+{
+    std::size_t outstanding = metrics.total_submitted;
+    const auto subtract = [&outstanding](std::size_t value) noexcept {
+        outstanding = value > outstanding ? 0U : outstanding - value;
+    };
+    subtract(metrics.completed);
+    subtract(metrics.timed_out);
+    subtract(metrics.failed);
+    subtract(metrics.cancelled);
+    return outstanding;
+}
+
+} // namespace
 
 ScanGroup::ScanGroup(std::string name, TimingProfile profile)
     : name_(std::move(name)),
@@ -135,8 +151,7 @@ bool ScanGroup::mark_submitted(ScanWorkId id, ScanTimePoint submitted_at, ScanTi
     iterator->second.submitted_at = submitted_at;
     iterator->second.deadline = deadline;
     ++metrics_.total_submitted;
-    const std::size_t outstanding = metrics_.total_submitted - metrics_.completed - metrics_.timed_out -
-                                    metrics_.failed - metrics_.cancelled;
+    const std::size_t outstanding = outstanding_metric(metrics_);
     metrics_.set_parallelism(outstanding, outstanding);
     return true;
 }
@@ -180,8 +195,7 @@ bool ScanGroup::mark_failed(ScanWorkId id) noexcept
 
 void ScanGroup::update_parallelism() noexcept
 {
-    const std::size_t outstanding = metrics_.total_submitted - metrics_.completed - metrics_.timed_out -
-                                    metrics_.failed - metrics_.cancelled;
+    const std::size_t outstanding = outstanding_metric(metrics_);
     metrics_.set_parallelism(outstanding, outstanding);
 }
 

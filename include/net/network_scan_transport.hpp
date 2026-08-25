@@ -112,6 +112,7 @@ private:
     ScanSession session_;
     std::uint32_t source_ipv4_{0U};
     std::array<std::uint8_t, 6U> local_mac_{};
+    std::uint64_t next_session_id_{1U};
 };
 
 } // namespace skan::net

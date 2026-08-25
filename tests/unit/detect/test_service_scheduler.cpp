@@ -110,6 +110,20 @@ int main()
         skan::io::IOEngine engine;
         RecordingServiceTransport transport;
         const ServiceProbeDatabase database = ServiceProbeDatabase::built_in();
+        ServiceDetectionConfig config{1U, std::chrono::milliseconds{100}, 32U, 1U};
+        assert(engine.shutdown() == skan::core::StatusCode::Ok);
+        ServiceScheduler scheduler(engine, transport, database, config);
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::InternalError);
+        assert(scheduler.complete());
+        assert(scheduler.pending_count() == 0U);
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == DetectionState::Error);
+    }
+
+    {
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::built_in();
         ServiceScheduler scheduler(engine, transport, database, {});
         auto closed = open_port("127.0.0.1", 80U);
         closed.state = skan::portscan::PortState::Closed;

@@ -60,6 +60,7 @@ private:
     };
 
     core::StatusCode validate_config() const noexcept;
+    void sort_results() const noexcept;
     void pump() noexcept;
     void start_or_retry(WorkItem work) noexcept;
     void complete_pending(
@@ -86,7 +87,8 @@ private:
     std::unique_ptr<scanengine::TimingController> timing_;
     std::deque<WorkItem> queue_;
     std::unordered_map<ServiceProbeId, Pending> pending_;
-    std::vector<ServiceResult> results_;
+    mutable std::vector<ServiceResult> results_;
+    mutable bool results_sorted_{true};
     ServiceProbeId next_id_{1U};
     core::StatusCode status_{core::StatusCode::Ok};
     bool submitted_{false};

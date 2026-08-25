@@ -1,8 +1,10 @@
 #include <cassert>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <span>
 #include <vector>
+#include <unistd.h>
 
 #include "net/packet_receiver.hpp"
 #include "net/capture.hpp"
@@ -11,6 +13,63 @@
 #include "net_test_fixture.hpp"
 
 namespace {
+
+class PipeCapture final : public skan::net::PacketCapture {
+public:
+    PipeCapture()
+    {
+        assert(::pipe(descriptors_) == 0);
+    }
+
+    ~PipeCapture() override { close(); }
+
+    skan::net::CaptureResult open(const skan::net::CaptureConfig &config) override
+    {
+        if (config.max_frame_size == 0U || descriptors_[0] < 0) {
+            return skan::net::capture_failure(skan::net::CaptureStatus::InvalidConfiguration, 0, "invalid fixture");
+        }
+        open_ = true;
+        return skan::net::capture_success(0U);
+    }
+
+    skan::net::CaptureResult receive(std::span<std::uint8_t> buffer) override
+    {
+        if (!open_) {
+            return skan::net::capture_failure(skan::net::CaptureStatus::NotOpen, 0, "fixture is closed");
+        }
+        const ssize_t count = ::read(descriptors_[0], buffer.data(), buffer.size());
+        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return skan::net::capture_failure(skan::net::CaptureStatus::WouldBlock, errno, "fixture would block");
+        }
+        if (count <= 0) {
+            return skan::net::capture_failure(skan::net::CaptureStatus::ReceiveFailed, errno, "fixture read failed");
+        }
+        return skan::net::capture_success(static_cast<std::size_t>(count));
+    }
+
+    void close() noexcept override
+    {
+        open_ = false;
+        for (int &descriptor : descriptors_) {
+            if (descriptor >= 0) {
+                (void)::close(descriptor);
+                descriptor = -1;
+            }
+        }
+    }
+
+    bool is_open() const noexcept override { return open_; }
+    int file_descriptor() const noexcept override { return descriptors_[0]; }
+
+    void enqueue(std::span<const std::uint8_t> frame)
+    {
+        assert(::write(descriptors_[1], frame.data(), frame.size()) == static_cast<ssize_t>(frame.size()));
+    }
+
+private:
+    int descriptors_[2]{-1, -1};
+    bool open_{false};
+};
 
 void set_ipv4_total_length(std::vector<std::uint8_t> &frame, std::uint16_t total_length)
 {
@@ -49,6 +108,9 @@ int main()
     assert(icmp.icmp.has_value());
 
     assert(skan::net::PacketReceiver::parse({}).status == skan::net::ParseStatus::EmptyFrame);
+    const std::vector<std::uint8_t> oversized_frame(65536U, 0U);
+    assert(skan::net::PacketReceiver::parse(oversized_frame, timestamp, 1000000U).status ==
+           skan::net::ParseStatus::OversizedFrame);
     assert(skan::net::PacketReceiver::parse(std::span<const std::uint8_t>{tcp_frame}.first(5U)).status ==
            skan::net::ParseStatus::TruncatedEthernet);
     assert(skan::net::PacketReceiver::parse(std::span<const std::uint8_t>{tcp_frame}.first(14U + 10U)).status ==
@@ -92,5 +154,32 @@ int main()
     assert(received.observation->received_at == timestamp);
     receiver.close();
     assert(!receiver.is_open());
+
+    PipeCapture pipe_capture;
+    skan::net::PacketReceiver attached_receiver(pipe_capture);
+    skan::io::IOEngine engine;
+    assert(attached_receiver.open(skan::net::CaptureConfig{"pipe", 65535U, true}).success());
+    bool callback_called = false;
+    assert(attached_receiver.attach(
+               engine,
+               [&attached_receiver, &callback_called](skan::io::Event &) {
+                   const skan::net::ReceiverResult result = attached_receiver.receive();
+                   assert(result.success());
+                   callback_called = true;
+               }) == skan::core::StatusCode::Ok);
+    pipe_capture.enqueue(tcp_frame);
+    assert(engine.run_once(100) == skan::core::StatusCode::Ok);
+    assert(callback_called);
+    assert(attached_receiver.detach(engine) == skan::core::StatusCode::Ok);
+    assert(attached_receiver.detach(engine) == skan::core::StatusCode::Ok);
+
+    PipeCapture close_capture;
+    skan::net::PacketReceiver close_receiver(close_capture);
+    skan::io::IOEngine close_engine;
+    assert(close_receiver.open(skan::net::CaptureConfig{"pipe", 65535U, true}).success());
+    assert(close_receiver.attach(close_engine, [](skan::io::Event &) {}) == skan::core::StatusCode::Ok);
+    close_receiver.close();
+    assert(!close_receiver.is_open());
+    assert(close_engine.run_once(0) == skan::core::StatusCode::Ok);
     return 0;
 }

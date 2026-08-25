@@ -97,21 +97,36 @@ core::StatusCode IOEngine::add(Event &event) noexcept
     if (event.registered_ || event.owner_ != nullptr) {
         return core::StatusCode::InvalidArgument;
     }
+    if (next_event_token_ == 0U) {
+        return core::StatusCode::MemoryError;
+    }
+    const std::uint64_t event_token = next_event_token_++;
 
     epoll_event native_event{};
     native_event.events = to_native_mask(event.mask());
-    native_event.data.ptr = &event;
+    native_event.data.u64 = event_token;
     if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, event.file_descriptor(), &native_event) < 0) {
         return system_error("epoll_ctl ADD");
     }
 
     try {
-        registered_events_.insert(&event);
+        const auto token_insertion = event_tokens_.emplace(event_token, &event);
+        if (!token_insertion.second) {
+            (void)::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, event.file_descriptor(), nullptr);
+            return core::StatusCode::InternalError;
+        }
+        try {
+            registered_events_.insert(&event);
+        } catch (const std::bad_alloc &) {
+            event_tokens_.erase(event_token);
+            throw;
+        }
     } catch (const std::bad_alloc &) {
         (void)::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, event.file_descriptor(), nullptr);
         return core::StatusCode::MemoryError;
     }
 
+    event.registration_token_ = event_token;
     event.registered_ = true;
     event.owner_ = this;
     skan::log::debug("registered fd {}", event.file_descriptor());
@@ -132,7 +147,7 @@ core::StatusCode IOEngine::modify(Event &event) noexcept
 
     epoll_event native_event{};
     native_event.events = to_native_mask(event.mask());
-    native_event.data.ptr = &event;
+    native_event.data.u64 = event.registration_token_;
     if (::epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, event.file_descriptor(), &native_event) < 0) {
         return system_error("epoll_ctl MOD");
     }
@@ -158,6 +173,8 @@ core::StatusCode IOEngine::remove(Event &event) noexcept
     }
 
     registered_events_.erase(&event);
+    event_tokens_.erase(event.registration_token_);
+    event.registration_token_ = 0U;
     event.registered_ = false;
     event.owner_ = nullptr;
     event.ready_mask_ = EventMask::None;
@@ -323,8 +340,14 @@ core::StatusCode IOEngine::run_once_impl(int timeout_ms) noexcept
     }
 
     for (int index = 0; index < event_count; ++index) {
-        Event *event = static_cast<Event *>(native_events[static_cast<std::size_t>(index)].data.ptr);
-        if (event == nullptr || !event->registered_ || event->owner_ != this) {
+        const std::uint64_t event_token = native_events[static_cast<std::size_t>(index)].data.u64;
+        const auto event_iterator = event_tokens_.find(event_token);
+        if (event_iterator == event_tokens_.end()) {
+            continue;
+        }
+        Event *event = event_iterator->second;
+        if (event == nullptr || !event->registered_ || event->owner_ != this ||
+            event->registration_token_ != event_token) {
             continue;
         }
 
@@ -337,7 +360,10 @@ core::StatusCode IOEngine::run_once_impl(int timeout_ms) noexcept
         } catch (...) {
             skan::log::error("event callback threw an unknown exception");
         }
-        event->ready_mask_ = EventMask::None;
+        const auto active_event_iterator = event_tokens_.find(event_token);
+        if (active_event_iterator != event_tokens_.end() && active_event_iterator->second == event) {
+            active_event_iterator->second->ready_mask_ = EventMask::None;
+        }
         if (stopped_) {
             break;
         }
@@ -410,6 +436,8 @@ void IOEngine::detach_all_events() noexcept
 {
     for (Event *event : registered_events_) {
         if (event != nullptr) {
+            event_tokens_.erase(event->registration_token_);
+            event->registration_token_ = 0U;
             event->registered_ = false;
             event->owner_ = nullptr;
             event->ready_mask_ = EventMask::None;

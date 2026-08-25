@@ -1,10 +1,10 @@
 # Skan
 
-Skan is an original, modular Linux network-scanning platform under development. It is inspired by general scanner engineering principles, but it does not copy other scanner source code or claim compatibility with any other scanner.
+Skan is an original, modular, **Nmap-inspired, Linux-first network-scanning engine** under development. It is inspired by general scanner engineering principles, but it does not copy other scanner source code, claim Nmap equivalence, or claim compatibility with any other scanner.
 
 ## Project goals
 
-Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, Phase 4 TCP port scanning, Phase 5 service detection, and Phase 10 explicit Linux transport integration; it does not claim a full unrestricted scanning workflow.
+Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, TCP port scanning, service detection, a capability-honest OS fingerprinting architecture, Phase 10 explicit Linux transport integration, and a Phase 11 unified scan orchestrator; it does not claim a full unrestricted scanning workflow.
 
 ## Language and platform
 
@@ -26,6 +26,7 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 7 — Adaptive Timing + Scan Engine | **COMPLETE** |
 | Phase 8 — Output + Result Serialization | **COMPLETE** |
 | Phase 10 — Real Network Scan Integration | **COMPLETE** |
+| Phase 11 — Unified Scan Orchestrator and audit hardening | **COMPLETE** |
 
 Phase 3 is deliberately scoped to explicitly supplied targets. Its default transport remains a deterministic recording transport for offline tests and safe CLI exercises, while Phase 10 adds an explicit Linux transport option that requires an interface. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect for supplied IPv4 targets, and now supports capability-gated Linux SYN transmission only through `--transport linux --interface <name>`; no raw mode is selected implicitly. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 10 adds real ICMP/TCP/ARP discovery adapters under the same explicit interface boundary. No public Internet target is used by the test suite.
 
@@ -300,20 +301,26 @@ make debug
 
 ## Tests
 
-Compile and execute all Phase 0 through Phase 10 tests with:
+Compile and execute all Phase 0 through Phase 11 tests with:
 
 ```sh
 make test
 ```
 
-The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Phase 9 adds deterministic interface, offline transport/capture, packet receiver, filtering, correlation, Linux lifecycle, and controlled loopback capability tests. Phase 10 adds Linux adapter lifecycle, explicit transport selection, real discovery adapter, and capability-dependent raw-scan tests. Existing Phase 0–9 tests remain active.
+The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timer-registration failures; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Phase 9 adds deterministic interface, offline transport/capture, packet receiver attach/detach and stale-registration tests, filtering, 10,000-entry correlation stress, Linux lifecycle, and controlled loopback capability tests. Phase 10 adds Linux adapter lifecycle, explicit transport selection, real discovery adapter, and capability-dependent raw-scan tests. Phase 11 adds unified-pipeline, cancellation, stage-order, discovery, 1,000-host × 100-port offline orchestration, and 10,000-timer coverage. Existing Phase 0–10 tests remain active.
 
-Sanitizer validation can be run with:
+The Makefile provides reproducible build and analysis targets:
 
 ```sh
-make clean
-make test CXXFLAGS='-std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' CFLAGS='-std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' LDFLAGS='-fsanitize=address,undefined'
+make release
+make debug
+make asan
+make ubsan
+make coverage
+make fuzz
 ```
+
+`asan` enables AddressSanitizer with leak detection, `ubsan` enables UndefinedBehaviorSanitizer, and `coverage` builds the complete offline test suite with coverage instrumentation. `fuzz` builds the offline libFuzzer parser harness when `clang++` and its fuzzer runtime are available; otherwise it reports `SKIPPED` without failing the build. The fuzz harness exercises Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, and timing-profile parsing entirely in memory.
 
 ## CLI usage
 
@@ -378,7 +385,7 @@ Phase 11 adds the production scan entry point that coordinates the existing Phas
 
 `ScanConfig` is the typed boundary for targets, transport selection, probe method, ports, timing, concurrency, service limits, database paths, and output settings. An empty port list means the existing Phase 4 default TCP port set. The default scan uses TCP Connect, no discovery, no service detection, no OS detection, the Phase 7 timing profile, normal output, bounded timeout and parallelism, and no output file. Explicit `--transport offline` selects deterministic recording transports. Explicit `--transport linux` selects the Phase 10 Linux adapters and requires the relevant interface and raw-packet capability; failures are returned clearly and never silently downgraded to offline behavior.
 
-The orchestrator accepts explicit IPv4 targets and the existing host model only. It does not add CIDR, range expansion, Internet-wide scanning, worker threads, polling loops, sleeps, or a second event loop. Bounded asynchronous work remains inside the existing discovery scheduler, port scheduler, service detector, OS detector, transports, and timing controllers.
+The orchestrator accepts explicit IPv4 targets and the existing host model only. It does not add CIDR, range expansion, Internet-wide scanning, worker threads, polling loops, sleeps, or a second event loop. Bounded asynchronous work remains inside the existing discovery scheduler, port scheduler, service detector, OS detector, transports, and timing controllers. The next major target-subsystem feature is a dedicated resolver/normalizer for hostname, CIDR, range, mixed-target, deduplication, and deterministic ordering support; it remains planned rather than being silently introduced into Phase 11.
 
 | Scan option | Meaning |
 | --- | --- |
@@ -398,7 +405,7 @@ The session state machine explicitly represents initialization, each operational
 
 ### Testing and capability behavior
 
-Phase 11 includes unit coverage for configuration validation, state transitions, session ownership and cancellation, typed events, report ordering and summaries, and stage adapters. Integration coverage exercises deterministic multi-host sequencing, cancellation from a stage event, discovery response handling, service/OS stage ordering, and a bounded **100-host × 100-port** offline workload. Linux raw transport tests skip cleanly when AF_PACKET capability is unavailable in the execution environment; they do not substitute a different transport or report fabricated network results.
+Phase 11 includes unit coverage for configuration validation, state transitions, session ownership and cancellation, typed events, report ordering and summaries, and stage adapters. Integration coverage exercises deterministic multi-host sequencing, cancellation from a stage event, discovery response handling, service/OS stage ordering, and a bounded **1,000-host × 100-port** offline workload. Unit coverage also exercises **10,000 same-deadline timers** and **10,000 pending correlations**. The port and service schedulers lazily sort terminal results when observed rather than sorting the complete result vector after every completion, preserving deterministic output while avoiding quadratic large-workload behavior. Linux raw transport tests skip cleanly when AF_PACKET capability is unavailable in the execution environment; they do not substitute a different transport or report fabricated network results.
 
 The CLI retains the earlier `discover`, `interfaces`, and `os-detect` commands. The `scan` command now uses the unified orchestrator while preserving the prior Connect defaults and existing output formats. `--discovery --transport offline` intentionally reports nonresponsive discovery as `UNKNOWN` and therefore does not port-scan those hosts, because only discovered-UP hosts proceed to the next stage.
 

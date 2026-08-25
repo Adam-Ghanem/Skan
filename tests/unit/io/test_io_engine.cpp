@@ -170,6 +170,37 @@ int main()
     assert(engine.remove(cross_remover_event) == skan::core::StatusCode::Ok);
     close_pair(cross_removal_pair);
 
+    int stale_target_pair[2] = {-1, -1};
+    int stale_remover_pair[2] = {-1, -1};
+    assert(::pipe(stale_target_pair) == 0);
+    assert(::pipe(stale_remover_pair) == 0);
+    bool stale_target_called = false;
+    auto stale_target_event = std::make_unique<skan::io::Event>(
+        stale_target_pair[0], skan::io::EventMask::Read,
+        [&stale_target_called](skan::io::Event &event) {
+            std::uint8_t byte = 0U;
+            assert(::read(event.file_descriptor(), &byte, sizeof(byte)) == static_cast<ssize_t>(sizeof(byte)));
+            stale_target_called = true;
+        });
+    bool stale_remover_called = false;
+    skan::io::Event stale_remover_event(
+        stale_remover_pair[1], skan::io::EventMask::Write,
+        [&engine, &stale_remover_called, &stale_target_event](skan::io::Event &) {
+            stale_remover_called = true;
+            assert(engine.remove(*stale_target_event) == skan::core::StatusCode::Ok);
+            stale_target_event.reset();
+            engine.stop();
+        });
+    assert(engine.add(stale_remover_event) == skan::core::StatusCode::Ok);
+    assert(engine.add(*stale_target_event) == skan::core::StatusCode::Ok);
+    write_byte(stale_target_pair[1]);
+    assert(engine.run_once(100) == skan::core::StatusCode::Ok);
+    assert(stale_remover_called);
+    assert(stale_target_event == nullptr);
+    assert(engine.remove(stale_remover_event) == skan::core::StatusCode::Ok);
+    close_pair(stale_target_pair);
+    close_pair(stale_remover_pair);
+
     int modify_pair[2] = {-1, -1};
     assert(::socketpair(AF_UNIX, SOCK_STREAM, 0, modify_pair) == 0);
     bool modify_called = false;

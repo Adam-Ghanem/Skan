@@ -2,18 +2,11 @@
 
 #include <algorithm>
 #include <limits>
+#include <unordered_map>
 #include <utility>
 
 namespace skan::orchestrator {
 namespace {
-
-output::HostResult *find_host(std::vector<output::HostResult> &hosts, const std::string &address)
-{
-    const auto found = std::find_if(hosts.begin(), hosts.end(), [&](const output::HostResult &host) {
-        return host.address == address;
-    });
-    return found == hosts.end() ? nullptr : &*found;
-}
 
 discovery::HostState discovery_state_for(
     std::string_view address,
@@ -72,8 +65,11 @@ output::ScanReport ScanReportBuilder::build(
     report.warnings.assign(warnings.begin(), warnings.end());
     report.errors.assign(errors.begin(), errors.end());
 
+    std::unordered_map<std::string, std::size_t> host_indices;
+    host_indices.reserve(target.resolved_hosts.size());
+    report.hosts.reserve(target.resolved_hosts.size());
     for (const core::Host &host : target.resolved_hosts) {
-        if (find_host(report.hosts, host.address) != nullptr) {
+        if (host_indices.contains(host.address)) {
             continue;
         }
         output::HostResult result;
@@ -85,38 +81,32 @@ output::ScanReport ScanReportBuilder::build(
         } else {
             result.state = host.is_up ? discovery::HostState::Up : discovery::HostState::Unknown;
         }
+        host_indices.emplace(result.address, report.hosts.size());
         report.hosts.push_back(std::move(result));
     }
 
-    for (const portscan::PortResult &port : port_results) {
-        output::HostResult *host = find_host(report.hosts, port.target);
-        if (host == nullptr) {
-            output::HostResult created;
-            created.address = port.target;
-            report.hosts.push_back(std::move(created));
-            host = &report.hosts.back();
+    const auto host_index = [&report, &host_indices](const std::string &address) -> std::size_t {
+        const auto found = host_indices.find(address);
+        if (found != host_indices.end()) {
+            return found->second;
         }
-        host->ports.push_back(port);
+        const std::size_t index = report.hosts.size();
+        output::HostResult created;
+        created.address = address;
+        report.hosts.push_back(std::move(created));
+        host_indices.emplace(address, index);
+        return index;
+    };
+
+    for (const portscan::PortResult &port : port_results) {
+        report.hosts[host_index(port.target)].ports.push_back(port);
     }
     for (const detect::ServiceResult &service : service_results) {
-        output::HostResult *host = find_host(report.hosts, service.target);
-        if (host == nullptr) {
-            output::HostResult created;
-            created.address = service.target;
-            report.hosts.push_back(std::move(created));
-            host = &report.hosts.back();
-        }
-        host->services.push_back(service);
+        report.hosts[host_index(service.target)].services.push_back(service);
     }
     for (const OSReportEvidence &os : os_results) {
-        output::HostResult *host = find_host(report.hosts, os.target);
-        if (host == nullptr) {
-            output::HostResult created;
-            created.address = os.target;
-            report.hosts.push_back(std::move(created));
-            host = &report.hosts.back();
-        }
-        host->os_matches.insert(host->os_matches.end(), os.matches.begin(), os.matches.end());
+        output::HostResult &host = report.hosts[host_index(os.target)];
+        host.os_matches.insert(host.os_matches.end(), os.matches.begin(), os.matches.end());
     }
 
     std::sort(report.hosts.begin(), report.hosts.end(), [](const output::HostResult &left, const output::HostResult &right) {

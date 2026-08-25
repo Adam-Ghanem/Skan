@@ -88,9 +88,11 @@ private:
     bool running_{false};
     bool stopped_{false};
     std::unordered_set<Event *> registered_events_;
+    std::unordered_map<std::uint64_t, Event *> event_tokens_;
     std::unordered_map<TimerId, Timer> timers_;
     std::priority_queue<TimerQueueEntry, std::vector<TimerQueueEntry>, TimerQueueEarlier> timer_queue_;
     TimerId next_timer_id_{1U};
+    std::uint64_t next_event_token_{1U};
 };
 
 } // namespace skan::io

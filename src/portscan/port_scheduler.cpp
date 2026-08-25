@@ -192,6 +192,7 @@ void PortScanScheduler::receive(const PortResponse &response) noexcept
 
 const std::vector<PortResult> &PortScanScheduler::results() const noexcept
 {
+    sort_results();
     return results_;
 }
 
@@ -243,6 +244,13 @@ void PortScanScheduler::pump() noexcept
         try {
             const std::chrono::milliseconds timeout = timing_ == nullptr ? config_.timeout : timing_->timeout();
             timer_id = engine_.schedule(timeout, [this, id]() { on_timeout(id); });
+            if (timer_id == 0U) {
+                append_terminal_result(work, config_.method, PortState::Unknown, ScanReason::InternalError);
+                if (status_ == core::StatusCode::Ok) {
+                    status_ = core::StatusCode::InternalError;
+                }
+                break;
+            }
             pending.timer_id = timer_id;
             const auto inserted = pending_.emplace(id, std::move(pending));
             if (!inserted.second) {
@@ -281,6 +289,14 @@ void PortScanScheduler::pump() noexcept
     stop_if_idle();
 }
 
+void PortScanScheduler::sort_results() const noexcept
+{
+    if (!results_sorted_) {
+        std::sort(results_.begin(), results_.end(), result_less);
+        results_sorted_ = true;
+    }
+}
+
 void PortScanScheduler::append_terminal_result(
     const WorkItem &work,
     ScanProbeType probe,
@@ -298,7 +314,7 @@ void PortScanScheduler::append_terminal_result(
         result.rtt_ms = rtt_ms;
         result.timestamp = PortScanClock::now();
         results_.push_back(std::move(result));
-        std::sort(results_.begin(), results_.end(), result_less);
+        results_sorted_ = false;
     } catch (const std::bad_alloc &) {
         status_ = core::StatusCode::MemoryError;
     }

@@ -268,6 +268,12 @@ void OSScheduler::start_or_retry(WorkItem work) noexcept
     try {
         const std::chrono::milliseconds timeout = timing_ == nullptr ? config_.timeout : timing_->timeout();
         timer_id = engine_.schedule(timeout, [this, id]() { on_timeout(id); });
+        if (timer_id == 0U) {
+            status_ = core::StatusCode::InternalError;
+            ++malformed_count_;
+            append_terminal_status(pending.work.type, OSProbeStatus::Malformed);
+            return;
+        }
         pending.timer_id = timer_id;
         const auto inserted = pending_.emplace(id, std::move(pending));
         if (!inserted.second) {

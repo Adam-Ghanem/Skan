@@ -63,6 +63,19 @@ int main()
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
         PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{2}, 2U};
+        assert(engine.shutdown() == skan::core::StatusCode::Ok);
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{2000U, Protocol::Tcp}}) == skan::core::StatusCode::InternalError);
+        assert(scheduler.complete());
+        assert(scheduler.pending_count() == 0U);
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().reason == ScanReason::InternalError);
+    }
+
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{2}, 2U};
         PortScanScheduler scheduler(engine, transport, config);
         assert(scheduler.submit(loopback_target(), ports_from(2000U, 3U)) == skan::core::StatusCode::Ok);
         assert(scheduler.run() == skan::core::StatusCode::Ok);

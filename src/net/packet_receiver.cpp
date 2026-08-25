@@ -61,7 +61,8 @@ PacketObservation PacketReceiver::parse(
 {
     PacketObservation observation;
     observation.received_at = received_at;
-    if (max_frame_size == 0U || frame.size() > max_frame_size) {
+    const std::size_t effective_max_frame_size = std::min(max_frame_size, kMaximumFrameSize);
+    if (effective_max_frame_size == 0U || frame.size() > effective_max_frame_size) {
         observation.status = ParseStatus::OversizedFrame;
         return observation;
     }
@@ -187,7 +188,10 @@ CaptureResult PacketReceiver::open(const CaptureConfig &config)
 void PacketReceiver::close() noexcept
 {
     if (attached_engine_ != nullptr && event_.has_value()) {
-        (void)attached_engine_->remove(*event_);
+        const core::StatusCode status = attached_engine_->remove(*event_);
+        if (status != core::StatusCode::Ok && status != core::StatusCode::NotFound) {
+            return;
+        }
         event_.reset();
         attached_engine_ = nullptr;
     }
@@ -243,9 +247,12 @@ core::StatusCode PacketReceiver::detach(io::IOEngine &io_engine) noexcept
         return core::StatusCode::InvalidArgument;
     }
     const core::StatusCode status = io_engine.remove(*event_);
+    if (status != core::StatusCode::Ok && status != core::StatusCode::NotFound) {
+        return status;
+    }
     event_.reset();
     attached_engine_ = nullptr;
-    return status == core::StatusCode::NotFound ? core::StatusCode::Ok : status;
+    return core::StatusCode::Ok;
 }
 
 int PacketReceiver::file_descriptor() const noexcept

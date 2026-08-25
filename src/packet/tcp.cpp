@@ -282,13 +282,23 @@ std::optional<TCP> TCP::parse(std::span<const std::uint8_t> input)
             option.timestamp_echo = wire::read_u32(input, offset + 6U);
             break;
         default:
-            return std::nullopt;
+            // Unknown options are valid TCP wire data; preserve parser alignment while
+            // exposing only option kinds represented by the public value model.
+            offset += length;
+            continue;
         }
         tcp.options_.push_back(option);
         offset += length;
     }
+    if (input.size() - header_size >
+        static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) - header_size) {
+        return std::nullopt;
+    }
     tcp.payload_.assign(input.begin() + static_cast<std::ptrdiff_t>(header_size), input.end());
-    return tcp.validate() ? std::optional<TCP>{std::move(tcp)} : std::nullopt;
+    // The public model intentionally exposes only recognized options, so its
+    // derived option size may be smaller than the wire data offset. The wire
+    // header and payload bounds above are the authoritative parse checks.
+    return tcp;
 }
 
 } // namespace skan::packet

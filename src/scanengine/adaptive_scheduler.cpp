@@ -238,6 +238,11 @@ void AdaptiveScheduler::pump() noexcept
             timer_id = engine_.schedule(
                 group_.rtt().timeout(),
                 [this, id = work.id]() { on_timeout(id); });
+            if (timer_id == 0U) {
+                (void)group_.mark_failed(work.id);
+                status_ = core::StatusCode::InternalError;
+                break;
+            }
             pending.timer_id = timer_id;
             const auto inserted = pending_.emplace(work.id, std::move(pending));
             if (!inserted.second) {

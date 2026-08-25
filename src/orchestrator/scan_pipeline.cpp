@@ -106,7 +106,7 @@ bool ScanPipeline::execute_discovery(const core::Target &target, std::vector<dis
     }
     results = discovery_stage_->results();
     for (const core::Host &host : target.resolved_hosts) {
-        session_.emit(ScanEvent{ScanEventType::HostDiscovered, {}, StageKind::Discovery, active_target_, std::nullopt,
+        session_.emit(ScanEvent{ScanEventType::HostDiscovered, {}, StageKind::Discovery, std::nullopt, std::nullopt,
                                 host.address, {}});
     }
     emit_stage(ScanEventType::StageCompleted, StageKind::Discovery, "discovery completed");
@@ -143,7 +143,7 @@ bool ScanPipeline::execute_port_scan(
         metrics = *port_stage_->timing_metrics();
     }
     for (const portscan::PortResult &result : results) {
-        session_.emit(ScanEvent{ScanEventType::PortCompleted, {}, StageKind::PortScan, active_target_,
+        session_.emit(ScanEvent{ScanEventType::PortCompleted, {}, StageKind::PortScan, std::nullopt,
                                 result.port.number, result.target, {}});
     }
     emit_stage(ScanEventType::StageCompleted, StageKind::PortScan, "port scan completed");
@@ -179,7 +179,7 @@ bool ScanPipeline::execute_service_detection(
     }
     results = service_stage_->results();
     for (const detect::ServiceResult &result : results) {
-        session_.emit(ScanEvent{ScanEventType::ServiceDetected, {}, StageKind::ServiceDetection, active_target_,
+        session_.emit(ScanEvent{ScanEventType::ServiceDetected, {}, StageKind::ServiceDetection, std::nullopt,
                                 result.port.number, result.target, {}});
     }
     emit_stage(ScanEventType::StageCompleted, StageKind::ServiceDetection, "service detection completed");
@@ -227,7 +227,7 @@ bool ScanPipeline::execute_os_detection(
             return false;
         }
         results.push_back(OSReportEvidence{host.address, os_stage_->matches()});
-        session_.emit(ScanEvent{ScanEventType::OSDetectionCompleted, {}, StageKind::OSDetection, active_target_,
+        session_.emit(ScanEvent{ScanEventType::OSDetectionCompleted, {}, StageKind::OSDetection, std::nullopt,
                                 std::nullopt, host.address, {}});
         if (os_stage_->unavailable()) {
             warnings_.push_back("OS detection unavailable for " + host.address);

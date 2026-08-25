@@ -57,6 +57,7 @@ private:
     };
 
     core::StatusCode validate_config() const noexcept;
+    void sort_results() const noexcept;
     void pump() noexcept;
     void append_terminal_result(
         const WorkItem &work,
@@ -79,7 +80,8 @@ private:
     std::unique_ptr<scanengine::TimingController> timing_;
     std::deque<WorkItem> queue_;
     std::unordered_map<PortProbeId, Pending> pending_;
-    std::vector<PortResult> results_;
+    mutable std::vector<PortResult> results_;
+    mutable bool results_sorted_{true};
     PortProbeId next_id_{1U};
     core::StatusCode status_{core::StatusCode::Ok};
     bool submitted_{false};

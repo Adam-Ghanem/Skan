@@ -29,12 +29,13 @@ int main()
     const ScanTimePoint submitted = ScanClock::now();
     assert(group.mark_submitted(first, submitted, submitted + std::chrono::seconds{1}));
     assert(group.outstanding_count() == 1U);
-    assert(group.mark_completed(first));
-    assert(group.state(first).value() == ScanWorkState::Completed);
-    assert(group.metrics().completed == 1U);
     assert(group.cancel(second));
     assert(group.state(second).value() == ScanWorkState::Cancelled);
     assert(group.metrics().cancelled == 1U);
+    assert(group.mark_completed(first));
+    assert(group.state(first).value() == ScanWorkState::Completed);
+    assert(group.metrics().completed == 1U);
+    assert(group.metrics().current_parallelism == 0U);
     assert(!group.cancel(second));
     assert(other.queued_count() == 0U);
     assert(std::string{scan_work_state_name(ScanWorkState::Completed)} == "COMPLETED");
