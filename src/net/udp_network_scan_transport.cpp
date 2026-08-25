@@ -16,6 +16,7 @@
 
 #include "discovery/discovery_types.hpp"
 #include "packet/checksum.hpp"
+#include "packet/ipv6.hpp"
 #include "packet/ipv6_quote.hpp"
 #include "packet/packet.hpp"
 
@@ -152,18 +153,25 @@ NetworkScanResult LinuxUDPScanTransport::open()
                                                          : NetworkScanStatus::SystemError;
         return {status, interface_result.system_error, interface_result.message};
     }
-    if (interface_result.interface.ipv4_addresses.empty()) {
-        return {NetworkScanStatus::NotSupported, 0, "selected interface has no IPv4 address"};
+    if (interface_result.interface.ipv4_addresses.empty() && interface_result.interface.ipv6_addresses.empty()) {
+        return {NetworkScanStatus::NotSupported, 0, "selected interface has no IPv4 or IPv6 address"};
     }
     const auto mac = local_mac_for(config_.interface_name);
     if (!mac.has_value()) {
         return {NetworkScanStatus::NotSupported, errno, "local interface MAC address is unavailable"};
     }
     local_mac_ = *mac;
-    const auto &address = interface_result.interface.ipv4_addresses.front().ipv4;
-    source_ipv4_ = (static_cast<std::uint32_t>(address[0]) << 24U) |
-                   (static_cast<std::uint32_t>(address[1]) << 16U) |
-                   (static_cast<std::uint32_t>(address[2]) << 8U) | static_cast<std::uint32_t>(address[3]);
+    source_ipv4_ = 0U;
+    if (!interface_result.interface.ipv4_addresses.empty()) {
+        const auto &address = interface_result.interface.ipv4_addresses.front().ipv4;
+        source_ipv4_ = (static_cast<std::uint32_t>(address[0]) << 24U) |
+                       (static_cast<std::uint32_t>(address[1]) << 16U) |
+                       (static_cast<std::uint32_t>(address[2]) << 8U) | static_cast<std::uint32_t>(address[3]);
+    }
+    source_ipv6_.reset();
+    if (!interface_result.interface.ipv6_addresses.empty()) {
+        source_ipv6_ = interface_result.interface.ipv6_addresses.front().address;
+    }
 
     const CaptureResult capture_result = receiver_.open(
         CaptureConfig{config_.interface_name, config_.max_frame_size, config_.nonblocking});
@@ -232,19 +240,35 @@ core::StatusCode LinuxUDPScanTransport::submit(const portscan::UDPSubmission &su
         submission.port.number == 0U || submission.target.empty() || !callback || pending_.contains(submission.id)) {
         return core::StatusCode::InvalidArgument;
     }
-    const auto target_ipv4 = parse_ipv4(submission.target);
-    if (!target_ipv4.has_value() || submission.destination_ipv4 != *target_ipv4 ||
-        submission.source_port == 0U) {
+    const auto parsed_target = core::parse_ip_address(submission.target);
+    const core::IpAddress target_ip = submission.destination_ip.valid()
+                                          ? submission.destination_ip
+                                          : parsed_target.value_or(core::IpAddress{});
+    if (!target_ip.valid() || submission.source_port == 0U) {
         ++session_.failed;
         return core::StatusCode::InvalidArgument;
     }
-    const auto frame = compose_frame(submission);
+    portscan::UDPSubmission effective = submission;
+    effective.destination_ip = target_ip;
+    const auto selected_source = source_address_for(target_ip);
+    if (!selected_source.has_value()) {
+        ++session_.failed;
+        return core::StatusCode::PermissionDenied;
+    }
+    effective.source_ip = *selected_source;
+    if (target_ip.is_ipv4()) {
+        effective.destination_ipv4 = (static_cast<std::uint32_t>(target_ip.bytes[0]) << 24U) |
+                                    (static_cast<std::uint32_t>(target_ip.bytes[1]) << 16U) |
+                                    (static_cast<std::uint32_t>(target_ip.bytes[2]) << 8U) |
+                                    static_cast<std::uint32_t>(target_ip.bytes[3]);
+    }
+    const auto frame = compose_frame(effective);
     if (!frame.has_value()) {
         ++session_.failed;
         return core::StatusCode::PermissionDenied;
     }
     try {
-        pending_.emplace(submission.id, Pending{submission, std::move(callback)});
+        pending_.emplace(effective.id, Pending{effective, std::move(callback)});
     } catch (const std::bad_alloc &) {
         ++session_.failed;
         return core::StatusCode::MemoryError;
@@ -477,22 +501,43 @@ void LinuxUDPScanTransport::dispatch_observation(const PacketObservation &observ
 std::optional<std::vector<std::uint8_t>> LinuxUDPScanTransport::compose_frame(
     const portscan::UDPSubmission &submission) const
 {
-    const auto target_ipv4 = parse_ipv4(submission.target);
-    if (!target_ipv4.has_value() || source_ipv4_ == 0U) {
+    const core::IpAddress target_ip = submission.destination_ip.valid()
+                                          ? submission.destination_ip
+                                          : core::parse_ip_address(submission.target).value_or(core::IpAddress{});
+    if (!target_ip.valid() || !submission.source_ip.valid()) {
         return std::nullopt;
     }
     const auto udp = packet::UDP::parse(std::span<const std::uint8_t>{submission.packet});
-    const auto destination = destination_mac(*target_ipv4);
+    const auto destination = destination_mac(target_ip);
     if (!udp.has_value() || !destination.has_value()) {
         return std::nullopt;
     }
-    packet::IPv4 ipv4;
-    ipv4.set_protocol(kUdpProtocol);
-    ipv4.set_source_address(source_ipv4_);
-    ipv4.set_destination_address(*target_ipv4);
     packet::Packet packet;
-    packet.set_ethernet(packet::Ethernet(*destination, local_mac_, 0x0800U));
-    packet.set_ipv4(ipv4);
+    if (target_ip.is_ipv4() && submission.source_ip.is_ipv4()) {
+        const std::uint32_t target_ipv4 = (static_cast<std::uint32_t>(target_ip.bytes[0]) << 24U) |
+                                          (static_cast<std::uint32_t>(target_ip.bytes[1]) << 16U) |
+                                          (static_cast<std::uint32_t>(target_ip.bytes[2]) << 8U) |
+                                          static_cast<std::uint32_t>(target_ip.bytes[3]);
+        const std::uint32_t source_ipv4 = (static_cast<std::uint32_t>(submission.source_ip.bytes[0]) << 24U) |
+                                          (static_cast<std::uint32_t>(submission.source_ip.bytes[1]) << 16U) |
+                                          (static_cast<std::uint32_t>(submission.source_ip.bytes[2]) << 8U) |
+                                          static_cast<std::uint32_t>(submission.source_ip.bytes[3]);
+        packet::IPv4 ipv4;
+        ipv4.set_protocol(kUdpProtocol);
+        ipv4.set_source_address(source_ipv4);
+        ipv4.set_destination_address(target_ipv4);
+        packet.set_ethernet(packet::Ethernet(*destination, local_mac_, 0x0800U));
+        packet.set_ipv4(ipv4);
+    } else if (target_ip.is_ipv6() && submission.source_ip.is_ipv6()) {
+        packet::IPv6 ipv6;
+        ipv6.set_next_header(kUdpProtocol);
+        ipv6.set_source_address(submission.source_ip.bytes);
+        ipv6.set_destination_address(target_ip.bytes);
+        packet.set_ethernet(packet::Ethernet(*destination, local_mac_, 0x86DDU));
+        packet.set_ipv6(ipv6);
+    } else {
+        return std::nullopt;
+    }
     packet.set_udp(*udp);
     std::vector<std::uint8_t> frame = packet.serialize();
     return frame.empty() ? std::nullopt : std::optional<std::vector<std::uint8_t>>{std::move(frame)};
@@ -508,6 +553,44 @@ std::optional<std::array<std::uint8_t, 6U>> LinuxUDPScanTransport::destination_m
         return std::array<std::uint8_t, 6U>{};
     }
     return neighbor_mac_for(config_.interface_name, target_ipv4);
+}
+
+std::optional<std::array<std::uint8_t, 6U>> LinuxUDPScanTransport::destination_mac(
+    const core::IpAddress &target_ip) const
+{
+    if (target_ip.is_ipv4()) {
+        const std::uint32_t address = (static_cast<std::uint32_t>(target_ip.bytes[0]) << 24U) |
+                                      (static_cast<std::uint32_t>(target_ip.bytes[1]) << 16U) |
+                                      (static_cast<std::uint32_t>(target_ip.bytes[2]) << 8U) |
+                                      static_cast<std::uint32_t>(target_ip.bytes[3]);
+        return destination_mac(address);
+    }
+    if (config_.destination_mac.has_value()) {
+        return config_.destination_mac;
+    }
+    if (config_.interface_name == "lo") {
+        return std::array<std::uint8_t, 6U>{};
+    }
+    return std::nullopt;
+}
+
+std::optional<core::IpAddress> LinuxUDPScanTransport::source_address_for(
+    const core::IpAddress &target_ip) const
+{
+    if (target_ip.is_ipv4()) {
+        return source_ipv4_ == 0U ? std::nullopt : std::optional<core::IpAddress>{core::IpAddress::from_ipv4(source_ipv4_)};
+    }
+    if (!source_ipv6_.has_value()) {
+        return std::nullopt;
+    }
+    core::IpAddress source = *source_ipv6_;
+    if (target_ip.is_ipv6_link_local()) {
+        if (!core::ipv6_scope_matches_interface(target_ip, config_.interface_name)) {
+            return std::nullopt;
+        }
+        source.scope = target_ip.scope;
+    }
+    return source;
 }
 
 } // namespace skan::net

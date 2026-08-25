@@ -207,6 +207,17 @@ std::optional<std::uint32_t> ipv6_scope_id(const IpAddress &address) noexcept
     return static_cast<std::uint32_t>(interface_index);
 }
 
+bool ipv6_scope_matches_interface(const IpAddress &address, std::string_view interface_name) noexcept
+{
+    if (!address.is_ipv6() || !address.is_ipv6_link_local() || !address.has_scope() || interface_name.empty()) {
+        return false;
+    }
+    const auto address_scope = ipv6_scope_id(address);
+    const unsigned int interface_index = ::if_nametoindex(std::string(interface_name).c_str());
+    return address_scope.has_value() && interface_index != 0U &&
+           *address_scope == static_cast<std::uint32_t>(interface_index);
+}
+
 const char *address_family_name(AddressFamily family) noexcept
 {
     switch (family) {

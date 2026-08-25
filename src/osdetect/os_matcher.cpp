@@ -233,8 +233,32 @@ std::vector<OSMatchResult> OSMatcher::match(
     std::size_t max_results) const
 {
     std::vector<OSMatchResult> results;
+    if (observed.family == core::AddressFamily::Unknown) {
+        return results;
+    }
+    const auto compatible = [family = observed.family](core::AddressFamily evidence_family) noexcept {
+        return evidence_family == core::AddressFamily::Unknown || evidence_family == family;
+    };
+    for (const TCPObservation &observation : observed.tcp_observations) {
+        if (!compatible(observation.family)) {
+            return results;
+        }
+    }
+    for (const ICMPObservation &observation : observed.icmp_observations) {
+        if (!compatible(observation.family)) {
+            return results;
+        }
+    }
+    for (const UDPObservation &observation : observed.udp_observations) {
+        if (!compatible(observation.family)) {
+            return results;
+        }
+    }
     try {
         for (const db::OSFingerprint &fingerprint : database_.fingerprints()) {
+            if (fingerprint.address_family != observed.family) {
+                continue;
+            }
             OSMatchResult result;
             result.fingerprint_name = fingerprint.name;
             result.vendor = fingerprint.vendor;

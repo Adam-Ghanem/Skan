@@ -41,6 +41,44 @@ int main()
     unknown[0] = 200U;
     assert(!skan::packet::ICMPv6::parse(std::span<const std::uint8_t>{unknown}).has_value());
 
+    skan::packet::ICMPv6 solicitation(skan::packet::Icmpv6Type::NeighborSolicitation);
+    solicitation.set_payload({0x20U, 0x01U, 0x0DU, 0xB8U, 0x00U, 0x00U, 0x00U, 0x00U,
+                              0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x09U,
+                              0x01U, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U});
+    assert(solicitation.validate());
+    const auto neighbor_target = solicitation.neighbor_target();
+    assert(neighbor_target.has_value() && (*neighbor_target)[15] == 0x09U);
+    const auto neighbor_options = solicitation.neighbor_options();
+    assert(neighbor_options.size() == 1U && neighbor_options.front().type == 1U &&
+           neighbor_options.front().mac[0] == 0x02U && neighbor_options.front().mac[5] == 0x07U);
+    auto malformed_option = solicitation;
+    malformed_option.set_payload({0x20U, 0x01U, 0x0DU, 0xB8U, 0x00U, 0x00U, 0x00U, 0x00U,
+                                  0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x09U,
+                                  0x01U, 0x00U});
+    assert(!malformed_option.validate());
+    auto multicast_target = solicitation;
+    multicast_target.set_payload({0xFFU, 0x02U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                                  0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U,
+                                  0x01U, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U});
+    assert(!multicast_target.validate());
+
+    const std::array<std::uint8_t, 6U> mac{0x02U, 0xAAU, 0xBBU, 0xCCU, 0xDDU, 0xEEU};
+    const auto built_ns = skan::packet::ICMPv6::make_neighbor_solicitation(source, mac);
+    assert(built_ns.has_value() && built_ns->validate() && built_ns->neighbor_options().size() == 1U);
+    assert(built_ns->neighbor_options().front().type == 1U && built_ns->neighbor_options().front().mac == mac);
+    const auto built_na = skan::packet::ICMPv6::make_neighbor_advertisement(source, mac);
+    assert(built_na.has_value() && built_na->validate() && built_na->neighbor_options().size() == 1U);
+    assert(built_na->neighbor_options().front().type == 2U && built_na->neighbor_options().front().mac == mac);
+    const auto solicited = skan::packet::ICMPv6::solicited_node_multicast(source);
+    assert(solicited[0] == 0xFFU && solicited[1] == 0x02U && solicited[11] == 0x01U && solicited[12] == 0xFFU &&
+           solicited[13] == source[13] && solicited[14] == source[14] && solicited[15] == source[15]);
+    const auto multicast_mac = skan::packet::ICMPv6::ethernet_multicast(solicited);
+    const std::array<std::uint8_t, 6U> expected_multicast_mac{0x33U, 0x33U, 0xFFU, source[13], source[14], source[15]};
+    assert(multicast_mac == expected_multicast_mac);
+    assert(!skan::packet::ICMPv6::make_neighbor_solicitation({}, mac).has_value());
+    assert(!skan::packet::ICMPv6::make_neighbor_advertisement(
+        std::array<std::uint8_t, 16U>{0xFFU}, mac).has_value());
+
     echo.set_code(1U);
     assert(!echo.validate());
     skan::packet::ICMPv6 unreachable(skan::packet::Icmpv6Type::DestinationUnreachable);

@@ -72,6 +72,7 @@ struct DiscoveryResponse final {
     std::string source_address;
     std::vector<std::uint8_t> bytes;
     DiscoveryTimePoint received_at{};
+    core::IpAddress source_ip{};
 };
 
 const char *host_state_name(HostState state) noexcept;

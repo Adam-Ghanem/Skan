@@ -5,6 +5,18 @@
 namespace skan::osdetect {
 namespace {
 
+void merge_family(ObservedOSFingerprint &fingerprint, core::AddressFamily family) noexcept
+{
+    if (family == core::AddressFamily::Unknown) {
+        return;
+    }
+    if (fingerprint.family == core::AddressFamily::Unknown) {
+        fingerprint.family = family;
+    } else if (fingerprint.family != family) {
+        fingerprint.family = core::AddressFamily::Unknown;
+    }
+}
+
 bool has_option(const packet::TCP &tcp, packet::TcpOptionKind kind) noexcept
 {
     for (const packet::TcpOption &option : tcp.options()) {
@@ -51,6 +63,7 @@ TCPObservation observe_tcp_response(
     observation.payload_length = tcp.payload().size();
     observation.response_behavior = response_behavior;
     observation.probe_status = probe_status;
+    observation.family = core::AddressFamily::IPv4;
 
     for (const packet::TcpOption &option : tcp.options()) {
         observation.options.push_back(option.kind);
@@ -91,11 +104,13 @@ ICMPObservation observe_icmp_response(
     observation.code = ObservedValue<std::uint8_t>::observed(code);
     observation.response_behavior = response_behavior;
     observation.probe_status = probe_status;
+    observation.family = core::AddressFamily::IPv4;
     return observation;
 }
 
 void append_observation(ObservedOSFingerprint &fingerprint, TCPObservation observation)
 {
+    merge_family(fingerprint, observation.family);
     switch (observation.probe_status) {
     case OSProbeStatus::Generated:
         ++fingerprint.probes_generated;
@@ -122,6 +137,7 @@ void append_observation(ObservedOSFingerprint &fingerprint, TCPObservation obser
 
 void append_observation(ObservedOSFingerprint &fingerprint, UDPObservation observation)
 {
+    merge_family(fingerprint, observation.family);
     switch (observation.probe_status) {
     case OSProbeStatus::Generated:
         ++fingerprint.probes_generated;
@@ -148,6 +164,7 @@ void append_observation(ObservedOSFingerprint &fingerprint, UDPObservation obser
 
 void append_observation(ObservedOSFingerprint &fingerprint, ICMPObservation observation)
 {
+    merge_family(fingerprint, observation.family);
     switch (observation.probe_status) {
     case OSProbeStatus::Generated:
         ++fingerprint.probes_generated;

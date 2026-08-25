@@ -8,7 +8,9 @@
 #include "discovery/discovery_types.hpp"
 #include "osdetect/os_probe.hpp"
 #include "packet/icmp.hpp"
+#include "packet/icmpv6.hpp"
 #include "packet/ipv4.hpp"
+#include "packet/ipv6.hpp"
 #include "packet/tcp.hpp"
 #include "packet/udp.hpp"
 
@@ -64,6 +66,8 @@ skan::osdetect::OSProbeResponse response_for(
     response.source_address = source.empty() ? submission.target : std::move(source);
     response.destination_address = submission.source_address;
     response.bytes = std::move(bytes);
+    response.source_ip = submission.target_ip;
+    response.destination_ip = submission.source_ip;
     response.ip_ttl = 64U;
     response.received_at = skan::osdetect::OSProbeClock::now();
     return response;
@@ -183,6 +187,52 @@ int main()
     assert(icmp_assessment.disposition == osdetect::OSProbeDisposition::Matching);
     assert(icmp_assessment.response_behavior == osdetect::ResponseBehavior::EchoReply);
     assert(icmp_assessment.icmp_observation.has_value());
+
+    core::Host ipv6_host;
+    ipv6_host.address = "::1";
+    ipv6_host.is_up = true;
+    ipv6_host.ip_address = *core::parse_ip_address("::1");
+    osdetect::OSProbeConfig ipv6_config;
+    ipv6_config.source_address = "::1";
+    const auto ipv6_syn_probe = osdetect::make_os_probe(osdetect::OSProbeType::TcpSynStandard);
+    assert(ipv6_syn_probe != nullptr);
+    osdetect::OSProbeSubmission ipv6_syn_submission;
+    assert(ipv6_syn_probe->build(31U, ipv6_host, ipv6_config, ipv6_syn_submission) == core::StatusCode::Ok);
+    assert(ipv6_syn_submission.target_ip.is_ipv6());
+    const auto ipv6_header = packet::IPv6::parse(ipv6_syn_submission.bytes);
+    assert(ipv6_header.has_value());
+    assert(ipv6_header->next_header() == 6U);
+    const auto ipv6_tcp = packet::TCP::parse(
+        std::span<const std::uint8_t>{ipv6_syn_submission.bytes}.subspan(packet::IPv6::kHeaderSize));
+    assert(ipv6_tcp.has_value());
+    packet::TCP ipv6_reply;
+    ipv6_reply.set_source_port(ipv6_syn_submission.destination_port);
+    ipv6_reply.set_destination_port(ipv6_syn_submission.source_port);
+    ipv6_reply.set_sequence_number(0x33000000U);
+    ipv6_reply.set_acknowledgment_number(ipv6_syn_submission.sequence_number + 1U);
+    ipv6_reply.set_flags(static_cast<std::uint16_t>(packet::TcpFlag::Syn) |
+                         static_cast<std::uint16_t>(packet::TcpFlag::Ack));
+    ipv6_reply.set_window(60000U);
+    const auto ipv6_tcp_assessment = ipv6_syn_probe->assess(
+        response_for(ipv6_syn_submission, ipv6_reply.serialize()), ipv6_syn_submission);
+    assert(ipv6_tcp_assessment.disposition == osdetect::OSProbeDisposition::Matching);
+    assert(ipv6_tcp_assessment.tcp_observation.has_value());
+    assert(ipv6_tcp_assessment.tcp_observation->source_address == "::1");
+
+    const auto ipv6_icmp_probe = osdetect::make_os_probe(osdetect::OSProbeType::IcmpEcho);
+    assert(ipv6_icmp_probe != nullptr);
+    osdetect::OSProbeSubmission ipv6_icmp_submission;
+    assert(ipv6_icmp_probe->build(32U, ipv6_host, ipv6_config, ipv6_icmp_submission) == core::StatusCode::Ok);
+    const auto ipv6_icmp = packet::ICMPv6::parse(ipv6_icmp_submission.bytes);
+    assert(ipv6_icmp.has_value());
+    packet::ICMPv6 ipv6_icmp_reply(packet::Icmpv6Type::EchoReply);
+    ipv6_icmp_reply.set_identifier(ipv6_icmp_submission.correlation_identifier);
+    ipv6_icmp_reply.set_sequence(ipv6_icmp_submission.correlation_sequence);
+    ipv6_icmp_reply.set_payload({0x53U, 0x4BU});
+    auto ipv6_icmp_response = response_for(ipv6_icmp_submission, ipv6_icmp_reply.serialize());
+    const auto ipv6_icmp_assessment = ipv6_icmp_probe->assess(ipv6_icmp_response, ipv6_icmp_submission);
+    assert(ipv6_icmp_assessment.disposition == osdetect::OSProbeDisposition::Matching);
+    assert(ipv6_icmp_assessment.icmp_observation.has_value());
 
     osdetect::RecordingOSProbeTransport transport;
     assert(transport.supports(osdetect::OSProbeType::TcpSynStandard));

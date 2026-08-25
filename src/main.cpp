@@ -418,7 +418,10 @@ void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &inter
         std::cout << "],\"capture\":" << (interface.supports_capture ? "true" : "false")
                   << ",\"injection\":" << (interface.supports_injection ? "true" : "false")
                   << ",\"ipv6_capture\":" << (interface.supports_ipv6_capture ? "true" : "false")
-                  << ",\"ipv6_injection\":" << (interface.supports_ipv6_injection ? "true" : "false") << '}';
+                  << ",\"ipv6_injection\":" << (interface.supports_ipv6_injection ? "true" : "false")
+                  << ",\"af_inet6\":" << (interface.supports_af_inet6 ? "true" : "false")
+                  << ",\"ipv6_route\":" << (interface.supports_ipv6_route ? "true" : "false")
+                  << ",\"cap_net_raw\":" << (interface.has_cap_net_raw ? "true" : "false") << '}';
     }
     std::cout << "]}\n";
 }
@@ -461,7 +464,10 @@ void write_interfaces_normal(const std::vector<skan::net::NetworkInterface> &int
                   << "Capture: " << (interface.supports_capture ? "available" : "unavailable") << '\n'
                   << "Injection: " << (interface.supports_injection ? "available" : "unavailable") << '\n'
                   << "IPv6 capture: " << (interface.supports_ipv6_capture ? "available" : "unavailable") << '\n'
-                  << "IPv6 injection: " << (interface.supports_ipv6_injection ? "available" : "unavailable") << "\n\n";
+                  << "IPv6 injection: " << (interface.supports_ipv6_injection ? "available" : "unavailable") << '\n'
+                  << "AF_INET6: " << (interface.supports_af_inet6 ? "available" : "unavailable") << '\n'
+                  << "IPv6 route: " << (interface.supports_ipv6_route ? "available" : "unavailable") << '\n'
+                  << "CAP_NET_RAW: " << (interface.has_cap_net_raw ? "available" : "unavailable") << "\n\n";
     }
 }
 

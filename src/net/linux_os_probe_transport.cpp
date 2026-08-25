@@ -16,6 +16,9 @@
 
 #include "discovery/discovery_types.hpp"
 #include "packet/checksum.hpp"
+#include "packet/ipv4.hpp"
+#include "packet/ipv6.hpp"
+#include "packet/ipv6_quote.hpp"
 #include "packet/packet.hpp"
 
 namespace skan::net {
@@ -160,6 +163,8 @@ core::StatusCode map_network_status(NetworkScanStatus status) noexcept
         return core::StatusCode::InvalidArgument;
     case NetworkScanStatus::InterfaceNotFound:
         return core::StatusCode::NotFound;
+    case NetworkScanStatus::RoutingUnavailable:
+        return core::StatusCode::PermissionDenied;
     case NetworkScanStatus::PermissionDenied:
     case NetworkScanStatus::NotSupported:
         return core::StatusCode::PermissionDenied;
@@ -186,6 +191,17 @@ std::size_t LinuxOSProbeTransport::CorrelationHash::operator()(const Correlation
     hash = (hash * 131U) ^ value.sequence;
     hash = (hash * 131U) ^ value.identity;
     hash = (hash * 131U) ^ value.protocol;
+    if (value.target_ip.valid()) {
+        hash = (hash * 131U) ^ static_cast<std::size_t>(value.target_ip.family);
+        for (const std::uint8_t byte : value.target_ip.bytes) {
+            hash = (hash * 131U) ^ byte;
+        }
+        if (value.target_ip.scope.has_value()) {
+            for (const char character : *value.target_ip.scope) {
+                hash = (hash * 131U) ^ static_cast<std::size_t>(static_cast<unsigned char>(character));
+            }
+        }
+    }
     return hash;
 }
 
@@ -216,18 +232,25 @@ NetworkScanResult LinuxOSProbeTransport::open()
                                                           : NetworkScanStatus::SystemError;
         return {status, interface_result.system_error, interface_result.message};
     }
-    if (interface_result.interface.ipv4_addresses.empty()) {
-        return {NetworkScanStatus::NotSupported, 0, "selected interface has no IPv4 address"};
+    if (interface_result.interface.ipv4_addresses.empty() && interface_result.interface.ipv6_addresses.empty()) {
+        return {NetworkScanStatus::NotSupported, 0, "selected interface has no IPv4 or IPv6 address"};
     }
     const auto mac = local_mac_for(config_.interface_name);
     if (!mac.has_value()) {
         return {NetworkScanStatus::NotSupported, errno, "local interface MAC address is unavailable"};
     }
     std::copy(mac->begin(), mac->end(), local_mac_.begin());
-    const auto &address = interface_result.interface.ipv4_addresses.front().ipv4;
-    source_ipv4_ = (static_cast<std::uint32_t>(address[0]) << 24U) |
-                   (static_cast<std::uint32_t>(address[1]) << 16U) |
-                   (static_cast<std::uint32_t>(address[2]) << 8U) | static_cast<std::uint32_t>(address[3]);
+    source_ipv4_ = 0U;
+    if (!interface_result.interface.ipv4_addresses.empty()) {
+        const auto &address = interface_result.interface.ipv4_addresses.front().ipv4;
+        source_ipv4_ = (static_cast<std::uint32_t>(address[0]) << 24U) |
+                       (static_cast<std::uint32_t>(address[1]) << 16U) |
+                       (static_cast<std::uint32_t>(address[2]) << 8U) | static_cast<std::uint32_t>(address[3]);
+    }
+    source_ipv6_.reset();
+    if (!interface_result.interface.ipv6_addresses.empty()) {
+        source_ipv6_ = interface_result.interface.ipv6_addresses.front().address;
+    }
 
     const CaptureResult capture_result = receiver_.open(
         CaptureConfig{config_.interface_name, config_.max_frame_size, config_.nonblocking});
@@ -288,7 +311,10 @@ bool LinuxOSProbeTransport::supports(osdetect::OSProbeType type) const noexcept
 
 std::string LinuxOSProbeTransport::local_source_address() const
 {
-    return source_ipv4_ == 0U ? std::string{} : ipv4_text(source_ipv4_);
+    if (source_ipv4_ != 0U) {
+        return ipv4_text(source_ipv4_);
+    }
+    return source_ipv6_.has_value() ? source_ipv6_->to_string() : std::string{};
 }
 
 core::StatusCode LinuxOSProbeTransport::submit(osdetect::OSProbeSubmission submission, osdetect::OSProbeCallback callback)
@@ -299,28 +325,47 @@ core::StatusCode LinuxOSProbeTransport::submit(osdetect::OSProbeSubmission submi
     if (submission.id == 0U || !callback || submission.target.empty() || pending_.contains(submission.id)) {
         return core::StatusCode::InvalidArgument;
     }
-    const auto target = parse_ipv4(submission.target);
-    if (!target.has_value()) {
+    const auto parsed_target = core::parse_ip_address(submission.target);
+    const core::IpAddress target_ip = submission.target_ip.valid()
+                                          ? submission.target_ip
+                                          : parsed_target.value_or(core::IpAddress{});
+    if (!target_ip.valid()) {
         ++session_.failed;
         return core::StatusCode::InvalidArgument;
     }
-    const auto frame = compose_frame(submission);
+    osdetect::OSProbeSubmission effective = std::move(submission);
+    effective.target_ip = target_ip;
+    const auto source_ip = source_address_for(target_ip);
+    if (!source_ip.has_value()) {
+        ++session_.failed;
+        return core::StatusCode::PermissionDenied;
+    }
+    effective.source_ip = *source_ip;
+    effective.source_address = source_ip->to_string();
+    effective.target = target_ip.to_string();
+    const auto frame = compose_frame(effective);
     if (!frame.has_value()) {
         ++session_.failed;
         return core::StatusCode::PermissionDenied;
     }
     Correlation correlation;
-    correlation.target_ipv4 = *target;
-    correlation.protocol = submission.type == osdetect::OSProbeType::IcmpEcho
+    correlation.target_ip = target_ip;
+    correlation.target_ipv4 = target_ip.is_ipv4()
+                                  ? ((static_cast<std::uint32_t>(target_ip.bytes[0]) << 24U) |
+                                     (static_cast<std::uint32_t>(target_ip.bytes[1]) << 16U) |
+                                     (static_cast<std::uint32_t>(target_ip.bytes[2]) << 8U) |
+                                     static_cast<std::uint32_t>(target_ip.bytes[3]))
+                                  : 0U;
+    correlation.protocol = effective.type == osdetect::OSProbeType::IcmpEcho
                                ? kIcmpProtocol
                                : (submission.type == osdetect::OSProbeType::UdpFingerprint ||
                                           submission.type == osdetect::OSProbeType::UdpPortUnreachable
                                       ? kUdpProtocol
                                       : kTcpProtocol);
-    correlation.source_port = correlation.protocol == kIcmpProtocol ? 0U : submission.destination_port;
-    correlation.destination_port = correlation.protocol == kIcmpProtocol ? 0U : submission.source_port;
-    correlation.sequence = submission.sequence_number;
-    correlation.identity = submission.type == osdetect::OSProbeType::IcmpEcho
+    correlation.source_port = correlation.protocol == kIcmpProtocol ? 0U : effective.destination_port;
+    correlation.destination_port = correlation.protocol == kIcmpProtocol ? 0U : effective.source_port;
+    correlation.sequence = effective.sequence_number;
+    correlation.identity = effective.type == osdetect::OSProbeType::IcmpEcho
                                ? (static_cast<std::uint32_t>(submission.correlation_identifier) << 16U) |
                                      submission.correlation_sequence
                                : 0U;
@@ -329,7 +374,7 @@ core::StatusCode LinuxOSProbeTransport::submit(osdetect::OSProbeSubmission submi
     }
     const osdetect::OSProbeId submission_id = submission.id;
     try {
-        pending_.emplace(submission_id, Pending{std::move(submission), std::move(callback)});
+        pending_.emplace(submission_id, Pending{std::move(effective), std::move(callback)});
         correlations_.emplace(correlation, submission_id);
     } catch (const std::bad_alloc &) {
         pending_.erase(submission_id);
@@ -390,6 +435,32 @@ void LinuxOSProbeTransport::on_capture_event(io::Event &event) noexcept
 
 std::optional<osdetect::OSProbeId> LinuxOSProbeTransport::match_tcp(const PacketObservation &observation) const noexcept
 {
+    if (observation.ipv6.has_value() && observation.tcp.has_value()) {
+        const auto source = observation.ipv6->source_address();
+        const auto destination = observation.ipv6->destination_address();
+        std::optional<osdetect::OSProbeId> matched;
+        for (const auto &[id, pending] : pending_) {
+            if (!pending.submission.target_ip.is_ipv6() || !pending.submission.source_ip.is_ipv6() ||
+                pending.submission.target_ip.bytes != source || pending.submission.source_ip.bytes != destination ||
+                pending.submission.source_port != observation.tcp->destination_port() ||
+                pending.submission.destination_port != observation.tcp->source_port()) {
+                continue;
+            }
+            const bool syn_ack = packet::has_flag(observation.tcp->flags(), packet::TcpFlag::Syn) &&
+                                 packet::has_flag(observation.tcp->flags(), packet::TcpFlag::Ack) &&
+                                 observation.tcp->acknowledgment_number() == pending.submission.sequence_number + 1U;
+            const bool rst = packet::has_flag(observation.tcp->flags(), packet::TcpFlag::Rst) &&
+                             observation.tcp->acknowledgment_number() == 0U;
+            if (!syn_ack && !rst) {
+                continue;
+            }
+            if (matched.has_value()) {
+                return std::nullopt;
+            }
+            matched = id;
+        }
+        return matched;
+    }
     if (!observation.ipv4.has_value() || !observation.tcp.has_value() ||
         observation.ipv4->destination_address() != source_ipv4_) {
         return std::nullopt;
@@ -422,6 +493,18 @@ std::optional<osdetect::OSProbeId> LinuxOSProbeTransport::match_tcp(const Packet
 
 std::optional<osdetect::OSProbeId> LinuxOSProbeTransport::match_udp(const PacketObservation &observation) const noexcept
 {
+    if (observation.ipv6.has_value() && observation.udp.has_value()) {
+        for (const auto &[id, pending] : pending_) {
+            if (pending.submission.target_ip.is_ipv6() && pending.submission.source_ip.is_ipv6() &&
+                pending.submission.target_ip.bytes == observation.ipv6->source_address() &&
+                pending.submission.source_ip.bytes == observation.ipv6->destination_address() &&
+                pending.submission.destination_port == observation.udp->source_port() &&
+                pending.submission.source_port == observation.udp->destination_port()) {
+                return id;
+            }
+        }
+        return std::nullopt;
+    }
     if (!observation.ipv4.has_value() || !observation.udp.has_value() ||
         observation.ipv4->destination_address() != source_ipv4_) {
         return std::nullopt;
@@ -435,6 +518,37 @@ std::optional<osdetect::OSProbeId> LinuxOSProbeTransport::match_udp(const Packet
 
 std::optional<osdetect::OSProbeId> LinuxOSProbeTransport::match_icmp(const PacketObservation &observation) const noexcept
 {
+    if (observation.ipv6.has_value() && observation.icmpv6.has_value()) {
+        if (observation.icmpv6->type() == packet::Icmpv6Type::EchoReply) {
+            for (const auto &[id, pending] : pending_) {
+                if (pending.submission.target_ip.is_ipv6() && pending.submission.source_ip.is_ipv6() &&
+                    pending.submission.target_ip.bytes == observation.ipv6->source_address() &&
+                    pending.submission.source_ip.bytes == observation.ipv6->destination_address() &&
+                    pending.submission.correlation_identifier == observation.icmpv6->identifier() &&
+                    pending.submission.correlation_sequence == observation.icmpv6->sequence()) {
+                    return id;
+                }
+            }
+        } else if (observation.icmpv6->type() == packet::Icmpv6Type::DestinationUnreachable) {
+            const auto quote = packet::parse_ipv6_udp_quote(
+                std::span<const std::uint8_t>{observation.icmpv6->payload()});
+            if (!quote.has_value()) {
+                return std::nullopt;
+            }
+            for (const auto &[id, pending] : pending_) {
+                if (pending.submission.target_ip.is_ipv6() && pending.submission.source_ip.is_ipv6() &&
+                    pending.submission.target_ip.bytes == observation.ipv6->source_address() &&
+                    pending.submission.source_ip.bytes == observation.ipv6->destination_address() &&
+                    quote->ip.source_address() == pending.submission.source_ip.bytes &&
+                    quote->ip.destination_address() == pending.submission.target_ip.bytes &&
+                    quote->source_port == pending.submission.source_port &&
+                    quote->destination_port == pending.submission.destination_port) {
+                    return id;
+                }
+            }
+        }
+        return std::nullopt;
+    }
     if (!observation.ipv4.has_value() || !observation.icmp.has_value() ||
         observation.ipv4->destination_address() != source_ipv4_) {
         return std::nullopt;
@@ -473,7 +587,7 @@ void LinuxOSProbeTransport::dispatch_observation(const PacketObservation &observ
         matched = match_tcp(observation);
     } else if (observation.udp.has_value()) {
         matched = match_udp(observation);
-    } else if (observation.icmp.has_value()) {
+    } else if (observation.icmp.has_value() || observation.icmpv6.has_value()) {
         matched = match_icmp(observation);
     }
     if (!matched.has_value()) {
@@ -485,9 +599,21 @@ void LinuxOSProbeTransport::dispatch_observation(const PacketObservation &observ
     }
     osdetect::OSProbeResponse response;
     response.id = *matched;
-    response.source_address = observation.ipv4.has_value() ? ipv4_text(observation.ipv4->source_address()) : std::string{};
-    response.destination_address = observation.ipv4.has_value() ? ipv4_text(observation.ipv4->destination_address()) : std::string{};
-    response.ip_ttl = observation.ipv4.has_value() ? observation.ipv4->ttl() : 0U;
+    if (observation.ipv4.has_value()) {
+        response.source_address = ipv4_text(observation.ipv4->source_address());
+        response.destination_address = ipv4_text(observation.ipv4->destination_address());
+        response.source_ip = core::IpAddress::from_ipv4(observation.ipv4->source_address());
+        response.destination_ip = core::IpAddress::from_ipv4(observation.ipv4->destination_address());
+    } else if (observation.ipv6.has_value()) {
+        response.source_ip = core::IpAddress::from_ipv6(observation.ipv6->source_address());
+        response.destination_ip = core::IpAddress::from_ipv6(observation.ipv6->destination_address());
+        response.source_ip.scope = pending->second.submission.target_ip.scope;
+        response.destination_ip.scope = pending->second.submission.source_ip.scope;
+        response.source_address = response.source_ip.to_string();
+        response.destination_address = response.destination_ip.to_string();
+    }
+    response.ip_ttl = observation.ipv4.has_value() ? observation.ipv4->ttl()
+                                                    : (observation.ipv6.has_value() ? observation.ipv6->hop_limit() : 0U);
     response.ip_identification = observation.ipv4.has_value() ? observation.ipv4->identification() : 0U;
     response.ip_dont_fragment = observation.ipv4.has_value() &&
                                 ((observation.ipv4->flags_fragment_offset() & 0x4000U) != 0U);
@@ -502,6 +628,13 @@ void LinuxOSProbeTransport::dispatch_observation(const PacketObservation &observ
                             : osdetect::OSProbeResponseKind::Data;
         response.source_port = observation.tcp->source_port();
         response.destination_port = observation.tcp->destination_port();
+    } else if (observation.tcp.has_value() && observation.ipv6.has_value()) {
+        response.bytes = observation.tcp->serialize();
+        response.kind = packet::has_flag(observation.tcp->flags(), packet::TcpFlag::Rst)
+                            ? osdetect::OSProbeResponseKind::Closed
+                            : osdetect::OSProbeResponseKind::Data;
+        response.source_port = observation.tcp->source_port();
+        response.destination_port = observation.tcp->destination_port();
     } else if (observation.udp.has_value()) {
         response.bytes = observation.udp->serialize();
         response.kind = osdetect::OSProbeResponseKind::Data;
@@ -510,6 +643,11 @@ void LinuxOSProbeTransport::dispatch_observation(const PacketObservation &observ
     } else if (observation.icmp.has_value()) {
         response.bytes = observation.icmp->serialize();
         response.kind = observation.icmp->type() == packet::IcmpType::DestinationUnreachable
+                            ? osdetect::OSProbeResponseKind::IcmpError
+                            : osdetect::OSProbeResponseKind::Data;
+    } else if (observation.icmpv6.has_value()) {
+        response.bytes = observation.icmpv6->serialize();
+        response.kind = observation.icmpv6->type() == packet::Icmpv6Type::DestinationUnreachable
                             ? osdetect::OSProbeResponseKind::IcmpError
                             : osdetect::OSProbeResponseKind::Data;
     } else {
@@ -531,51 +669,102 @@ void LinuxOSProbeTransport::dispatch_observation(const PacketObservation &observ
 std::optional<std::vector<std::uint8_t>> LinuxOSProbeTransport::compose_frame(
     const osdetect::OSProbeSubmission &submission) const
 {
-    const auto target = parse_ipv4(submission.target);
-    if (!target.has_value() || source_ipv4_ == 0U) {
+    const core::IpAddress target_ip = submission.target_ip.valid()
+                                          ? submission.target_ip
+                                          : core::parse_ip_address(submission.target).value_or(core::IpAddress{});
+    if (!target_ip.valid() || !submission.source_ip.valid()) {
         return std::nullopt;
     }
-    const auto destination = destination_mac(*target);
+    const auto destination = destination_mac(target_ip);
     if (!destination.has_value()) {
         return std::nullopt;
     }
-    packet::IPv4 ipv4;
-    ipv4.set_source_address(source_ipv4_);
-    ipv4.set_destination_address(*target);
     packet::Packet packet;
-    packet.set_ethernet(packet::Ethernet(*destination, local_mac_, kEtherTypeIpv4));
-    if (submission.type == osdetect::OSProbeType::IcmpEcho) {
-        const auto icmp = packet::ICMP::parse(submission.bytes);
-        if (!icmp.has_value()) {
-            return std::nullopt;
+    if (target_ip.is_ipv4() && submission.source_ip.is_ipv4()) {
+        const std::uint32_t target = (static_cast<std::uint32_t>(target_ip.bytes[0]) << 24U) |
+                                     (static_cast<std::uint32_t>(target_ip.bytes[1]) << 16U) |
+                                     (static_cast<std::uint32_t>(target_ip.bytes[2]) << 8U) |
+                                     static_cast<std::uint32_t>(target_ip.bytes[3]);
+        const std::uint32_t source = (static_cast<std::uint32_t>(submission.source_ip.bytes[0]) << 24U) |
+                                     (static_cast<std::uint32_t>(submission.source_ip.bytes[1]) << 16U) |
+                                     (static_cast<std::uint32_t>(submission.source_ip.bytes[2]) << 8U) |
+                                     static_cast<std::uint32_t>(submission.source_ip.bytes[3]);
+        packet::IPv4 ipv4;
+        ipv4.set_source_address(source);
+        ipv4.set_destination_address(target);
+        packet.set_ethernet(packet::Ethernet(*destination, local_mac_, kEtherTypeIpv4));
+        if (submission.type == osdetect::OSProbeType::IcmpEcho) {
+            const auto icmp = packet::ICMP::parse(submission.bytes);
+            if (!icmp.has_value()) {
+                return std::nullopt;
+            }
+            ipv4.set_protocol(kIcmpProtocol);
+            packet.set_ipv4(ipv4);
+            packet.set_icmp(*icmp);
+        } else if (submission.type == osdetect::OSProbeType::UdpFingerprint ||
+                   submission.type == osdetect::OSProbeType::UdpPortUnreachable) {
+            const auto udp = packet::UDP::parse(submission.bytes);
+            if (!udp.has_value()) {
+                return std::nullopt;
+            }
+            ipv4.set_protocol(kUdpProtocol);
+            packet.set_ipv4(ipv4);
+            packet.set_udp(*udp);
+        } else {
+            const auto source_packet = packet::IPv4::parse(submission.bytes);
+            if (!source_packet.has_value() || source_packet->protocol() != kTcpProtocol) {
+                return std::nullopt;
+            }
+            const std::size_t header_size = static_cast<std::size_t>(source_packet->ihl()) * 4U;
+            const auto tcp = packet::TCP::parse(std::span<const std::uint8_t>{submission.bytes}.subspan(header_size));
+            if (!tcp.has_value()) {
+                return std::nullopt;
+            }
+            ipv4.set_protocol(kTcpProtocol);
+            ipv4.set_ttl(source_packet->ttl());
+            ipv4.set_flags_fragment_offset(source_packet->flags_fragment_offset());
+            packet.set_ipv4(ipv4);
+            packet.set_tcp(*tcp);
         }
-        ipv4.set_protocol(kIcmpProtocol);
-        packet.set_ipv4(ipv4);
-        packet.set_icmp(*icmp);
-    } else if (submission.type == osdetect::OSProbeType::UdpFingerprint ||
-               submission.type == osdetect::OSProbeType::UdpPortUnreachable) {
-        const auto udp = packet::UDP::parse(submission.bytes);
-        if (!udp.has_value()) {
-            return std::nullopt;
+    } else if (target_ip.is_ipv6() && submission.source_ip.is_ipv6()) {
+        packet::IPv6 ipv6;
+        ipv6.set_source_address(submission.source_ip.bytes);
+        ipv6.set_destination_address(target_ip.bytes);
+        packet.set_ethernet(packet::Ethernet(*destination, local_mac_, 0x86DDU));
+        if (submission.type == osdetect::OSProbeType::IcmpEcho) {
+            const auto icmp = packet::ICMPv6::parse(submission.bytes);
+            if (!icmp.has_value()) {
+                return std::nullopt;
+            }
+            ipv6.set_next_header(58U);
+            packet.set_ipv6(ipv6);
+            packet.set_icmpv6(*icmp);
+        } else if (submission.type == osdetect::OSProbeType::UdpFingerprint ||
+                   submission.type == osdetect::OSProbeType::UdpPortUnreachable) {
+            const auto udp = packet::UDP::parse(submission.bytes);
+            if (!udp.has_value()) {
+                return std::nullopt;
+            }
+            ipv6.set_next_header(kUdpProtocol);
+            packet.set_ipv6(ipv6);
+            packet.set_udp(*udp);
+        } else {
+            const auto source_packet = packet::IPv6::parse(submission.bytes);
+            if (!source_packet.has_value() || source_packet->next_header() != kTcpProtocol ||
+                source_packet->payload_length() < packet::TCP::kMinimumHeaderSize) {
+                return std::nullopt;
+            }
+            const auto tcp = packet::TCP::parse(std::span<const std::uint8_t>{submission.bytes}.subspan(packet::IPv6::kHeaderSize));
+            if (!tcp.has_value()) {
+                return std::nullopt;
+            }
+            ipv6.set_next_header(kTcpProtocol);
+            ipv6.set_hop_limit(source_packet->hop_limit());
+            packet.set_ipv6(ipv6);
+            packet.set_tcp(*tcp);
         }
-        ipv4.set_protocol(kUdpProtocol);
-        packet.set_ipv4(ipv4);
-        packet.set_udp(*udp);
     } else {
-        const auto source_ip = packet::IPv4::parse(submission.bytes);
-        if (!source_ip.has_value() || source_ip->protocol() != kTcpProtocol) {
-            return std::nullopt;
-        }
-        const std::size_t header_size = static_cast<std::size_t>(source_ip->ihl()) * 4U;
-        const auto tcp = packet::TCP::parse(std::span<const std::uint8_t>{submission.bytes}.subspan(header_size));
-        if (!tcp.has_value()) {
-            return std::nullopt;
-        }
-        ipv4.set_protocol(kTcpProtocol);
-        ipv4.set_ttl(source_ip->ttl());
-        ipv4.set_flags_fragment_offset(source_ip->flags_fragment_offset());
-        packet.set_ipv4(ipv4);
-        packet.set_tcp(*tcp);
+        return std::nullopt;
     }
     const std::vector<std::uint8_t> frame = packet.serialize();
     return frame.empty() ? std::nullopt : std::optional<std::vector<std::uint8_t>>{frame};
@@ -591,6 +780,44 @@ std::optional<std::array<std::uint8_t, 6U>> LinuxOSProbeTransport::destination_m
         return std::array<std::uint8_t, 6U>{};
     }
     return neighbor_mac_for(config_.interface_name, target_ipv4);
+}
+
+std::optional<std::array<std::uint8_t, 6U>> LinuxOSProbeTransport::destination_mac(
+    const core::IpAddress &target_ip) const
+{
+    if (target_ip.is_ipv4()) {
+        const std::uint32_t address = (static_cast<std::uint32_t>(target_ip.bytes[0]) << 24U) |
+                                      (static_cast<std::uint32_t>(target_ip.bytes[1]) << 16U) |
+                                      (static_cast<std::uint32_t>(target_ip.bytes[2]) << 8U) |
+                                      static_cast<std::uint32_t>(target_ip.bytes[3]);
+        return destination_mac(address);
+    }
+    if (config_.destination_mac.has_value()) {
+        return config_.destination_mac;
+    }
+    if (config_.interface_name == "lo") {
+        return std::array<std::uint8_t, 6U>{};
+    }
+    return std::nullopt;
+}
+
+std::optional<core::IpAddress> LinuxOSProbeTransport::source_address_for(
+    const core::IpAddress &target_ip) const
+{
+    if (target_ip.is_ipv4()) {
+        return source_ipv4_ == 0U ? std::nullopt : std::optional<core::IpAddress>{core::IpAddress::from_ipv4(source_ipv4_)};
+    }
+    if (!source_ipv6_.has_value()) {
+        return std::nullopt;
+    }
+    core::IpAddress source = *source_ipv6_;
+    if (target_ip.is_ipv6_link_local()) {
+        if (!core::ipv6_scope_matches_interface(target_ip, config_.interface_name)) {
+            return std::nullopt;
+        }
+        source.scope = target_ip.scope;
+    }
+    return source;
 }
 
 } // namespace skan::net

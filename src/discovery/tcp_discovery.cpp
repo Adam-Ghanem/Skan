@@ -78,9 +78,14 @@ ResponseDisposition TcpDiscoveryProbe::assess(
     if (!parsed.has_value()) {
         return ResponseDisposition::Malformed;
     }
-    if (response.source_address != submission.target ||
-        parsed->source_port() != submission.port ||
-        parsed->destination_port() != submission.source_port) {
+    if (submission.target_ip.is_ipv6()) {
+        if (!response.source_ip.valid() || response.source_ip != submission.target_ip) {
+            return ResponseDisposition::Unrelated;
+        }
+    } else if (response.source_address != submission.target) {
+        return ResponseDisposition::Unrelated;
+    }
+    if (parsed->source_port() != submission.port || parsed->destination_port() != submission.source_port) {
         return ResponseDisposition::Unrelated;
     }
 

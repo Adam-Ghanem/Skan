@@ -181,10 +181,6 @@ StageResult PortScanStage::start()
     } else if (config_.transport == ScanTransport::Connect) {
         transport_ = std::make_unique<portscan::TcpConnectTransport>(engine_);
     } else {
-        if (has_ipv6_hosts(target_)) {
-            result_ = stage_failure(core::StatusCode::PermissionDenied, "IPv6 Linux TCP SYN scanning is unavailable; no fallback transport is used");
-            return result_;
-        }
         if (!config_.interface_name.has_value()) {
             result_ = stage_failure(core::StatusCode::InvalidArgument, "Linux port scan requires an interface");
             return result_;
@@ -292,10 +288,6 @@ StageResult UdpScanStage::start()
     } else if (config_.transport == ScanTransport::Offline) {
         transport_ = std::make_unique<portscan::RecordingUDPTransport>();
     } else if (config_.transport == ScanTransport::Linux) {
-        if (has_ipv6_hosts(target_)) {
-            result_ = stage_failure(core::StatusCode::PermissionDenied, "IPv6 Linux UDP scanning is unavailable; no fallback transport is used");
-            return result_;
-        }
         if (!config_.interface_name.has_value()) {
             result_ = stage_failure(core::StatusCode::InvalidArgument, "Linux UDP scan requires an interface");
             return result_;
@@ -304,7 +296,8 @@ StageResult UdpScanStage::start()
             *config_.interface_name, 65535U, true, std::nullopt});
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            const core::StatusCode mapped = opened.status == net::NetworkScanStatus::PermissionDenied
+            const core::StatusCode mapped = opened.status == net::NetworkScanStatus::PermissionDenied ||
+                                                    opened.status == net::NetworkScanStatus::RoutingUnavailable
                                                  ? core::StatusCode::PermissionDenied
                                                  : opened.status == net::NetworkScanStatus::InterfaceNotFound
                                                        ? core::StatusCode::NotFound
@@ -465,16 +458,6 @@ StageResult OSDetectionStage::start(
         result_ = stage_cancelled();
         return result_;
     }
-    if (has_ipv6_hosts(target_)) {
-        unavailable_ = true;
-        osdetect::OSDetectionResult unavailable;
-        unavailable.target = target_.original_specification;
-        unavailable.state = osdetect::OSDetectionState::Unavailable;
-        unavailable.error = osdetect::OSDetectionError::CapabilityUnavailable;
-        detection_result_ = std::move(unavailable);
-        result_ = stage_success();
-        return result_;
-    }
     const bool injected_transport = dependencies_ != nullptr && dependencies_->os_transport;
     osdetect::OSSchedulerConfig os_config;
     os_config.timeout = config_.timeout;
@@ -510,6 +493,7 @@ StageResult OSDetectionStage::start(
             result_ = stage_success();
             return result_;
         }
+        os_config.source_address = linux->local_source_address();
         transport_ = std::move(linux);
     } else {
         unavailable_ = true;

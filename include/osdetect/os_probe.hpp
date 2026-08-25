@@ -43,6 +43,8 @@ struct OSProbeSubmission final {
     std::vector<std::uint8_t> bytes;
     OSProbeStatus status{OSProbeStatus::Generated};
     OSProbeTimePoint generated_at{};
+    core::IpAddress source_ip{};
+    core::IpAddress target_ip{};
 };
 
 struct OSProbeResponse final {
@@ -58,6 +60,8 @@ struct OSProbeResponse final {
     std::uint16_t source_port{0U};
     std::uint16_t destination_port{0U};
     OSProbeTimePoint received_at{};
+    core::IpAddress source_ip{};
+    core::IpAddress destination_ip{};
 };
 
 enum class OSProbeDisposition : std::uint8_t {

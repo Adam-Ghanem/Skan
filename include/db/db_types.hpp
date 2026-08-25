@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "core/types.hpp"
 #include "osdetect/os_types.hpp"
 #include "packet/tcp.hpp"
 
@@ -49,6 +50,7 @@ struct OSFingerprint final {
     std::string generation;
     std::string device_type;
     std::vector<FingerprintSignature> signatures;
+    core::AddressFamily address_family{core::AddressFamily::IPv4};
 };
 
 enum class MatchCategory : std::uint8_t {

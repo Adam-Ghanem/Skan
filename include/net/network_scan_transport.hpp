@@ -25,6 +25,7 @@ enum class NetworkScanStatus {
     Success,
     InvalidConfiguration,
     InterfaceNotFound,
+    RoutingUnavailable,
     PermissionDenied,
     NotSupported,
     NotOpen,
@@ -101,6 +102,9 @@ private:
         const portscan::PortSubmission &submission) const;
     std::optional<std::array<std::uint8_t, 6U>> destination_mac(
         std::uint32_t target_ipv4) const;
+    std::optional<std::array<std::uint8_t, 6U>> destination_mac(
+        const core::IpAddress &target_ip) const;
+    std::optional<core::IpAddress> source_address_for(const core::IpAddress &target_ip) const;
 
     io::IOEngine &io_engine_;
     NetworkScanConfig config_;
@@ -111,6 +115,7 @@ private:
     CorrelationTable correlation_;
     ScanSession session_;
     std::uint32_t source_ipv4_{0U};
+    std::optional<core::IpAddress> source_ipv6_;
     std::array<std::uint8_t, 6U> local_mac_{};
     std::uint64_t next_session_id_{1U};
 };

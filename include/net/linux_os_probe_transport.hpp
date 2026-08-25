@@ -54,10 +54,11 @@ private:
         std::uint32_t sequence{0U};
         std::uint32_t identity{0U};
         std::uint8_t protocol{0U};
+        core::IpAddress target_ip{};
 
         bool operator==(const Correlation &other) const noexcept
         {
-            return target_ipv4 == other.target_ipv4 && source_port == other.source_port &&
+            return target_ipv4 == other.target_ipv4 && target_ip == other.target_ip && source_port == other.source_port &&
                    destination_port == other.destination_port && sequence == other.sequence &&
                    identity == other.identity && protocol == other.protocol;
         }
@@ -74,6 +75,8 @@ private:
     std::optional<osdetect::OSProbeId> match_icmp(const PacketObservation &observation) const noexcept;
     std::optional<osdetect::OSProbeId> match_udp(const PacketObservation &observation) const noexcept;
     std::optional<std::array<std::uint8_t, 6U>> destination_mac(std::uint32_t target_ipv4) const;
+    std::optional<std::array<std::uint8_t, 6U>> destination_mac(const core::IpAddress &target_ip) const;
+    std::optional<core::IpAddress> source_address_for(const core::IpAddress &target_ip) const;
 
     io::IOEngine &engine_;
     NetworkScanConfig config_;
@@ -84,6 +87,7 @@ private:
     std::unordered_map<Correlation, osdetect::OSProbeId, CorrelationHash> correlations_;
     ScanSession session_;
     std::uint32_t source_ipv4_{0U};
+    std::optional<core::IpAddress> source_ipv6_;
     std::array<std::uint8_t, 6U> local_mac_{};
     std::uint64_t next_session_id_{1U};
 };

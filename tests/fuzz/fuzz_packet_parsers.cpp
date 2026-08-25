@@ -37,7 +37,11 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     (void)skan::packet::TCP::parse(bytes);
     (void)skan::packet::UDP::parse(bytes);
     (void)skan::packet::ICMP::parse(bytes);
-    (void)skan::packet::ICMPv6::parse(bytes);
+    const auto icmpv6 = skan::packet::ICMPv6::parse(bytes);
+    if (icmpv6.has_value()) {
+        (void)icmpv6->neighbor_target();
+        (void)icmpv6->neighbor_options();
+    }
     skan::core::StatusCode status = skan::core::StatusCode::Ok;
     (void)skan::detect::ServiceProbeDatabase::parse(text, status);
     (void)skan::db::OSFingerprintDatabase::parse(text, status);

@@ -13,6 +13,8 @@ const char *interface_status_name(InterfaceStatus status) noexcept
         return "enumeration-failed";
     case InterfaceStatus::InterfaceNotFound:
         return "interface-not-found";
+    case InterfaceStatus::RoutingUnavailable:
+        return "routing-unavailable";
     case InterfaceStatus::PermissionDenied:
         return "permission-denied";
     case InterfaceStatus::NotSupported:

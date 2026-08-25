@@ -8,7 +8,10 @@
 #include "discovery/discovery_types.hpp"
 #include "packet/checksum.hpp"
 #include "packet/icmp.hpp"
+#include "packet/icmpv6.hpp"
 #include "packet/ipv4.hpp"
+#include "packet/ipv6.hpp"
+#include "packet/ipv6_quote.hpp"
 #include "packet/packet.hpp"
 #include "packet/udp.hpp"
 
@@ -46,6 +49,23 @@ core::StatusCode serialize_ipv4_tcp(
     return bytes.empty() ? core::StatusCode::InvalidArgument : core::StatusCode::Ok;
 }
 
+core::StatusCode serialize_ipv6_tcp(
+    const std::array<std::uint8_t, 16U> &source_address,
+    const std::array<std::uint8_t, 16U> &destination_address,
+    packet::TCP &tcp,
+    std::vector<std::uint8_t> &bytes)
+{
+    packet::IPv6 ip;
+    ip.set_next_header(6U);
+    ip.set_source_address(source_address);
+    ip.set_destination_address(destination_address);
+    packet::Packet packet;
+    packet.set_ipv6(ip);
+    packet.set_tcp(tcp);
+    bytes = packet.serialize();
+    return bytes.empty() ? core::StatusCode::InvalidArgument : core::StatusCode::Ok;
+}
+
 class DefinedOSProbe final : public OSProbe {
 public:
     explicit DefinedOSProbe(OSProbeType type) noexcept : type_(type)
@@ -63,10 +83,26 @@ public:
         const OSProbeConfig &config,
         OSProbeSubmission &submission) const override
     {
-        const auto destination = discovery::parse_ipv4_address(host.address);
-        const auto source = discovery::parse_ipv4_address(config.source_address);
-        if (!destination.has_value() || !source.has_value() || config.probe_port == 0U) {
+        const core::IpAddress destination_ip = host.ip_address.valid()
+                                                   ? host.ip_address
+                                                   : core::parse_ip_address(host.address).value_or(core::IpAddress{});
+        const auto configured_source = core::parse_ip_address(config.source_address);
+        if (!destination_ip.valid() || config.probe_port == 0U) {
             return core::StatusCode::InvalidArgument;
+        }
+        core::IpAddress source_ip;
+        if (destination_ip.is_ipv6()) {
+            source_ip = configured_source.has_value() && configured_source->is_ipv6()
+                            ? *configured_source
+                            : core::IpAddress::from_ipv6(std::array<std::uint8_t, 16U>{});
+            if (destination_ip.is_ipv6_link_local()) {
+                source_ip.scope = destination_ip.scope;
+            }
+        } else {
+            if (!configured_source.has_value() || !configured_source->is_ipv4()) {
+                return core::StatusCode::InvalidArgument;
+            }
+            source_ip = *configured_source;
         }
         submission = {};
         submission.id = id;
@@ -75,8 +111,33 @@ public:
         submission.destination_port = config.probe_port;
         submission.source_port = source_port_for(id);
         submission.sequence_number = sequence_for(id);
-        submission.source_address = config.source_address;
+        submission.source_address = source_ip.to_string();
+        submission.target = destination_ip.to_string();
+        submission.source_ip = source_ip;
+        submission.target_ip = destination_ip;
         submission.generated_at = OSProbeClock::now();
+
+        if (destination_ip.is_ipv6()) {
+            if (type_ == OSProbeType::IcmpEcho) {
+                packet::ICMPv6 icmp(packet::Icmpv6Type::EchoRequest);
+                submission.correlation_identifier = static_cast<std::uint16_t>(id & 0xFFFFU);
+                submission.correlation_sequence = static_cast<std::uint16_t>((id >> 16U) & 0xFFFFU);
+                icmp.set_identifier(submission.correlation_identifier);
+                icmp.set_sequence(submission.correlation_sequence);
+                icmp.set_payload({0x53U, 0x4BU, 0x41U, 0x4EU});
+                submission.bytes.resize(icmp.serialized_size(), 0U);
+                return icmp.serialize_with_checksum(submission.bytes, source_ip.bytes, destination_ip.bytes);
+            }
+            if (type_ == OSProbeType::UdpFingerprint || type_ == OSProbeType::UdpPortUnreachable) {
+                packet::UDP udp;
+                udp.set_source_port(submission.source_port);
+                udp.set_destination_port(config.udp_probe_port);
+                udp.set_payload(config.udp_probe_payload);
+                submission.destination_port = config.udp_probe_port;
+                submission.bytes.resize(udp.serialized_size(), 0U);
+                return udp.serialize_with_checksum(submission.bytes, source_ip.bytes, destination_ip.bytes);
+            }
+        }
 
         if (type_ == OSProbeType::IcmpEcho) {
             packet::ICMP icmp(packet::IcmpType::EchoRequest);
@@ -149,7 +210,18 @@ public:
         }
         const std::uint8_t ttl = type_ == OSProbeType::TcpSynVariant ? 64U : 128U;
         const bool dont_fragment = type_ != OSProbeType::TcpNull;
-        return serialize_ipv4_tcp(*source, *destination, ttl, dont_fragment, tcp, submission.bytes);
+        if (destination_ip.is_ipv6()) {
+            return serialize_ipv6_tcp(source_ip.bytes, destination_ip.bytes, tcp, submission.bytes);
+        }
+        const std::uint32_t source = (static_cast<std::uint32_t>(source_ip.bytes[0]) << 24U) |
+                                     (static_cast<std::uint32_t>(source_ip.bytes[1]) << 16U) |
+                                     (static_cast<std::uint32_t>(source_ip.bytes[2]) << 8U) |
+                                     static_cast<std::uint32_t>(source_ip.bytes[3]);
+        const std::uint32_t destination = (static_cast<std::uint32_t>(destination_ip.bytes[0]) << 24U) |
+                                          (static_cast<std::uint32_t>(destination_ip.bytes[1]) << 16U) |
+                                          (static_cast<std::uint32_t>(destination_ip.bytes[2]) << 8U) |
+                                          static_cast<std::uint32_t>(destination_ip.bytes[3]);
+        return serialize_ipv4_tcp(source, destination, ttl, dont_fragment, tcp, submission.bytes);
     }
 
     OSProbeAssessment assess(
@@ -167,6 +239,121 @@ public:
             return assessment;
         }
         if (!response.destination_address.empty() && response.destination_address != submission.source_address) {
+            return assessment;
+        }
+        if (submission.target_ip.is_ipv6()) {
+            if (!response.source_ip.valid() || !response.destination_ip.valid() ||
+                response.source_ip != submission.target_ip || response.destination_ip != submission.source_ip) {
+                return assessment;
+            }
+            if (submission.type == OSProbeType::IcmpEcho) {
+                const auto icmp = packet::ICMPv6::parse(response.bytes);
+                if (!icmp.has_value()) {
+                    assessment.status = core::StatusCode::ParseError;
+                    assessment.disposition = OSProbeDisposition::Malformed;
+                    assessment.response_behavior = ResponseBehavior::Malformed;
+                    return assessment;
+                }
+                if (icmp->type() != packet::Icmpv6Type::EchoReply || icmp->code() != 0U ||
+                    icmp->identifier() != submission.correlation_identifier ||
+                    icmp->sequence() != submission.correlation_sequence) {
+                    return assessment;
+                }
+                assessment.disposition = OSProbeDisposition::Matching;
+                assessment.response_behavior = ResponseBehavior::EchoReply;
+                ICMPObservation observation;
+                observation.ttl = response.ip_ttl == 0U ? ObservedValue<std::uint8_t>::absent()
+                                                         : ObservedValue<std::uint8_t>::observed(response.ip_ttl);
+                observation.type = ObservedValue<std::uint8_t>::observed(static_cast<std::uint8_t>(icmp->type()));
+                observation.code = ObservedValue<std::uint8_t>::observed(icmp->code());
+                observation.response_behavior = assessment.response_behavior;
+                observation.probe_status = OSProbeStatus::ResponseReceived;
+                observation.family = core::AddressFamily::IPv6;
+                assessment.icmp_observation = std::move(observation);
+                return assessment;
+            }
+            if (submission.type == OSProbeType::UdpFingerprint || submission.type == OSProbeType::UdpPortUnreachable) {
+                UDPObservation observation;
+                observation.ttl = response.ip_ttl == 0U ? ObservedValue<std::uint8_t>::absent()
+                                                         : ObservedValue<std::uint8_t>::observed(response.ip_ttl);
+                observation.probe_status = OSProbeStatus::ResponseReceived;
+                observation.family = core::AddressFamily::IPv6;
+                if (response.kind == OSProbeResponseKind::IcmpError) {
+                    const auto icmp = packet::ICMPv6::parse(response.bytes);
+                    const auto quote = icmp.has_value()
+                                           ? packet::parse_ipv6_udp_quote(std::span<const std::uint8_t>{icmp->payload()})
+                                           : std::nullopt;
+                    if (!icmp.has_value() || icmp->type() != packet::Icmpv6Type::DestinationUnreachable ||
+                        !quote.has_value() || quote->ip.source_address() != submission.source_ip.bytes ||
+                        quote->ip.destination_address() != submission.target_ip.bytes ||
+                        quote->source_port != submission.source_port ||
+                        quote->destination_port != submission.destination_port) {
+                        assessment.status = core::StatusCode::ParseError;
+                        assessment.disposition = OSProbeDisposition::Malformed;
+                        assessment.response_behavior = ResponseBehavior::Malformed;
+                        return assessment;
+                    }
+                    assessment.disposition = OSProbeDisposition::Matching;
+                    assessment.response_behavior = icmp->code() == 4U ? ResponseBehavior::PortUnreachable
+                                                                        : ResponseBehavior::Malformed;
+                    observation.response_behavior = assessment.response_behavior;
+                    assessment.udp_observation = std::move(observation);
+                    return assessment;
+                }
+                const auto udp = packet::UDP::parse(response.bytes);
+                if (!udp.has_value() || udp->source_port() != submission.destination_port ||
+                    udp->destination_port() != submission.source_port) {
+                    assessment.status = core::StatusCode::ParseError;
+                    assessment.disposition = OSProbeDisposition::Malformed;
+                    assessment.response_behavior = ResponseBehavior::Malformed;
+                    return assessment;
+                }
+                assessment.disposition = OSProbeDisposition::Matching;
+                assessment.response_behavior = ResponseBehavior::UdpResponse;
+                observation.source_port = udp->source_port();
+                observation.destination_port = udp->destination_port();
+                observation.payload_length = ObservedValue<std::size_t>::observed(udp->payload().size());
+                observation.response_behavior = assessment.response_behavior;
+                assessment.udp_observation = std::move(observation);
+                return assessment;
+            }
+            const auto tcp = packet::TCP::parse(response.bytes);
+            if (!tcp.has_value() || tcp->source_port() != submission.destination_port ||
+                tcp->destination_port() != submission.source_port) {
+                assessment.status = core::StatusCode::ParseError;
+                assessment.disposition = OSProbeDisposition::Malformed;
+                assessment.response_behavior = ResponseBehavior::Malformed;
+                return assessment;
+            }
+            const bool is_rst = packet::has_flag(tcp->flags(), packet::TcpFlag::Rst);
+            const bool is_syn_ack = packet::has_flag(tcp->flags(), packet::TcpFlag::Syn) &&
+                                    packet::has_flag(tcp->flags(), packet::TcpFlag::Ack) &&
+                                    tcp->acknowledgment_number() == submission.sequence_number + 1U;
+            if (!is_rst && !is_syn_ack) {
+                return assessment;
+            }
+            assessment.disposition = OSProbeDisposition::Matching;
+            assessment.response_behavior = is_rst ? ResponseBehavior::Rst : ResponseBehavior::SynAck;
+            TCPObservation observation;
+            observation.source_address = response.source_ip.to_string();
+            observation.destination_address = response.destination_ip.to_string();
+            observation.source_port = tcp->source_port();
+            observation.destination_port = tcp->destination_port();
+            observation.ttl = response.ip_ttl == 0U ? ObservedValue<std::uint8_t>::absent()
+                                                     : ObservedValue<std::uint8_t>::observed(response.ip_ttl);
+            observation.window = ObservedValue<std::uint16_t>::observed(tcp->window());
+            observation.flags = tcp->flags();
+            observation.options.reserve(tcp->options().size());
+            for (const packet::TcpOption &option : tcp->options()) {
+                observation.options.push_back(option.kind);
+            }
+            observation.sequence_number = ObservedValue<std::uint32_t>::observed(tcp->sequence_number());
+            observation.acknowledgment_number = ObservedValue<std::uint32_t>::observed(tcp->acknowledgment_number());
+            observation.ack_behavior = is_rst ? AckBehavior::RstWithoutAck : AckBehavior::AcknowledgesSyn;
+            observation.response_behavior = assessment.response_behavior;
+            observation.probe_status = OSProbeStatus::ResponseReceived;
+            observation.family = core::AddressFamily::IPv6;
+            assessment.tcp_observation = std::move(observation);
             return assessment;
         }
         if (submission.type == OSProbeType::IcmpEcho) {
@@ -191,6 +378,7 @@ public:
             observation.code = ObservedValue<std::uint8_t>::observed(icmp->code());
             observation.response_behavior = assessment.response_behavior;
             observation.probe_status = OSProbeStatus::ResponseReceived;
+            observation.family = core::AddressFamily::IPv4;
             assessment.icmp_observation = std::move(observation);
             return assessment;
         }
@@ -213,6 +401,7 @@ public:
                                              ? ObservedValue<bool>::observed(true)
                                              : ObservedValue<bool>::absent();
             observation.probe_status = OSProbeStatus::ResponseReceived;
+            observation.family = core::AddressFamily::IPv4;
             if (response.kind == OSProbeResponseKind::IcmpError) {
                 const auto icmp = packet::ICMP::parse(response.bytes);
                 if (!icmp.has_value() || icmp->type() != packet::IcmpType::DestinationUnreachable ||

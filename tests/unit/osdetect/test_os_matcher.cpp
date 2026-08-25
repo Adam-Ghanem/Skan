@@ -65,5 +65,20 @@ int main()
     assert(unavailable_matches[0].confidence == 0.0);
     assert(unavailable_matches[0].category == db::MatchCategory::NoMatch);
     assert(unavailable_matches[0].fingerprint_name < unavailable_matches[1].fingerprint_name);
+
+    osdetect::ObservedOSFingerprint ipv6;
+    ipv6.family = core::AddressFamily::IPv6;
+    auto ipv6_observation = linux_observation();
+    ipv6_observation.family = core::AddressFamily::IPv6;
+    ipv6.tcp_observations.push_back(ipv6_observation);
+    assert(matcher.match(ipv6, 3U).empty());
+
+    osdetect::ObservedOSFingerprint mixed;
+    mixed.family = core::AddressFamily::Unknown;
+    mixed.tcp_observations.push_back(linux_observation());
+    auto mixed_ipv6 = linux_observation();
+    mixed_ipv6.family = core::AddressFamily::IPv6;
+    mixed.tcp_observations.push_back(mixed_ipv6);
+    assert(matcher.match(mixed, 3U).empty());
     return 0;
 }

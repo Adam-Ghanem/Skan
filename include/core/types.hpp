@@ -47,6 +47,7 @@ struct IpAddressHash final {
 const char *address_family_name(AddressFamily family) noexcept;
 std::optional<IpAddress> parse_ip_address(std::string_view text) noexcept;
 std::optional<std::uint32_t> ipv6_scope_id(const IpAddress &address) noexcept;
+bool ipv6_scope_matches_interface(const IpAddress &address, std::string_view interface_name) noexcept;
 
 inline bool operator!=(const IpAddress &left, const IpAddress &right) noexcept
 {

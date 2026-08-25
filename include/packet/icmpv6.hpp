@@ -11,6 +11,11 @@
 
 namespace skan::packet {
 
+struct Icmpv6NeighborOption final {
+    std::uint8_t type{0U};
+    std::array<std::uint8_t, 6U> mac{};
+};
+
 enum class Icmpv6Type : std::uint8_t {
     DestinationUnreachable = 1U,
     PacketTooBig = 2U,
@@ -41,6 +46,21 @@ public:
     std::uint16_t identifier() const noexcept;
     std::uint16_t sequence() const noexcept;
     const std::vector<std::uint8_t> &payload() const noexcept;
+    std::optional<std::array<std::uint8_t, 16U>> neighbor_target() const noexcept;
+    std::vector<Icmpv6NeighborOption> neighbor_options() const;
+
+    static std::optional<ICMPv6> make_neighbor_solicitation(
+        const std::array<std::uint8_t, 16U> &target,
+        const std::optional<std::array<std::uint8_t, 6U>> &source_mac = std::nullopt);
+    static std::optional<ICMPv6> make_neighbor_advertisement(
+        const std::array<std::uint8_t, 16U> &target,
+        const std::array<std::uint8_t, 6U> &target_mac,
+        bool solicited = true,
+        bool override_neighbor = true);
+    static std::array<std::uint8_t, 16U> solicited_node_multicast(
+        const std::array<std::uint8_t, 16U> &target) noexcept;
+    static std::array<std::uint8_t, 6U> ethernet_multicast(
+        const std::array<std::uint8_t, 16U> &multicast) noexcept;
 
     void set_type(Icmpv6Type type) noexcept;
     void set_code(std::uint8_t value) noexcept;

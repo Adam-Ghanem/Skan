@@ -95,6 +95,7 @@ struct TCPObservation final {
     std::size_t payload_length{0U};
     ResponseBehavior response_behavior{ResponseBehavior::Unknown};
     OSProbeStatus probe_status{OSProbeStatus::ResponseReceived};
+    core::AddressFamily family{core::AddressFamily::Unknown};
 };
 
 struct UDPObservation final {
@@ -106,6 +107,7 @@ struct UDPObservation final {
     ObservedValue<bool> dont_fragment;
     ResponseBehavior response_behavior{ResponseBehavior::Unknown};
     OSProbeStatus probe_status{OSProbeStatus::ResponseReceived};
+    core::AddressFamily family{core::AddressFamily::Unknown};
 };
 
 struct ICMPObservation final {
@@ -114,6 +116,7 @@ struct ICMPObservation final {
     ObservedValue<std::uint8_t> code;
     ResponseBehavior response_behavior{ResponseBehavior::Unknown};
     OSProbeStatus probe_status{OSProbeStatus::ResponseReceived};
+    core::AddressFamily family{core::AddressFamily::Unknown};
 };
 
 struct ObservedOSFingerprint final {
@@ -129,6 +132,7 @@ struct ObservedOSFingerprint final {
     std::size_t probes_malformed{0U};
     std::optional<double> rtt_ms;
     std::chrono::steady_clock::time_point timestamp{};
+    core::AddressFamily family{core::AddressFamily::IPv4};
 };
 
 const char *observation_state_name(ObservationState state) noexcept;

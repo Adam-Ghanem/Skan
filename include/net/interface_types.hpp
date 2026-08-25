@@ -15,6 +15,7 @@ enum class InterfaceStatus {
     InvalidName,
     EnumerationFailed,
     InterfaceNotFound,
+    RoutingUnavailable,
     PermissionDenied,
     NotSupported,
     SystemError
@@ -46,6 +47,9 @@ struct NetworkInterface final {
     bool supports_injection{false};
     bool supports_ipv6_capture{false};
     bool supports_ipv6_injection{false};
+    bool supports_af_inet6{false};
+    bool supports_ipv6_route{false};
+    bool has_cap_net_raw{false};
 };
 
 struct InterfaceResult final {

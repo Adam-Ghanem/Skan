@@ -23,6 +23,7 @@
 #include "portscan/udp_scan.hpp"
 #include "packet/ethernet.hpp"
 #include "packet/ipv6.hpp"
+#include "packet/icmpv6.hpp"
 #include "packet/packet.hpp"
 #include "packet/udp.hpp"
 #include "target/target_engine.hpp"
@@ -216,6 +217,32 @@ void benchmark_ipv6_receiver(std::size_t count)
     });
 }
 
+void benchmark_ipv6_ndp(std::size_t count)
+{
+    const auto target = skan::core::parse_ip_address("2001:db8::42")->bytes;
+    const std::array<std::uint8_t, 6U> mac{0x02U, 0xAAU, 0xBBU, 0xCCU, 0xDDU, 0xEEU};
+    const auto solicitation = skan::packet::ICMPv6::make_neighbor_solicitation(target, mac);
+    const auto advertisement = skan::packet::ICMPv6::make_neighbor_advertisement(target, mac);
+    measure("ipv6-ndp-parser", count, [&solicitation, &advertisement, count]() {
+        std::size_t valid = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            if (solicitation.has_value()) {
+                const auto parsed = skan::packet::ICMPv6::parse(solicitation->serialize());
+                if (parsed.has_value() && parsed->neighbor_target().has_value() && parsed->neighbor_options().size() == 1U) {
+                    ++valid;
+                }
+            }
+            if (advertisement.has_value()) {
+                const auto parsed = skan::packet::ICMPv6::parse(advertisement->serialize());
+                if (parsed.has_value() && parsed->neighbor_target().has_value() && parsed->neighbor_options().size() == 1U) {
+                    ++valid;
+                }
+            }
+        }
+        return valid;
+    });
+}
+
 void benchmark_tcp(std::size_t count)
 {
     const skan::core::Target target = target_for(count);
@@ -382,6 +409,7 @@ int main(int argc, char **argv)
         benchmark_target_expansion(count);
         benchmark_ipv6_target_expansion(count);
         benchmark_ipv6_receiver(count);
+        benchmark_ipv6_ndp(count);
         benchmark_tcp(count);
         benchmark_udp(count);
         benchmark_mixed_udp(count);

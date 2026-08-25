@@ -75,8 +75,10 @@ ResponseDisposition IcmpDiscoveryProbe::assess(
 {
     if (submission.target_ip.is_ipv6()) {
         const auto parsed = skan::packet::ICMPv6::parse(std::span<const std::uint8_t>{response.bytes});
-        const auto source = parse_ip(response.source_address);
-        if (!parsed.has_value() || !source.has_value() || *source != submission.target_ip) {
+        const core::IpAddress source = response.source_ip.valid()
+                                          ? response.source_ip
+                                          : parse_ip(response.source_address).value_or(core::IpAddress{});
+        if (!parsed.has_value() || !source.valid() || source != submission.target_ip) {
             return parsed.has_value() ? ResponseDisposition::Unrelated : ResponseDisposition::Malformed;
         }
         if (parsed->type() != skan::packet::Icmpv6Type::EchoReply || parsed->code() != 0U ||

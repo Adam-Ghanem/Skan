@@ -266,3 +266,19 @@ Phase 16 was implemented on top of the existing Phase 0–15 architecture. The h
 | Complete ND and IPv6 OS detection | Explicitly unavailable | Limited ICMPv6 ND parsing is not represented as a state machine. IPv6 OS results remain structured unavailable with zero confidence; no identity is inferred from address, port, service, or local platform. |
 
 The complete registered test suite passed after the Phase 16 changes. AF_PACKET-dependent tests continued to skip cleanly with `Operation not permitted` in the sandbox. The final build, sanitizer, coverage, fuzz, benchmark, CLI capability matrix, output validation, whitespace, and prohibited-API gates are recorded with their exact results in the Phase 16 delivery record. No public target was contacted and no evasion, spoofing, exploitation, credential, persistence, or stealth path was introduced.
+
+
+## P. Phase 17 native IPv6 completion record
+
+Phase 17 extends the existing Phase 0–16 architecture rather than introducing a parallel scanner path. The Linux discovery, TCP SYN, UDP, and OS-probe adapters now accept typed IPv4 or IPv6 submissions, select sources only from the explicitly configured interface, compose IPv6 frames through the shared packet model, and correlate captured responses through the existing PacketReceiver and pending maps. The orchestrator no longer rejects IPv6 targets before these adapters are opened.
+
+| Area | Phase 17 result | Boundary and evidence |
+| --- | --- | --- |
+| Native IPv6 discovery/SYN/UDP/OS branches | Family-aware branches implemented in existing adapters | AF_PACKET capability, explicit-interface source selection, capture, composition, and exact family-aware correlation share the existing IOEngine lifecycle. Sandbox runs report `Operation not permitted` when AF_PACKET is unavailable; non-loopback IPv6 Ethernet transmission still requires an explicit destination MAC or supplied neighbor path. |
+| IPv6 OS evidence | Typed live/injected evidence path; matching is IPv4-only today | OS probe build/assessment supports ICMPv6 Echo, IPv6 UDP/ICMPv6 quoted UDP, and IPv6 TCP responses; evidence requires exact typed source/destination identity, carries an explicit family tag, rejects mixed-family aggregates, and does not match the IPv4-only built-in database. |
+| Link-local scopes | Hardened | Named and numeric zones resolve through the shared scope matcher and must match the explicitly configured interface. No interface is selected implicitly. |
+| Neighbor Discovery packet model | Strict packet primitives implemented; automatic resolver deferred | Neighbor Solicitation/Advertisement targets and options are bounded, serialized, validated, and mapped to solicited-node/Ethernet multicast addresses. There is no implicit asynchronous neighbor cache/state machine; unresolved non-loopback transmit returns an explicit capability/routing-unavailable result. |
+| Non-loopback neighbor resolution | Explicit capability boundary | Without an explicit destination MAC or complete interface-local neighbor-resolution path, native non-loopback IPv6 Ethernet transmission returns a capability/routing-unavailable result instead of guessing, falling back, or generating unsolicited discovery traffic. |
+| Safety and architecture | Preserved | One IOEngine, one packet layer, one receiver/correlation boundary, no threads, polling, sleeps, fallback, evasion, spoofing, exploitation, credentials, persistence, or public-target traffic. |
+
+Deterministic unit vectors cover IPv6 OS probe construction and assessment, family-safe matching, strict Neighbor Discovery parsing, NS/NA serialization, and multicast mapping. The ordinary build and registered suite pass after the changes; AF_PACKET-dependent tests remain environmental skips with `Operation not permitted` where raw capability is unavailable. The fuzz target remains a clean environmental skip when `clang++` is unavailable.

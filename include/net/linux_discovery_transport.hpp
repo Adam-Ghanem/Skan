@@ -46,6 +46,11 @@ private:
     void dispatch_observation(const PacketObservation &observation) noexcept;
     std::optional<std::vector<std::uint8_t>> compose_frame(
         const discovery::ProbeSubmission &submission) const;
+    std::optional<std::array<std::uint8_t, 6U>> destination_mac(
+        const core::IpAddress &target_ip) const;
+    std::optional<std::vector<std::uint8_t>> compose_neighbor_solicitation(
+        const discovery::ProbeSubmission &submission) const;
+    std::optional<core::IpAddress> source_address_for(const core::IpAddress &target_ip) const;
 
     io::IOEngine &io_engine_;
     std::string interface_name_;
@@ -53,8 +58,11 @@ private:
     LinuxCapture capture_;
     PacketReceiver receiver_;
     std::unordered_map<discovery::ProbeId, Pending> pending_;
+    std::unordered_map<core::IpAddress, std::array<std::uint8_t, 6U>, core::IpAddressHash> neighbor_cache_;
+    std::unordered_map<discovery::ProbeId, io::TimerId> neighbor_timers_;
     std::function<void(const discovery::DiscoveryResponse &)> response_handler_;
     std::uint32_t source_ipv4_{0U};
+    std::optional<core::IpAddress> source_ipv6_;
     std::array<std::uint8_t, 6U> local_mac_{};
     bool open_{false};
 };
