@@ -13,6 +13,7 @@
 #include "packet/udp.hpp"
 #include "portscan/port_types.hpp"
 #include "scanengine/timing_profile.hpp"
+#include "target/target_engine.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size)
 {
@@ -33,5 +34,6 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     (void)skan::portscan::parse_tcp_ports(text);
     skan::scanengine::TimingProfile profile;
     (void)skan::scanengine::TimingProfile::parse(text, profile);
+    (void)skan::target::TargetParser::parse(text);
     return 0;
 }

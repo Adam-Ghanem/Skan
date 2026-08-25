@@ -27,6 +27,7 @@
 #include "orchestrator/scan_orchestrator.hpp"
 #include "portscan/portscan.hpp"
 #include "scanengine/timing_profile.hpp"
+#include "target/target_engine.hpp"
 
 namespace {
 
@@ -37,9 +38,10 @@ void print_help()
               << "Usage:\n"
               << "  skan [options]\n"
               << "  skan discover <ipv4-address> [options]\n"
-              << "  skan scan <ipv4-address> [options]\n"
+              << "  skan scan <target-spec> [options]\n"
               << "  skan os-detect <ipv4-address> [options]\n"
-              << "  skan interfaces [options]\n\n"
+              << "  skan interfaces [options]\n"
+              << "  skan resolve <target-spec> [options]\n\n"
               << "Options:\n"
               << "  --help                 Show help\n"
               << "  --version              Show version\n"
@@ -67,8 +69,10 @@ void print_help()
               << "  --output <format>      normal, json, xml, or grepable\n"
               << "  -o, --output-file <path> Write serialized output to a file (replace)\n"
               << "  --os-db <path>         Use a project-owned OS fingerprint database\n"
-              << "  --json                 Emit structured output for os-detect or interfaces\n"
-              << "  --interface <name>     Select an explicit interface for raw scans or inspection\n\n"
+              << "  --json                 Emit structured output for resolve, os-detect, or interfaces\n"
+              << "  --interface <name>     Select an explicit interface for raw scans or inspection\n"
+              << "  --max-targets <n>      Bound CIDR/range/hostname expansion (default 4096)\n"
+              << "  --max-hostname-results <n> Bound A records per hostname (default 64)\n\n"
               << "Status:\n"
               << "  Phase 0 — Foundation\n"
               << "  Phase 1 — Async I/O Engine\n"
@@ -80,7 +84,10 @@ void print_help()
               << "  Phase 9 — Network Transport & Packet Capture\n"
               << "  Phase 10 — Real Network Integration\n"
               << "  Phase 11 — Unified Scan Orchestrator\n"
-              << "\nDiscovery CLI mode uses an offline recording transport.\n"
+              << "  Phase 12 — Target Resolution and Target Engine\n"
+              << "\nTarget specifications accept IPv4, CIDR, inclusive ranges, hostnames, and comma-separated mixtures.\n"
+              << "The resolve command normalizes targets without scanning; use --max-targets to bound expansion.\n"
+              << "Discovery CLI mode uses an offline recording transport.\n"
               << "Scan Connect mode uses normal nonblocking TCP sockets unless --transport offline is selected.\n"
               << "Scan SYN mode requires explicit --transport offline or --transport linux --interface <name>.\n"
               << "The scan pipeline runs Discovery, Port, Service, OS, and Output stages sequentially.\n"
@@ -222,6 +229,66 @@ int run_discover(int argc, char **argv)
             std::cout << " rtt_ms=" << *result.rtt_ms;
         }
         std::cout << '\n';
+    }
+    return EXIT_SUCCESS;
+}
+
+void print_target_error(const skan::target::TargetError &error)
+{
+    std::cerr << "Error: " << skan::target::target_error_name(error.code);
+    if (!error.message.empty()) {
+        std::cerr << ": " << error.message;
+    }
+    std::cerr << '\n';
+}
+
+int run_resolve(int argc, char **argv)
+{
+    if (argc < 3) {
+        std::cerr << "Error: resolve requires a target specification. Use --help for usage.\n";
+        return EXIT_FAILURE;
+    }
+    skan::target::TargetLimits limits;
+    bool json = false;
+    for (int index = 3; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument == "--json") {
+            json = true;
+        } else if ((argument == "--max-targets" || argument == "--max-hostname-results") && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
+                std::cerr << "Error: target limits must be positive integers.\n";
+                return EXIT_FAILURE;
+            }
+            if (argument == "--max-targets") {
+                limits.max_targets = static_cast<std::size_t>(value);
+            } else {
+                limits.max_hostname_results = static_cast<std::size_t>(value);
+            }
+        } else {
+            std::cerr << "Error: unknown or incomplete resolve option. Use --help for usage.\n";
+            return EXIT_FAILURE;
+        }
+    }
+
+    const skan::target::TargetResolutionResult resolved = skan::target::TargetEngine::resolve(argv[2], limits);
+    if (!resolved.success()) {
+        print_target_error(resolved.error);
+        return EXIT_FAILURE;
+    }
+    if (json) {
+        std::cout << "{\"targets\":[";
+        for (std::size_t index = 0U; index < resolved.target_set.targets.size(); ++index) {
+            if (index != 0U) {
+                std::cout << ',';
+            }
+            std::cout << "{\"address\":\"" << skan::target::format_ipv4(resolved.target_set.targets[index].address) << "\"}";
+        }
+        std::cout << "]}\n";
+    } else {
+        for (const skan::target::ResolvedTarget &target : resolved.target_set.targets) {
+            std::cout << skan::target::format_ipv4(target.address) << '\n';
+        }
     }
     return EXIT_SUCCESS;
 }
@@ -418,7 +485,8 @@ int run_scan(int argc, char **argv)
         return EXIT_FAILURE;
     }
     skan::orchestrator::ScanConfig config;
-    const std::string target_address = argv[2];
+    const std::string target_specification = argv[2];
+    skan::target::TargetLimits target_limits;
     bool explicit_ports = false;
     bool adaptive_timing = false;
     std::string transport_mode;
@@ -492,6 +560,17 @@ int run_scan(int argc, char **argv)
             if (transport_mode != "offline" && transport_mode != "linux") {
                 std::cerr << "Error: transport must be offline or linux.\n";
                 return EXIT_FAILURE;
+            }
+        } else if ((argument == "--max-targets" || argument == "--max-hostname-results") && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
+                std::cerr << "Error: target limits must be positive integers.\n";
+                return EXIT_FAILURE;
+            }
+            if (argument == "--max-targets") {
+                target_limits.max_targets = static_cast<std::size_t>(value);
+            } else {
+                target_limits.max_hostname_results = static_cast<std::size_t>(value);
             }
         } else if (argument == "--interface" && index + 1 < argc) {
             config.interface_name = argv[++index];
@@ -582,8 +661,20 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: --discovery requires --transport offline or --transport linux --interface <name>.\n";
         return EXIT_FAILURE;
     }
-    config.targets.push_back(
-        skan::core::Target{target_address, {skan::core::Host{target_address, std::nullopt, false}}});
+    const skan::target::TargetResolutionResult resolved =
+        skan::target::TargetEngine::resolve(target_specification, target_limits);
+    if (!resolved.success()) {
+        print_target_error(resolved.error);
+        return EXIT_FAILURE;
+    }
+    skan::core::Target normalized_target;
+    normalized_target.original_specification = target_specification;
+    normalized_target.resolved_hosts.reserve(resolved.target_set.targets.size());
+    for (const skan::target::ResolvedTarget &target : resolved.target_set.targets) {
+        normalized_target.resolved_hosts.push_back(
+            skan::core::Host{skan::target::format_ipv4(target.address), target.source_hostname, false});
+    }
+    config.targets.push_back(std::move(normalized_target));
     skan::orchestrator::ScanOrchestrator orchestrator(config);
     const skan::core::StatusCode status = orchestrator.run(std::cout);
     if (status != skan::core::StatusCode::Ok) {
@@ -617,6 +708,10 @@ int main(int argc, char **argv)
 
     if (argc >= 2 && std::string_view(argv[1]) == "scan") {
         return run_scan(argc, argv);
+    }
+
+    if (argc >= 2 && std::string_view(argv[1]) == "resolve") {
+        return run_resolve(argc, argv);
     }
 
     if (argc >= 2 && std::string_view(argv[1]) == "os-detect") {

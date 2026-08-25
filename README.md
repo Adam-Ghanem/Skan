@@ -4,7 +4,7 @@ Skan is an original, modular, **Nmap-inspired, Linux-first network-scanning engi
 
 ## Project goals
 
-Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, TCP port scanning, service detection, a capability-honest OS fingerprinting architecture, Phase 10 explicit Linux transport integration, and a Phase 11 unified scan orchestrator; it does not claim a full unrestricted scanning workflow.
+Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, TCP port scanning, service detection, a capability-honest OS fingerprinting architecture, Phase 10 explicit Linux transport integration, a Phase 11 unified scan orchestrator, and a Phase 12 target-resolution engine; it does not claim a full unrestricted scanning workflow.
 
 ## Language and platform
 
@@ -27,8 +27,9 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 8 — Output + Result Serialization | **COMPLETE** |
 | Phase 10 — Real Network Scan Integration | **COMPLETE** |
 | Phase 11 — Unified Scan Orchestrator and audit hardening | **COMPLETE** |
+| Phase 12 — Target Resolution and Target Engine | **COMPLETE** |
 
-Phase 3 is deliberately scoped to explicitly supplied targets. Its default transport remains a deterministic recording transport for offline tests and safe CLI exercises, while Phase 10 adds an explicit Linux transport option that requires an interface. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect for supplied IPv4 targets, and now supports capability-gated Linux SYN transmission only through `--transport linux --interface <name>`; no raw mode is selected implicitly. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 10 adds real ICMP/TCP/ARP discovery adapters under the same explicit interface boundary. No public Internet target is used by the test suite.
+Phase 3 is deliberately scoped to normalized IPv4 targets. Phase 12 now owns strict target parsing, bounded IPv4 CIDR/range expansion, platform hostname-to-A resolution, deduplication, and numeric deterministic ordering before discovery or scanning begins. Its default transport remains a deterministic recording transport for offline tests and safe CLI exercises, while Phase 10 adds an explicit Linux transport option that requires an interface. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect for normalized IPv4 targets, and now supports capability-gated Linux SYN transmission only through `--transport linux --interface <name>`; no raw mode is selected implicitly. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 10 adds real ICMP/TCP/ARP discovery adapters under the same explicit interface boundary. No public Internet target is used by the test suite.
 
 ## Phase 3 Host Discovery
 
@@ -301,13 +302,13 @@ make debug
 
 ## Tests
 
-Compile and execute all Phase 0 through Phase 11 tests with:
+Compile and execute all Phase 0 through Phase 12 tests with:
 
 ```sh
 make test
 ```
 
-The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timer-registration failures; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Phase 9 adds deterministic interface, offline transport/capture, packet receiver attach/detach and stale-registration tests, filtering, 10,000-entry correlation stress, Linux lifecycle, and controlled loopback capability tests. Phase 10 adds Linux adapter lifecycle, explicit transport selection, real discovery adapter, and capability-dependent raw-scan tests. Phase 11 adds unified-pipeline, cancellation, stage-order, discovery, 1,000-host × 100-port offline orchestration, and 10,000-timer coverage. Existing Phase 0–10 tests remain active.
+The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timer-registration failures; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Phase 9 adds deterministic interface, offline transport/capture, packet receiver attach/detach and stale-registration tests, filtering, 10,000-entry correlation stress, Linux lifecycle, and controlled loopback capability tests. Phase 10 adds Linux adapter lifecycle, explicit transport selection, real discovery adapter, and capability-dependent raw-scan tests. Phase 11 adds unified-pipeline, cancellation, stage-order, discovery, 1,000-host × 100-port offline orchestration, and 10,000-timer coverage. Phase 12 adds strict target-parser, exact CIDR/range expansion, bounded hostname resolution seams, deduplication, numeric ordering, resource-limit, resolver-failure, and CIDR-to-orchestrator integration tests. Existing Phase 0–11 tests remain active.
 
 The Makefile provides reproducible build and analysis targets:
 
@@ -320,7 +321,7 @@ make coverage
 make fuzz
 ```
 
-`asan` enables AddressSanitizer with leak detection, `ubsan` enables UndefinedBehaviorSanitizer, and `coverage` builds the complete offline test suite with coverage instrumentation. `fuzz` builds the offline libFuzzer parser harness when `clang++` and its fuzzer runtime are available; otherwise it reports `SKIPPED` without failing the build. The fuzz harness exercises Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, and timing-profile parsing entirely in memory.
+`asan` enables AddressSanitizer with leak detection, `ubsan` enables UndefinedBehaviorSanitizer, and `coverage` builds the complete offline test suite with coverage instrumentation. `fuzz` builds the offline libFuzzer parser harness when `clang++` and its fuzzer runtime are available; otherwise it reports `SKIPPED` without failing the build. The fuzz harness exercises Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, timing-profile, and target-spec parsing entirely in memory.
 
 ## CLI usage
 
@@ -385,7 +386,7 @@ Phase 11 adds the production scan entry point that coordinates the existing Phas
 
 `ScanConfig` is the typed boundary for targets, transport selection, probe method, ports, timing, concurrency, service limits, database paths, and output settings. An empty port list means the existing Phase 4 default TCP port set. The default scan uses TCP Connect, no discovery, no service detection, no OS detection, the Phase 7 timing profile, normal output, bounded timeout and parallelism, and no output file. Explicit `--transport offline` selects deterministic recording transports. Explicit `--transport linux` selects the Phase 10 Linux adapters and requires the relevant interface and raw-packet capability; failures are returned clearly and never silently downgraded to offline behavior.
 
-The orchestrator accepts explicit IPv4 targets and the existing host model only. It does not add CIDR, range expansion, Internet-wide scanning, worker threads, polling loops, sleeps, or a second event loop. Bounded asynchronous work remains inside the existing discovery scheduler, port scheduler, service detector, OS detector, transports, and timing controllers. The next major target-subsystem feature is a dedicated resolver/normalizer for hostname, CIDR, range, mixed-target, deduplication, and deterministic ordering support; it remains planned rather than being silently introduced into Phase 11.
+The orchestrator receives normalized explicit IPv4 hosts from the Phase 12 Target Engine. It does not parse CIDR, ranges, hostnames, or comma-separated input itself, and it does not add Internet-wide scanning, worker threads, polling loops, sleeps, or a second event loop. Bounded asynchronous work remains inside the existing discovery scheduler, port scheduler, service detector, OS detector, transports, and timing controllers.
 
 | Scan option | Meaning |
 | --- | --- |
@@ -408,6 +409,37 @@ The session state machine explicitly represents initialization, each operational
 Phase 11 includes unit coverage for configuration validation, state transitions, session ownership and cancellation, typed events, report ordering and summaries, and stage adapters. Integration coverage exercises deterministic multi-host sequencing, cancellation from a stage event, discovery response handling, service/OS stage ordering, and a bounded **1,000-host × 100-port** offline workload. Unit coverage also exercises **10,000 same-deadline timers** and **10,000 pending correlations**. The port and service schedulers lazily sort terminal results when observed rather than sorting the complete result vector after every completion, preserving deterministic output while avoiding quadratic large-workload behavior. Linux raw transport tests skip cleanly when AF_PACKET capability is unavailable in the execution environment; they do not substitute a different transport or report fabricated network results.
 
 The CLI retains the earlier `discover`, `interfaces`, and `os-detect` commands. The `scan` command now uses the unified orchestrator while preserving the prior Connect defaults and existing output formats. `--discovery --transport offline` intentionally reports nonresponsive discovery as `UNKNOWN` and therefore does not port-scan those hosts, because only discovered-UP hosts proceed to the next stage.
+
+## Phase 12 — Target Resolution and Target Engine
+
+Phase 12 replaces the Phase 11 CLI limitation of explicit resolved IPv4 hosts with a dedicated target subsystem. The boundary is `CLI input → TargetParser → TargetResolver → TargetNormalizer → TargetDeduplicator → deterministic TargetSet → ScanOrchestrator`. Discovery, port scanning, service detection, OS detection, and output receive only normalized `core::Host` values; they do not parse CIDR, ranges, hostnames, or comma-separated target text.
+
+The target engine supports single IPv4 addresses, IPv4 CIDR, inclusive IPv4 ranges, hostnames resolved through the platform `getaddrinfo(AF_INET)` resolver, and comma-separated mixtures of these forms. CIDR expansion includes network and broadcast addresses exactly as requested, including `/32`, and does not silently remove addresses. Range expansion requires a valid non-reversed IPv4 interval. Hostnames must use DNS hostname syntax and only A records are requested; IPv6 is neither required nor claimed.
+
+| Target form | Example | Result |
+| --- | --- | --- |
+| IPv4 | `127.0.0.1` | One normalized IPv4 address |
+| CIDR | `192.168.1.0/30` | Four addresses, including `.0` and `.3` |
+| Range | `192.168.1.10-192.168.1.20` | Eleven inclusive addresses |
+| Hostname | `localhost` | One or more resolved IPv4 A records |
+| Comma-separated | `192.168.1.1,192.168.1.0/30` | Collected, deduplicated, numerically sorted addresses |
+
+Expansion is bounded by `--max-targets`, which defaults to `4096`, and hostname results are bounded by `--max-hostname-results`, which defaults to `64` per hostname. The engine checks expansion sizes before allocating or iterating huge CIDRs/ranges; `0.0.0.0/0 --max-targets 4096` returns `RESOURCE_EXHAUSTED` rather than truncating or attempting uncontrolled allocation. Duplicate addresses are collected through an efficient hash set and final targets are sorted by their numeric network-order `uint32_t` value, not lexical text order. Identical input therefore produces identical normalized ordering.
+
+Target Engine errors are typed as `INVALID_TARGET`, `INVALID_IPV4`, `INVALID_CIDR`, `INVALID_RANGE`, `INVALID_HOSTNAME`, `RESOLUTION_FAILED`, `RESOURCE_EXHAUSTED`, `UNSUPPORTED_TARGET`, or `EMPTY_TARGET_SET`, with useful diagnostics. Synchronous hostname resolution is performed at the CLI/startup boundary before the scan enters the shared Phase 1 event loop; it is deliberately not called from an IOEngine callback, and the resolver interface is injectable so a future asynchronous implementation can replace it without changing the scanner.
+
+The CLI examples are:
+
+```sh
+./bin/skan resolve 192.168.1.0/30
+./bin/skan resolve 192.168.1.10-192.168.1.20 --max-targets 64
+./bin/skan resolve localhost --json
+./bin/skan resolve 0.0.0.0/0 --max-targets 4096
+./bin/skan scan 192.168.1.0/30 --transport offline --method syn --tcp-ports 22,80
+./bin/skan scan example.com --method connect --tcp-ports 443
+```
+
+`resolve` writes one normalized address per line by default or `{"targets":[{"address":"..."}]}` with `--json`; it never scans or opens a transport. A hostname resolution failure is distinct from malformed hostname syntax. The existing `scan 127.0.0.1`, transport, interface, method, port, service, OS, adaptive timing, output, and output-file behaviors remain unchanged except that `scan` now normalizes its target argument first.
 
 ## Network and safety boundary
 

@@ -47,7 +47,7 @@ The following capabilities are intentionally not claimed as complete:
 | Capability | Status |
 | --- | --- |
 | Explicit IPv4 target execution | Implemented |
-| Hostname/CIDR/range/mixed-target resolver and normalizer | Planned next major target subsystem |
+| Hostname/CIDR/range/mixed-target resolver and normalizer | Implemented in Phase 12 with bounded synchronous A-record resolution |
 | TCP Connect scanning | Implemented |
 | Offline SYN probe model | Implemented |
 | Explicit Linux AF_PACKET SYN transport | Capability-gated and implemented where permitted |
@@ -89,9 +89,9 @@ AF_PACKET-dependent tests were skipped because the execution environment returne
 
 ## J. Recommended upgrade order
 
-The next upgrade should be a dedicated target resolver/normalizer built around the existing `core::Target` model, with hostname resolution, CIDR/range expansion, mixed-target input, canonicalization, deduplication, explicit limits, and deterministic ordering. It should remain separate from scanning and should feed already-resolved hosts to the current pipeline.
+The next target-related upgrade should replace the current synchronous platform resolver with an asynchronous implementation behind the existing injectable `HostnameResolver` boundary if hostname resolution latency becomes material. The existing parser, CIDR/range expansion, canonicalization, deduplication, explicit limits, and numeric ordering should remain unchanged.
 
-After that, live OS fingerprinting can be implemented only through an explicit capability-gated transport that reuses the existing OS probe, correlation, scheduler, matcher, and report boundaries. Broader protocol coverage, larger corpus management, and optional scripting should follow only after their ownership and resource limits are specified. Performance work should continue with measured benchmarks for packet parsing, correlation, queue operations, matching, and output serialization rather than speculative rewrites.
+Live OS fingerprinting can be implemented only through an explicit capability-gated transport that reuses the existing OS probe, correlation, scheduler, matcher, and report boundaries. Broader protocol coverage, larger corpus management, and optional scripting should follow only after their ownership and resource limits are specified. Performance work should continue with measured benchmarks for target expansion, packet parsing, correlation, queue operations, matching, and output serialization rather than speculative rewrites.
 
 ## References
 

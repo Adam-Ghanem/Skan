@@ -11,7 +11,8 @@ enum class StatusCode {
     PermissionDenied,
     ParseError,
     NotFound,
-    InternalError
+    InternalError,
+    ResourceExhausted
 };
 
 /** Return a non-null, allocation-free label for a status code. */

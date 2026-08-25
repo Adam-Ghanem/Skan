@@ -51,7 +51,7 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 | Language | Responsibility | Status |
 | --- | --- | --- |
-| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, and CLI | Phase 0–11 implemented where applicable |
+| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, target resolution, and CLI | Phase 0–12 implemented where applicable |
 | C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
 | Lua 5.4 | Future scripting layer | Planned |
 | TypeScript/React | Future dashboard | Planned |
@@ -80,11 +80,14 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 **Phase 10 — Real Network Scan Integration** is complete for the explicit Linux TCP SYN and discovery adapter scope described below. It preserves offline mode, uses one IOEngine, feeds existing scheduler callbacks, and keeps live OS fingerprinting capability-honest and unavailable where its required transport is not implemented.
 
+**Phase 11 — Unified Scan Orchestrator** is complete for sequential discovery, port, service, OS, and output coordination over the existing bounded asynchronous subsystems, with cancellation, typed events, deterministic offline transports, and capability-honest Linux behavior.
+
+**Phase 12 — Target Resolution and Target Engine** is complete
+ for IPv4, CIDR, inclusive ranges, hostnames through bounded A-record resolution, mixed input, deduplication, deterministic numeric ordering, and normalized handoff to Phase 11. It deliberately does not add IPv6 or blocking DNS inside the scan reactor.
+
 ## Target integration
 
-Phase 3 reuses `core::Target` and `core::Host` exactly as defined by Phase 0. The discovery scheduler accepts a target whose `resolved_hosts` have already been supplied by the caller. It does not introduce a second target parser, resolver, CIDR expander, or range syntax. Each supplied host is validated as a dotted-decimal IPv4 address before probe construction.
-
-Target selection and resolution are caller responsibilities. The scan pipeline performs normal argument, address, port, protocol, and transport validation before doing work; it does not add a hidden target-selection path or a public-target default.
+Phase 12 owns target selection parsing and normalization before the existing `core::Target` boundary. Discovery, port scanning, service detection, and OS detection continue to receive only normalized `core::Host` values and validate dotted-decimal IPv4 addresses; none of those modules understands CIDR, ranges, hostnames, or comma-separated input. The scan pipeline performs normal address, port, protocol, transport, and resource validation after Target Engine resolution; it does not add a hidden public-target default.
 
 ## Discovery architecture
 
@@ -483,9 +486,39 @@ The Phase 1 reactor dispatches epoll records through opaque per-registration tok
 
 `PacketReceiver` clamps parser input to the Ethernet maximum frame size and its attached descriptor follows the shared reactor’s removal lifecycle. Linux TCP SYN transport teardown clears both pending submissions and correlation entries, and session identifiers are adapter-owned rather than process-global mutable state. Valid unknown TCP option kinds are skipped with strict length checks so legal future options do not make an otherwise usable response malformed; the public model still exposes only recognized options.
 
-The optional `make fuzz` target builds an offline libFuzzer harness when Clang’s fuzzer runtime is available. The harness feeds arbitrary in-memory bytes to Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, and timing-profile parsers. Missing fuzz tooling is reported as `SKIPPED`, not treated as a successful fuzz run. The dedicated target resolver for hostname, CIDR, ranges, mixed targets, normalization, deduplication, and deterministic expansion remains planned; Phase 11 continues to accept explicit resolved IPv4 hosts only.
+The optional `make fuzz` target builds an offline libFuzzer harness when Clang’s fuzzer runtime is available. The harness feeds arbitrary in-memory bytes to Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, timing-profile, and target-spec parsers. Missing fuzz tooling is reported as `SKIPPED`, not treated as a successful fuzz run. Phase 12 now implements the dedicated target resolver for IPv4, CIDR, ranges, mixed targets, normalization, deduplication, and deterministic expansion; later asynchronous DNS can replace the injected synchronous resolver boundary without changing the scanner.
 
 Phase 11 tests cover state and event contracts, report ordering, adapter delegation, deterministic offline execution, cancellation, multi-host sequencing, discovery response handling, service/OS stage order, and a bounded 1,000-host × 100-port workload. Timer and correlation tests cover 10,000 same-deadline timers and 10,000 live correlation entries. Port and service schedulers defer deterministic result sorting until their result vectors are observed, avoiding quadratic repeated sorting while preserving the public ordered-result contract. This preserves the existing Phase 0–10 tests and keeps capability-dependent raw-network tests environment-aware.
+
+## Phase 12 target resolution and target engine
+
+Phase 12 is a boundary subsystem between CLI text and the Phase 11 orchestrator:
+
+```text
+CLI target specification
+          ↓
+TargetParser
+          ↓
+TargetResolver / platform A-record resolver
+          ↓
+TargetNormalizer
+          ↓
+TargetDeduplicator
+          ↓
+deterministic TargetSet<uint32_t IPv4>
+          ↓
+core::Target / core::Host conversion at the CLI boundary
+          ↓
+Phase 11 ScanOrchestrator
+```
+
+`TargetSpec` carries a typed kind and parsed values for one IPv4 address, hostname, IPv4 CIDR, or inclusive IPv4 range. `ResolvedTarget` carries a numeric network-order `uint32_t` IPv4 address and optional source-hostname metadata. `TargetSet` owns normalized values. The implementation exposes explicit `TargetParser`, `TargetResolver`, `TargetNormalizer`, and `TargetDeduplicator` boundaries, with `TargetEngine` as the composed façade.
+
+Parsing accepts strict dotted-decimal IPv4, `/0` through `/32` CIDR, non-reversed IPv4 ranges, DNS hostname syntax, and comma-separated mixtures with surrounding whitespace. Network and broadcast addresses are retained because the target engine represents the exact requested address space. Hostnames use `getaddrinfo()` with `AF_INET` and therefore resolve A records only; IPv6 is not added. The synchronous platform resolver runs at CLI/startup before the shared Phase 1 reactor enters its event loop. An injectable resolver boundary supports later asynchronous resolution without moving blocking DNS into an IOEngine callback.
+
+Expansion is protected by `TargetLimits::max_targets`, defaulting to 4,096, and `max_hostname_results`, defaulting to 64 per hostname. CIDR/range cardinalities are checked before iteration, duplicates are tracked with a hash set, and the final vector is sorted once by numeric IPv4 value. The engine returns typed `TargetErrorCode` values including `INVALID_IPV4`, `INVALID_CIDR`, `INVALID_RANGE`, `INVALID_HOSTNAME`, `RESOLUTION_FAILED`, `RESOURCE_EXHAUSTED`, and `EMPTY_TARGET_SET`; it never silently truncates. `core::StatusCode::ResourceExhausted` carries resource-limit failures across the existing status boundary.
+
+The CLI provides `resolve <target-spec> [--max-targets N] [--max-hostname-results N] [--json]`. Default output is one normalized IPv4 address per line; JSON output is a compact `targets` array. `scan <target-spec>` resolves before constructing `core::Target`, then passes the same existing Phase 11 configuration and stage pipeline. `discover` and `os-detect` retain their earlier direct IPv4 command contracts in this phase. The Target Engine does no scanning or transport work, and the scan orchestrator does no target parsing or expansion.
 
 ## Platform and network boundary
 

@@ -19,6 +19,8 @@ const char *skan_c_status_string(skan_c_status_code_t status)
         return "not found";
     case SKAN_C_STATUS_INTERNAL_ERROR:
         return "internal error";
+    case SKAN_C_STATUS_RESOURCE_EXHAUSTED:
+        return "resource exhausted";
     default:
         return "unknown status";
     }

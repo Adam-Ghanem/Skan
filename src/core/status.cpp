@@ -21,6 +21,8 @@ const char *status_to_string(StatusCode status) noexcept
         return "not found";
     case StatusCode::InternalError:
         return "internal error";
+    case StatusCode::ResourceExhausted:
+        return "resource exhausted";
     default:
         return "unknown status";
     }

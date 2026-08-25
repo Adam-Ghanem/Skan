@@ -17,11 +17,13 @@ int main()
     assert(std::strcmp(status_to_string(StatusCode::ParseError), "parse error") == 0);
     assert(std::strcmp(status_to_string(StatusCode::NotFound), "not found") == 0);
     assert(std::strcmp(status_to_string(StatusCode::InternalError), "internal error") == 0);
+    assert(std::strcmp(status_to_string(StatusCode::ResourceExhausted), "resource exhausted") == 0);
     assert(status_to_string(static_cast<StatusCode>(999)) != nullptr);
     assert(std::strcmp(status_to_string(static_cast<StatusCode>(999)), "unknown status") == 0);
 
     assert(std::strcmp(skan_c_status_string(SKAN_C_STATUS_OK), "ok") == 0);
     assert(std::strcmp(skan_c_status_string(SKAN_C_STATUS_INTERNAL_ERROR), "internal error") == 0);
+    assert(std::strcmp(skan_c_status_string(SKAN_C_STATUS_RESOURCE_EXHAUSTED), "resource exhausted") == 0);
 
     return 0;
 }

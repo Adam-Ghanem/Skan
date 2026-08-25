@@ -27,7 +27,14 @@ core::Target aggregate_targets(const std::vector<core::Target> &targets)
         }
     }
     std::sort(aggregate.resolved_hosts.begin(), aggregate.resolved_hosts.end(),
-              [](const core::Host &left, const core::Host &right) { return left.address < right.address; });
+              [](const core::Host &left, const core::Host &right) {
+                  const auto left_address = discovery::parse_ipv4_address(left.address);
+                  const auto right_address = discovery::parse_ipv4_address(right.address);
+                  if (left_address.has_value() && right_address.has_value()) {
+                      return *left_address < *right_address;
+                  }
+                  return left.address < right.address;
+              });
     return aggregate;
 }
 

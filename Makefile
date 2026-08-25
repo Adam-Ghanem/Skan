@@ -88,6 +88,7 @@ CPP_SOURCES := \
 				src/orchestrator/scan_report_builder.cpp \
 				src/orchestrator/scan_pipeline.cpp \
 				src/orchestrator/scan_orchestrator.cpp \
+										 src/target/target_engine.cpp \
 										 src/main.cpp
 LIB_CPP_SOURCES := $(filter-out src/main.cpp,$(CPP_SOURCES))
 FUZZ_TARGET := $(BUILD_DIR)/fuzz_packet_parsers
@@ -130,6 +131,7 @@ OSDETECT_OBJECTS := $(BUILD_DIR)/osdetect/os_probe_types.o $(BUILD_DIR)/osdetect
 		$(BUILD_DIR)/osdetect/os_fingerprint.o $(BUILD_DIR)/osdetect/os_probe.o \
 		$(BUILD_DIR)/osdetect/os_matcher.o $(BUILD_DIR)/osdetect/os_scheduler.o \
 		$(BUILD_DIR)/osdetect/os_detector.o
+TARGET_OBJECTS := $(BUILD_DIR)/target/target_engine.o
 ORCHESTRATOR_OBJECTS := $(BUILD_DIR)/orchestrator/scan_config.o \
 	$(BUILD_DIR)/orchestrator/scan_events.o $(BUILD_DIR)/orchestrator/scan_session.o \
 	$(BUILD_DIR)/orchestrator/scan_stage.o $(BUILD_DIR)/orchestrator/scan_report_builder.o \
@@ -205,7 +207,9 @@ TEST_SOURCES := \
 			tests/integration/orchestrator/test_pipeline_cancellation.cpp \
 			tests/integration/orchestrator/test_pipeline_discovery.cpp \
 			tests/integration/orchestrator/test_pipeline_stages.cpp \
-			tests/integration/orchestrator/test_pipeline_stress.cpp
+			tests/integration/orchestrator/test_pipeline_stress.cpp \
+		tests/unit/target/test_target_engine.cpp \
+		tests/integration/target/test_target_pipeline.cpp
 
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
@@ -278,7 +282,9 @@ TEST_BINARIES := \
 			$(BUILD_DIR)/test_pipeline_cancellation \
 			$(BUILD_DIR)/test_pipeline_discovery \
 			$(BUILD_DIR)/test_pipeline_stages \
-			$(BUILD_DIR)/test_pipeline_stress
+				$(BUILD_DIR)/test_pipeline_stress \
+				$(BUILD_DIR)/test_target_engine \
+				$(BUILD_DIR)/test_target_pipeline
 
 .PHONY: all release debug asan ubsan coverage fuzz test clean
 
@@ -509,6 +515,10 @@ $(BUILD_DIR)/test_pipeline_stages: $(BUILD_DIR)/tests/integration/orchestrator/t
 
 $(BUILD_DIR)/test_pipeline_stress: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_stress.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
+$(BUILD_DIR)/test_target_engine: $(BUILD_DIR)/tests/unit/target/test_target_engine.o $(TARGET_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+$(BUILD_DIR)/test_target_pipeline: $(BUILD_DIR)/tests/integration/target/test_target_pipeline.o $(TARGET_OBJECTS) $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
@@ -627,7 +637,9 @@ test: $(TEST_BINARIES)
 			./$(BUILD_DIR)/test_pipeline_cancellation
 			./$(BUILD_DIR)/test_pipeline_discovery
 			./$(BUILD_DIR)/test_pipeline_stages
-			./$(BUILD_DIR)/test_pipeline_stress
+				./$(BUILD_DIR)/test_pipeline_stress
+				./$(BUILD_DIR)/test_target_engine
+				./$(BUILD_DIR)/test_target_pipeline
 
 
 
