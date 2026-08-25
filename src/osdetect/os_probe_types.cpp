@@ -13,14 +13,22 @@ const char *os_probe_type_name(OSProbeType type) noexcept
         return "TCP_SYN_TIMESTAMP";
     case OSProbeType::TcpEcn:
         return "TCP_ECN";
+    case OSProbeType::TcpAck:
+        return "TCP_ACK";
+    case OSProbeType::TcpFin:
+        return "TCP_FIN";
+    case OSProbeType::TcpNull:
+        return "TCP_NULL";
+    case OSProbeType::TcpXmas:
+        return "TCP_XMAS";
     case OSProbeType::TcpClosedStandard:
         return "TCP_CLOSED_STANDARD";
     case OSProbeType::TcpClosedVariant:
         return "TCP_CLOSED_VARIANT";
     case OSProbeType::IcmpEcho:
         return "ICMP_ECHO";
-    case OSProbeType::UdpPortUnreachable:
-        return "UDP_PORT_UNREACHABLE";
+    case OSProbeType::UdpFingerprint:
+        return "UDP_FINGERPRINT";
     default:
         return "UNKNOWN";
     }
@@ -53,6 +61,8 @@ const char *os_probe_response_kind_name(OSProbeResponseKind kind) noexcept
         return "DATA";
     case OSProbeResponseKind::Closed:
         return "CLOSED";
+    case OSProbeResponseKind::IcmpError:
+        return "ICMP_ERROR";
     case OSProbeResponseKind::Error:
         return "ERROR";
     default:

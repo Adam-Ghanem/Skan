@@ -18,7 +18,8 @@ enum class ObservationState : std::uint8_t {
     Observed,
     Invalid,
     TimedOut,
-    Unsupported
+    Unsupported,
+    Malformed
 };
 
 template <typename T>
@@ -66,6 +67,7 @@ enum class ResponseBehavior : std::uint8_t {
     SynAck,
     Rst,
     EchoReply,
+    UdpResponse,
     PortUnreachable,
     NoResponse,
     Malformed
@@ -95,6 +97,17 @@ struct TCPObservation final {
     OSProbeStatus probe_status{OSProbeStatus::ResponseReceived};
 };
 
+struct UDPObservation final {
+    std::uint16_t source_port{0U};
+    std::uint16_t destination_port{0U};
+    ObservedValue<std::size_t> payload_length;
+    ObservedValue<std::uint8_t> ttl;
+    ObservedValue<std::uint16_t> ip_identification;
+    ObservedValue<bool> dont_fragment;
+    ResponseBehavior response_behavior{ResponseBehavior::Unknown};
+    OSProbeStatus probe_status{OSProbeStatus::ResponseReceived};
+};
+
 struct ICMPObservation final {
     ObservedValue<std::uint8_t> ttl;
     ObservedValue<std::uint8_t> type;
@@ -107,6 +120,7 @@ struct ObservedOSFingerprint final {
     std::string target;
     std::vector<TCPObservation> tcp_observations;
     std::vector<ICMPObservation> icmp_observations;
+    std::vector<UDPObservation> udp_observations;
     std::size_t probes_generated{0U};
     std::size_t probes_sent{0U};
     std::size_t responses_received{0U};

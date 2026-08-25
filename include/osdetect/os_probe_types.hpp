@@ -10,10 +10,15 @@ enum class OSProbeType : std::uint8_t {
     TcpSynVariant,
     TcpSynTimestamp,
     TcpEcn,
+    TcpAck,
+    TcpFin,
+    TcpNull,
+    TcpXmas,
     TcpClosedStandard,
     TcpClosedVariant,
     IcmpEcho,
-    UdpPortUnreachable
+    UdpFingerprint,
+    UdpPortUnreachable = UdpFingerprint
 };
 
 enum class OSProbeStatus : std::uint8_t {
@@ -28,6 +33,7 @@ enum class OSProbeStatus : std::uint8_t {
 enum class OSProbeResponseKind : std::uint8_t {
     Data = 0,
     Closed,
+    IcmpError,
     Error
 };
 

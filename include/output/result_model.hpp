@@ -46,6 +46,7 @@ struct HostResult final {
     std::vector<portscan::PortResult> ports;
     std::vector<detect::ServiceResult> services;
     std::vector<osdetect::OSMatchResult> os_matches;
+    std::optional<osdetect::OSDetectionResult> os_detection;
     std::vector<std::string> warnings;
     std::vector<std::string> errors;
 };

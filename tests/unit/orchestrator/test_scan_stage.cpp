@@ -34,6 +34,8 @@ int main()
 
     skan::orchestrator::OSDetectionStage os_stage(engine, scan_config, target);
     assert(os_stage.start(port_stage.results(), {}).success());
-    assert(os_stage.unavailable());
+    assert(!os_stage.unavailable());
+    assert(os_stage.detection_result().has_value());
+    assert(os_stage.detection_result()->state == skan::osdetect::OSDetectionState::Partial);
     return 0;
 }

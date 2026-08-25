@@ -8,6 +8,7 @@
 #include "packet/icmp.hpp"
 #include "packet/ipv4.hpp"
 #include "packet/tcp.hpp"
+#include "packet/udp.hpp"
 
 namespace {
 
@@ -21,6 +22,16 @@ std::vector<std::uint8_t> response_for(const skan::osdetect::OSProbeSubmission &
         reply.set_identifier(request->identifier());
         reply.set_sequence(request->sequence());
         reply.set_payload(request->payload());
+        return reply.serialize();
+    }
+    if (submission.type == osdetect::OSProbeType::UdpFingerprint ||
+        submission.type == osdetect::OSProbeType::UdpPortUnreachable) {
+        const auto request = packet::UDP::parse(submission.bytes);
+        assert(request.has_value());
+        packet::UDP reply;
+        reply.set_source_port(request->destination_port());
+        reply.set_destination_port(request->source_port());
+        reply.set_payload({0x01U, 0x02U});
         return reply.serialize();
     }
     const auto source = discovery::parse_ipv4_address(submission.target);
@@ -68,12 +79,12 @@ int main()
     const core::Target target{"192.0.2.20", {core::Host{"192.0.2.20", std::nullopt, true}}};
     const std::vector<portscan::PortResult> ports{
         {"192.0.2.20", {443U, portscan::Protocol::Tcp}, portscan::PortState::Open,
-         portscan::ScanProbeType::TcpConnect, portscan::ScanReason::ImmediateSuccess, std::nullopt, {}}};
+         portscan::ScanProbeType::TcpConnect, portscan::ScanReason::ImmediateSuccess, std::nullopt, {}, 0U, std::nullopt}};
     assert(detector.submit(target, ports, {}) == core::StatusCode::Ok);
 
     std::size_t index = 0U;
     while (!detector.complete()) {
-        assert(index < 16U);
+        assert(index < 32U);
         const osdetect::OSProbeSubmission submission = transport.submissions()[index++];
         osdetect::OSProbeResponse response;
         response.id = submission.id;

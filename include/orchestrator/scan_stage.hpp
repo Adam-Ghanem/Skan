@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -183,6 +184,7 @@ public:
     const StageResult &result() const noexcept override;
 
     const std::vector<osdetect::OSMatchResult> &matches() const noexcept;
+    const std::optional<osdetect::OSDetectionResult> &detection_result() const noexcept;
     bool unavailable() const noexcept;
 
 private:
@@ -193,6 +195,7 @@ private:
     std::unique_ptr<osdetect::OSProbeTransport> transport_;
     std::unique_ptr<osdetect::OSDetector> detector_;
     std::vector<osdetect::OSMatchResult> matches_;
+    std::optional<osdetect::OSDetectionResult> detection_result_;
     StageResult result_;
     bool unavailable_{true};
     bool cancelled_{false};

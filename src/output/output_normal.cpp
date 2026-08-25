@@ -69,6 +69,22 @@ OutputStatus NormalOutputWriter::write(
             }
             output << '\n';
         }
+        if (host->os_detection.has_value()) {
+            const osdetect::OSDetectionResult &detection = *host->os_detection;
+            output << "  OS status=" << osdetect::os_detection_state_name(detection.state)
+                   << " error=" << osdetect::os_detection_error_name(detection.error)
+                   << " confidence=" << std::setprecision(15) << detection.confidence
+                   << " probes=" << detection.probes_sent
+                   << " responses=" << detection.responses_received
+                   << " timeouts=" << detection.probes_timed_out
+                   << " tcp_evidence=" << detection.observed.tcp_observations.size()
+                   << " icmp_evidence=" << detection.observed.icmp_observations.size()
+                   << " udp_evidence=" << detection.observed.udp_observations.size();
+            if (detection.rtt_ms.has_value()) {
+                output << " rtt_ms=" << std::setprecision(15) << *detection.rtt_ms;
+            }
+            output << '\n';
+        }
         if (!host->os_matches.empty()) {
             output << "  OS detection:\n";
             for (const osdetect::OSMatchResult &match : detail::ordered_os_matches(*host)) {

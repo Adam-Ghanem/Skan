@@ -270,7 +270,8 @@ bool ScanPipeline::execute_os_detection(
             fail(stage_result.message, stage_result.status);
             return false;
         }
-        results.push_back(OSReportEvidence{host.address, os_stage_->matches()});
+        OSReportEvidence evidence{host.address, os_stage_->matches(), os_stage_->detection_result()};
+        results.push_back(std::move(evidence));
         session_.emit(ScanEvent{ScanEventType::OSDetectionCompleted, {}, StageKind::OSDetection, std::nullopt,
                                 std::nullopt, host.address, {}});
         if (os_stage_->unavailable()) {

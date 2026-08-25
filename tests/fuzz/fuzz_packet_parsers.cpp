@@ -6,6 +6,7 @@
 #include "db/os_db.hpp"
 #include "detect/service_db.hpp"
 #include "net/packet_receiver.hpp"
+#include "osdetect/os_probe.hpp"
 #include "packet/ethernet.hpp"
 #include "packet/icmp.hpp"
 #include "packet/ipv4.hpp"
@@ -38,5 +39,30 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     skan::scanengine::TimingProfile profile;
     (void)skan::scanengine::TimingProfile::parse(text, profile);
     (void)skan::target::TargetParser::parse(text);
+
+    const skan::core::Host host{"192.0.2.10", std::nullopt, true};
+    skan::osdetect::OSProbeConfig probe_config;
+    for (std::uint8_t type_value = 0U; type_value <= 11U; ++type_value) {
+        const auto probe = skan::osdetect::make_os_probe(
+            static_cast<skan::osdetect::OSProbeType>(type_value));
+        if (probe == nullptr) {
+            continue;
+        }
+        skan::osdetect::OSProbeSubmission submission;
+        if (probe->build(static_cast<skan::osdetect::OSProbeId>(size + type_value), host, probe_config, submission) !=
+            skan::core::StatusCode::Ok) {
+            continue;
+        }
+        skan::osdetect::OSProbeResponse response;
+        response.id = submission.id;
+        response.source_address = submission.target;
+        response.destination_address = submission.source_address;
+        response.kind = (size > 0U && (data[0] & 1U) != 0U)
+                            ? skan::osdetect::OSProbeResponseKind::IcmpError
+                            : skan::osdetect::OSProbeResponseKind::Data;
+        response.bytes.assign(bytes.begin(), bytes.end());
+        response.ip_ttl = size > 1U ? data[1] : 0U;
+        (void)probe->assess(response, submission);
+    }
     return 0;
 }

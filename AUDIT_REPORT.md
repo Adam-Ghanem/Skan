@@ -1,8 +1,8 @@
-# Skan Phase 0–13 Engineering Audit
+# Skan Phase 0–14 Engineering Audit
 
 ## Scope and conclusion
 
-This audit reviewed the Phase 0–13 implementation, including the core model, single-reactor I/O path, packet parsers, discovery and port schedulers, service and OS detection, adaptive timing, Linux transport/capture, output, CLI, orchestration, tests, documentation, and Makefile. The implementation remains a **Nmap-inspired, Linux-first network-scanning engine** rather than an Nmap-compatible replacement. The audit found several concrete lifecycle and scalability defects and repaired them without introducing a new reactor, worker threads, a target-range subsystem, a new protocol family, or a second result/output model.
+This audit reviewed the Phase 0–14 implementation, including the core model, single-reactor I/O path, packet parsers, discovery and port schedulers, service and OS detection, adaptive timing, Linux transport/capture, output, CLI, orchestration, tests, documentation, and Makefile. The implementation remains a **Nmap-inspired, Linux-first network-scanning engine** rather than an Nmap-compatible replacement. The audit found and repaired concrete lifecycle, correlation, parsing, output, and scalability defects without introducing a new reactor, worker threads, a second target subsystem, or a second result/output model.
 
 The final code preserves the existing explicit-target and capability-gated design. Raw Linux tests still report `SKIPPED` when AF_PACKET permission is unavailable, while an explicitly requested live Linux scan fails clearly rather than falling back to offline behavior.
 
@@ -30,7 +30,7 @@ The PacketReceiver attach/detach and close paths now have direct pipe-backed rea
 
 ## D. Medium-priority and lower-priority issues
 
-The explicit target boundary is intentionally incomplete for professional hostname, CIDR, range, normalization, mixed-target, and large-scale deduplication support. This is documented as the next major subsystem rather than being hidden inside Phase 11. Live raw-packet OS fingerprinting also remains capability-gated and unavailable in this build; injected evidence collection and deterministic matching remain implemented.
+The explicit target boundary is intentionally incomplete for professional hostname, CIDR, range, normalization, mixed-target, and large-scale deduplication support. This is documented as the next major subsystem rather than being hidden inside Phase 11. Live raw-packet OS fingerprinting is now implemented behind an explicit capability-gated Linux transport; injected/offline evidence collection and deterministic matching remain available when live capability is absent.
 
 The compact project-owned service and OS databases are deliberately not broad imported fingerprint corpora. Service matching compiles regular expressions during database parsing, bounds response bytes, and does not infer identity solely from port numbers. The remaining low-priority cleanup is primarily cosmetic Makefile indentation and future API extraction for direct CLI-parser fuzzing; neither is needed for the current correctness boundary.
 
@@ -53,17 +53,18 @@ The following capabilities are intentionally not claimed as complete:
 | Explicit Linux AF_PACKET SYN transport | Capability-gated and implemented where permitted |
 | ICMP/TCP/ARP discovery adapters | Offline and explicit Linux paths implemented within current scope |
 | TCP stream service detection | Implemented with bounded project-owned probes |
-| Live raw OS fingerprinting | Unavailable/capability-honest; injected architecture implemented |
+| Live raw OS fingerprinting | Capability-gated and implemented through `LinuxOSProbeTransport`; unavailable is reported explicitly when AF_PACKET cannot open |
 | Offline UDP scanning | Implemented with bounded probes, retries, correlation, and deterministic recording transport |
 | Explicit Linux AF_PACKET UDP scanning | Capability-gated and implemented where permitted; no fallback |
+| OS probe families and evidence aggregation | Implemented for bounded TCP, ICMP, UDP, and correlated ICMP-error evidence |
 | Evasion, spoofing, exploitation, credential handling, persistence | Out of scope |
 
 ## G. Testing upgrade
 
-The complete Makefile test graph contains 74 test-binary executions.
- New and strengthened coverage includes stale epoll batch records, PacketReceiver attach/detach and close lifecycle, oversized capture frames, unknown TCP options, closed-reactor timer failure, queued-cancellation metric arithmetic, 10,000 timers, 10,000 correlations, 1,000-host × 100-port orchestration, pipeline cancellation, discovery response handling, service/OS ordering, and capability-aware Linux skips.
+The complete Makefile test graph contains 75 test-binary executions.
+ New and strengthened coverage includes stale epoll batch records, PacketReceiver attach/detach and close lifecycle, oversized capture frames, unknown TCP options, closed-reactor timer failure, queued-cancellation metric arithmetic, 10,000 timers, 10,000 correlations, 1,000-host × 100-port orchestration, pipeline cancellation, discovery response handling, service/OS ordering, strict OS ranges and UDP signatures, all OS probe families, injected UDP evidence, 1,000-host/12,000-probe OS stress, structured OS output, and capability-aware Linux skips.
 
-An optional offline libFuzzer target exercises Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, and timing-profile parsers. If Clang and its fuzzer runtime are unavailable, `make fuzz` reports `SKIPPED` and exits successfully; it never fabricates a fuzz result.
+An optional offline libFuzzer target exercises Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, OS probe construction/assessment, port-selection, and timing-profile parsers. If Clang and its fuzzer runtime are unavailable, `make fuzz` reports `SKIPPED` and exits successfully; it never fabricates a fuzz result.
 
 ## H. Documentation and build findings
 
@@ -76,7 +77,7 @@ The following gates passed after the final changes:
 | Gate | Result |
 | --- | --- |
 | Clean production build | Passed |
-| Complete release test suite | Passed; 74 binaries executed |
+| Complete release test suite | Passed; 75 binaries executed |
 | Debug build | Passed |
 | AddressSanitizer with leak detection | Passed |
 | UndefinedBehaviorSanitizer | Passed |
@@ -84,7 +85,9 @@ The following gates passed after the final changes:
 | Release target | Passed |
 | Optional fuzz target | Clean `SKIPPED`; Clang unavailable in the environment |
 | CLI version/help and offline output matrix | Passed |
-| Linux capability failure behavior | Passed; explicit failure, no fallback |
+| Linux capability failure behavior | Passed; explicit failure/unavailable evidence, no fallback |
+| Phase 14 OS database and matcher behavior | Passed; ranges, UDP signatures, optional metadata, and presence rules |
+| Phase 14 OS probe stress | Passed; 1,000 hosts and 12,000 deterministic probes; direct typed-probe, structured-output, and capability-aware transport tests |
 | `git diff --check` | Passed before commit |
 
 AF_PACKET-dependent tests were skipped because the execution environment returned `Operation not permitted`. No raw-network test was marked as a successful live test under that limitation.
@@ -93,7 +96,7 @@ AF_PACKET-dependent tests were skipped because the execution environment returne
 
 The next target-related upgrade should replace the current synchronous platform resolver with an asynchronous implementation behind the existing injectable `HostnameResolver` boundary if hostname resolution latency becomes material. The existing parser, CIDR/range expansion, canonicalization, deduplication, explicit limits, and numeric ordering should remain unchanged.
 
-Live OS fingerprinting can be implemented only through an explicit capability-gated transport that reuses the existing OS probe, correlation, scheduler, matcher, and report boundaries. Broader protocol coverage, larger corpus management, and optional scripting should follow only after their ownership and resource limits are specified. Performance work should continue with measured benchmarks for target expansion, packet parsing, correlation, queue operations, matching, and output serialization rather than speculative rewrites.
+Broader protocol coverage, larger corpus management, and optional scripting should follow only after their ownership and resource limits are specified. Phase 14 intentionally does not claim IPv6, evasion, spoofing, decoys, fragmentation, credentials, exploitation, UDP service inference, or public-target scanning. Performance work should continue with measured benchmarks for target expansion, packet parsing, correlation, queue operations, matching, and output serialization rather than speculative rewrites.
 
 ## References
 
@@ -120,6 +123,24 @@ Phase 13 adds first-class UDP scanning without changing the established TCP/disc
 | Linux raw UDP | Capability-gated | `LinuxUDPScanTransport` reuses Linux transport/capture/receiver and the shared reactor; it fails explicitly and does not fall back when AF_PACKET is unavailable. |
 | Service and OS interactions | Deliberately limited | TCP service detection receives TCP results only; OS detection filters back to TCP; no UDP service or OS inference is fabricated. |
 
-The expanded tests include malformed ICMP and embedded packet truncation, strict UDP database failures, response classification, retries, timeout state, duplicate/unrelated response isolation, pipeline ordering, ten-thousand-operation host/port coverage, one-hundred-thousand-operation offline coverage, and a Linux raw capability test that reports `SKIPPED` on hosts without AF_PACKET permission. The fuzz entry point now exercises UDP port and probe-database parsing alongside the existing bounded packet parsers.
+The expanded tests include malformed ICMP and embedded packet truncation, strict UDP database failures, response classification, retries, timeout state, duplicate/unrelated response isolation, pipeline ordering, ten-thousand-operation host/port coverage, one-hundred-thousand-operation offline coverage, and a Linux raw capability test that reports `SKIPPED` on hosts without AF_PACKET permission. The fuzz entry point now exercises UDP port/probe-database parsing and OS probe construction/assessment alongside the existing bounded packet parsers.
 
 The remaining UDP limitations are intentional: IPv6 is not implemented, Linux live results depend on host AF_PACKET and interface neighbor capabilities, UDP protocol/service matching is absent, and UDP data is not used for OS fingerprinting. The implementation makes no claim of evasion, spoofing, fragmentation, credentials, exploitation, or public-target safety beyond the existing explicit-target and capability boundaries.
+
+
+## K. Phase 14 live OS fingerprinting audit update
+
+Phase 14 adds live-capable OS fingerprinting through the existing typed probe, scheduler, matcher, packet, capture, correlation, and report boundaries. The implementation is explicit about capability: offline and injected modes remain deterministic, Linux mode requires a selected interface and AF_PACKET permission, and Connect mode is not reinterpreted as a packet OS transport.
+
+| Area | Audit status | Evidence |
+| --- | --- | --- |
+| Probe families | Passed | TCP SYN/ACK/FIN/NULL/XMAS, closed variants, ICMP Echo, UDP fingerprint, and UDP Port Unreachable are typed, bounded, and scheduled through the shared reactor. |
+| Packet composition | Passed | Linux submissions use existing `packet::Packet` composition and the existing IPv4/TCP/UDP/ICMP serializers. |
+| Capture and correlation | Passed | Outer and embedded packet fields are validated; TCP acknowledgment, UDP reversed ports, and ICMP quoted transport fields are checked before delivery. |
+| Database | Passed | `data/os-fingerprints.db` supports optional metadata, typed exact values, bounded ranges, UDP signatures, response presence, and strict duplicate/invalid input rejection. |
+| Matching | Passed | Available evidence is weighted deterministically; absent, timeout, unsupported, and unavailable fields do not fabricate a match or incur false penalties. |
+| Result propagation | Passed | `OSDetectionResult` is retained per host alongside legacy match vectors and is serialized in normal, JSON, XML, and grepable formats. |
+| Linux capability boundary | Passed | Permission, not-supported, interface, capture, and send failures are explicit `UNAVAILABLE` evidence; no offline fallback occurs. |
+| Stress and safety | Passed | Deterministic injected tests cover 1,000 hosts and 12,000 probes, cancellation, timeout, malformed, duplicate, and unrelated evidence. |
+
+The remaining limitations are intentional. Phase 14 is IPv4-only, uses a small project-owned fingerprint dataset rather than a broad corpus, does not implement UDP service inference, does not add evasion or spoofing, and does not generate public-target traffic. AF_PACKET tests remain environment-dependent and report `SKIPPED` when the sandbox returns `Operation not permitted`; this is not counted as live-network success.

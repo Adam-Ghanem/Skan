@@ -24,6 +24,9 @@ struct OSSchedulerConfig final {
     std::chrono::milliseconds timeout{1000};
     std::size_t max_outstanding{8U};
     std::uint16_t probe_port{80U};
+    std::string source_address{};
+    std::uint16_t udp_probe_port{161U};
+    std::vector<std::uint8_t> udp_probe_payload{0x53U, 0x4BU, 0x41U, 0x4EU};
     std::size_t max_results{3U};
     bool adaptive_timing{false};
     scanengine::TimingProfile timing_profile{};

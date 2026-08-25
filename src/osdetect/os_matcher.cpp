@@ -46,6 +46,12 @@ constexpr double weight_for(db::FingerprintField field) noexcept
         return 0.02;
     case db::FingerprintField::IcmpCode:
         return 0.02;
+    case db::FingerprintField::UdpPayloadLength:
+        return 0.08;
+    case db::FingerprintField::UdpResponseBehavior:
+        return 0.08;
+    case db::FingerprintField::ResponsePresence:
+        return 0.05;
     default:
         return 0.0;
     }
@@ -59,6 +65,27 @@ const TCPObservation *first_tcp(const ObservedOSFingerprint &observed) noexcept
         }
     }
     return nullptr;
+}
+
+const UDPObservation *first_udp(const ObservedOSFingerprint &observed) noexcept
+{
+    for (const UDPObservation &observation : observed.udp_observations) {
+        if (observation.probe_status == OSProbeStatus::ResponseReceived) {
+            return &observation;
+        }
+    }
+    return nullptr;
+}
+
+bool matches_number(const db::FingerprintSignature &signature, std::int64_t value) noexcept
+{
+    if (signature.number.has_value()) {
+        return value == *signature.number;
+    }
+    if (signature.minimum.has_value() && signature.maximum.has_value()) {
+        return value >= *signature.minimum && value <= *signature.maximum;
+    }
+    return false;
 }
 
 const ICMPObservation *first_icmp(const ObservedOSFingerprint &observed) noexcept
@@ -78,9 +105,9 @@ Evidence compare(const db::FingerprintSignature &signature, const ObservedOSFing
     Evidence evidence{false, false, db::fingerprint_field_name(signature.field)};
     switch (signature.field) {
     case db::FingerprintField::Ttl:
-        if (tcp != nullptr && tcp->ttl.state == ObservationState::Observed && signature.number.has_value()) {
+        if (tcp != nullptr && tcp->ttl.state == ObservationState::Observed && (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
             evidence.available = true;
-            evidence.matches = static_cast<std::int64_t>(tcp->ttl.value) == *signature.number;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(tcp->ttl.value));
         }
         break;
     case db::FingerprintField::DontFragment:
@@ -90,21 +117,21 @@ Evidence compare(const db::FingerprintSignature &signature, const ObservedOSFing
         }
         break;
     case db::FingerprintField::Window:
-        if (tcp != nullptr && tcp->window.state == ObservationState::Observed && signature.number.has_value()) {
+        if (tcp != nullptr && tcp->window.state == ObservationState::Observed && (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
             evidence.available = true;
-            evidence.matches = static_cast<std::int64_t>(tcp->window.value) == *signature.number;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(tcp->window.value));
         }
         break;
     case db::FingerprintField::Mss:
-        if (tcp != nullptr && tcp->mss.state == ObservationState::Observed && signature.number.has_value()) {
+        if (tcp != nullptr && tcp->mss.state == ObservationState::Observed && (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
             evidence.available = true;
-            evidence.matches = static_cast<std::int64_t>(tcp->mss.value) == *signature.number;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(tcp->mss.value));
         }
         break;
     case db::FingerprintField::WindowScale:
-        if (tcp != nullptr && tcp->window_scale.state == ObservationState::Observed && signature.number.has_value()) {
+        if (tcp != nullptr && tcp->window_scale.state == ObservationState::Observed && (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
             evidence.available = true;
-            evidence.matches = static_cast<std::int64_t>(tcp->window_scale.value) == *signature.number;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(tcp->window_scale.value));
         }
         break;
     case db::FingerprintField::SackPermitted:
@@ -126,9 +153,9 @@ Evidence compare(const db::FingerprintSignature &signature, const ObservedOSFing
         }
         break;
     case db::FingerprintField::TcpFlags:
-        if (tcp != nullptr && tcp->probe_status == OSProbeStatus::ResponseReceived && signature.number.has_value()) {
+        if (tcp != nullptr && tcp->probe_status == OSProbeStatus::ResponseReceived && (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
             evidence.available = true;
-            evidence.matches = static_cast<std::int64_t>(tcp->flags) == *signature.number;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(tcp->flags));
         }
         break;
     case db::FingerprintField::AckBehavior:
@@ -150,21 +177,45 @@ Evidence compare(const db::FingerprintSignature &signature, const ObservedOSFing
         }
         break;
     case db::FingerprintField::IcmpTtl:
-        if (icmp != nullptr && icmp->ttl.state == ObservationState::Observed && signature.number.has_value()) {
+        if (icmp != nullptr && icmp->ttl.state == ObservationState::Observed && (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
             evidence.available = true;
-            evidence.matches = static_cast<std::int64_t>(icmp->ttl.value) == *signature.number;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(icmp->ttl.value));
         }
         break;
     case db::FingerprintField::IcmpType:
-        if (icmp != nullptr && icmp->type.state == ObservationState::Observed && signature.number.has_value()) {
+        if (icmp != nullptr && icmp->type.state == ObservationState::Observed && (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
             evidence.available = true;
-            evidence.matches = static_cast<std::int64_t>(icmp->type.value) == *signature.number;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(icmp->type.value));
         }
         break;
     case db::FingerprintField::IcmpCode:
-        if (icmp != nullptr && icmp->code.state == ObservationState::Observed && signature.number.has_value()) {
+        if (icmp != nullptr && icmp->code.state == ObservationState::Observed &&
+            (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
             evidence.available = true;
-            evidence.matches = static_cast<std::int64_t>(icmp->code.value) == *signature.number;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(icmp->code.value));
+        }
+        break;
+    case db::FingerprintField::UdpPayloadLength:
+        if (const UDPObservation *udp = first_udp(observed); udp != nullptr &&
+            udp->payload_length.state == ObservationState::Observed &&
+            (signature.number.has_value() || (signature.minimum.has_value() && signature.maximum.has_value()))) {
+            evidence.available = true;
+            evidence.matches = matches_number(signature, static_cast<std::int64_t>(udp->payload_length.value));
+        }
+        break;
+    case db::FingerprintField::UdpResponseBehavior:
+        if (const UDPObservation *udp = first_udp(observed); udp != nullptr &&
+            udp->response_behavior != ResponseBehavior::Unknown && !signature.text.empty()) {
+            evidence.available = true;
+            evidence.matches = response_behavior_name(udp->response_behavior) == signature.text;
+        }
+        break;
+    case db::FingerprintField::ResponsePresence:
+        if (signature.boolean.has_value()) {
+            evidence.available = true;
+            const bool response_present = observed.responses_received > 0U || !observed.tcp_observations.empty() ||
+                                          !observed.icmp_observations.empty() || !observed.udp_observations.empty();
+            evidence.matches = response_present == *signature.boolean;
         }
         break;
     }

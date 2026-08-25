@@ -43,6 +43,7 @@ CPP_SOURCES := \
 		 src/net/linux_capture.cpp \
 	src/net/unique_fd.cpp \
 	src/net/network_scan_transport.cpp \
+		src/net/linux_os_probe_transport.cpp \
 					 src/net/udp_network_scan_transport.cpp \
 			 src/net/linux_discovery_transport.cpp \
 						src/packet/packet_element.cpp \
@@ -117,6 +118,7 @@ NET_OBJECTS := $(BUILD_DIR)/net/interface.o $(BUILD_DIR)/net/interface_types.o \
 	$(BUILD_DIR)/net/packet_receiver.o $(BUILD_DIR)/net/packet_filter.o \
 	$(BUILD_DIR)/net/linux_transport.o $(BUILD_DIR)/net/linux_capture.o \
 	$(BUILD_DIR)/net/unique_fd.o $(BUILD_DIR)/net/network_scan_transport.o \
+		$(BUILD_DIR)/net/linux_os_probe_transport.o \
 			$(BUILD_DIR)/net/udp_network_scan_transport.o \
 		$(BUILD_DIR)/net/linux_discovery_transport.o
 
@@ -201,6 +203,7 @@ TEST_SOURCES := \
 			tests/unit/net/test_linux_transport.cpp \
 		tests/unit/net/test_network_scan_transport.cpp \
 		tests/unit/net/test_udp_network_scan_transport.cpp \
+		tests/unit/net/test_linux_os_probe_transport.cpp \
 		tests/unit/net/test_linux_discovery_transport.cpp \
 				 tests/integration/net/test_linux_loopback.cpp \
 			tests/unit/orchestrator/test_scan_config.cpp \
@@ -278,6 +281,7 @@ TEST_BINARIES := \
 			$(BUILD_DIR)/test_linux_transport \
 			$(BUILD_DIR)/test_network_scan_transport \
 			$(BUILD_DIR)/test_udp_network_scan_transport \
+		$(BUILD_DIR)/test_linux_os_probe_transport \
 			$(BUILD_DIR)/test_linux_discovery_transport \
 				$(BUILD_DIR)/test_linux_loopback \
 			$(BUILD_DIR)/test_scan_config \
@@ -487,6 +491,8 @@ $(BUILD_DIR)/test_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_netwo
 	$(CXX) $(LDFLAGS) $^ -o $@
 $(BUILD_DIR)/test_udp_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_udp_network_scan_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
+$(BUILD_DIR)/test_linux_os_probe_transport: $(BUILD_DIR)/tests/unit/net/test_linux_os_probe_transport.o $(NET_TEST_OBJECTS) $(OSDETECT_OBJECTS) $(DB_OBJECTS) $(SCANENGINE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_linux_discovery_transport: $(BUILD_DIR)/tests/unit/net/test_linux_discovery_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
@@ -639,6 +645,7 @@ test: $(TEST_BINARIES)
 			./$(BUILD_DIR)/test_linux_transport
 			./$(BUILD_DIR)/test_network_scan_transport
 			./$(BUILD_DIR)/test_udp_network_scan_transport
+			./$(BUILD_DIR)/test_linux_os_probe_transport
 			./$(BUILD_DIR)/test_linux_discovery_transport
 							./$(BUILD_DIR)/test_linux_loopback
 			./$(BUILD_DIR)/test_scan_config

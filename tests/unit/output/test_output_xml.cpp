@@ -25,5 +25,14 @@ int main()
     assert(first.str().find("<port target=\"192.0.2.20\" number=\"22\"") <
            first.str().find("<port target=\"192.0.2.20\" number=\"80\""));
     assert(first.str().find("<os>") != std::string::npos);
+    assert(first.str().find("<os-detection>\n") != std::string::npos);
+    assert(first.str().find("<state>complete</state>") != std::string::npos);
+    assert(first.str().find("<error>none</error>") != std::string::npos);
+    assert(first.str().find("<confidence>0.91</confidence>") != std::string::npos);
+    assert(first.str().find("<probes-sent>12</probes-sent>") != std::string::npos);
+    assert(first.str().find("<responses-received>7</responses-received>") != std::string::npos);
+    assert(first.str().find("<tcp-evidence>0</tcp-evidence>") != std::string::npos);
+    assert(first.str().find("<udp-evidence>0</udp-evidence>") != std::string::npos);
+    assert(first.str().find("<rtt-ms>4.5</rtt-ms>") != std::string::npos);
     return 0;
 }

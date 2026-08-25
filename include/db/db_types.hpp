@@ -26,12 +26,17 @@ enum class FingerprintField : std::uint8_t {
     ResponseBehavior,
     IcmpTtl,
     IcmpType,
-    IcmpCode
+    IcmpCode,
+    UdpPayloadLength,
+    UdpResponseBehavior,
+    ResponsePresence
 };
 
 struct FingerprintSignature final {
     FingerprintField field{FingerprintField::Ttl};
     std::optional<std::int64_t> number;
+    std::optional<std::int64_t> minimum;
+    std::optional<std::int64_t> maximum;
     std::optional<bool> boolean;
     std::string text;
     std::vector<packet::TcpOptionKind> options;

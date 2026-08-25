@@ -15,6 +15,8 @@ const char *observation_state_name(ObservationState state) noexcept
         return "TIMED_OUT";
     case ObservationState::Unsupported:
         return "UNSUPPORTED";
+    case ObservationState::Malformed:
+        return "MALFORMED";
     default:
         return "UNKNOWN";
     }
@@ -85,6 +87,8 @@ const char *response_behavior_name(ResponseBehavior behavior) noexcept
         return "RST";
     case ResponseBehavior::EchoReply:
         return "ECHO_REPLY";
+    case ResponseBehavior::UdpResponse:
+        return "UDP_RESPONSE";
     case ResponseBehavior::PortUnreachable:
         return "PORT_UNREACHABLE";
     case ResponseBehavior::NoResponse:

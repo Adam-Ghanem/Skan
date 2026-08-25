@@ -9,15 +9,19 @@
 namespace skan::osdetect {
 namespace {
 
-constexpr std::array<OSProbeType, 8U> kProbeOrder{
+constexpr std::array<OSProbeType, 12U> kProbeOrder{
     OSProbeType::TcpSynStandard,
     OSProbeType::TcpSynVariant,
     OSProbeType::TcpSynTimestamp,
     OSProbeType::TcpEcn,
+    OSProbeType::TcpAck,
+    OSProbeType::TcpFin,
+    OSProbeType::TcpNull,
+    OSProbeType::TcpXmas,
     OSProbeType::TcpClosedStandard,
     OSProbeType::TcpClosedVariant,
     OSProbeType::IcmpEcho,
-    OSProbeType::UdpPortUnreachable};
+    OSProbeType::UdpFingerprint};
 
 OSDetectionError error_for_status(core::StatusCode status) noexcept
 {
@@ -141,7 +145,7 @@ void OSScheduler::receive(const OSProbeResponse &response) noexcept
         ++malformed_count_;
         append_terminal_status(pending.work.type, OSProbeStatus::Malformed);
         finish_probe(pending, OSProbeAssessment{core::StatusCode::InternalError, OSProbeDisposition::Malformed,
-                                                ResponseBehavior::Malformed, std::nullopt, std::nullopt},
+                                                ResponseBehavior::Malformed, std::nullopt, std::nullopt, std::nullopt},
                      response.received_at);
         return;
     }
@@ -248,11 +252,17 @@ void OSScheduler::start_or_retry(WorkItem work) noexcept
     }
     OSProbeSubmission submission;
     const OSProbeId id = next_id_++;
-    const core::StatusCode build_status = probe->build(
-        id,
-        work.host,
-        OSProbeConfig{config_.timeout, work.port.number},
-        submission);
+    OSProbeConfig probe_config;
+    probe_config.timeout = config_.timeout;
+    probe_config.probe_port = work.port.number;
+    probe_config.source_address = config_.source_address.empty() ? transport_.local_source_address()
+                                                                    : config_.source_address;
+    if (probe_config.source_address.empty()) {
+        probe_config.source_address = "192.0.2.254";
+    }
+    probe_config.udp_probe_port = config_.udp_probe_port;
+    probe_config.udp_probe_payload = config_.udp_probe_payload;
+    const core::StatusCode build_status = probe->build(id, work.host, probe_config, submission);
     if (build_status != core::StatusCode::Ok) {
         ++malformed_count_;
         append_terminal_status(work.type, OSProbeStatus::Malformed);
@@ -385,6 +395,9 @@ void OSScheduler::append_observation(const OSProbeAssessment &assessment)
     }
     if (assessment.icmp_observation.has_value()) {
         osdetect::append_observation(*observed_, *assessment.icmp_observation);
+    }
+    if (assessment.udp_observation.has_value()) {
+        osdetect::append_observation(*observed_, *assessment.udp_observation);
     }
 }
 

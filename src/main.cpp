@@ -23,6 +23,7 @@
 #include "output/result_model.hpp"
 #include "net/interface.hpp"
 #include "net/linux_discovery_transport.hpp"
+#include "net/linux_os_probe_transport.hpp"
 #include "net/network_scan_transport.hpp"
 #include "orchestrator/scan_orchestrator.hpp"
 #include "portscan/portscan.hpp"
@@ -92,6 +93,7 @@ void print_help()
               << "  Phase 11 — Unified Scan Orchestrator\n"
               << "  Phase 12 — Target Resolution and Target Engine\n"
               << "  Phase 13 — Bounded UDP Scan Engine\n"
+              << "  Phase 14 — Live OS Fingerprinting Engine\n"
               << "\nTarget specifications accept IPv4, CIDR, inclusive ranges, hostnames, and comma-separated mixtures.\n"
               << "The resolve command normalizes targets without scanning; use --max-targets to bound expansion.\n"
               << "Discovery CLI mode uses an offline recording transport.\n"
@@ -99,7 +101,7 @@ void print_help()
               << "Scan SYN mode requires explicit --transport offline or --transport linux --interface <name>.\n"
               << "The scan pipeline runs Discovery, TCP Port, UDP (when --udp), Service, OS, and Output stages sequentially.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
-              << "OS fingerprinting is an offline/injected architecture; live raw-packet transport is unavailable.\n"
+              << "OS fingerprinting supports deterministic offline/injected probes and explicit Linux raw-packet mode.\n"
               << "UDP timeout is OPEN_OR_FILTERED; UDP service/OS inference is not fabricated.\n"
               << "Linux raw-packet failures are reported; Skan never silently falls back or fabricates results.\n";
 }
@@ -427,15 +429,34 @@ int run_interfaces(int argc, char **argv)
 
 int run_os_detect(int argc, char **argv)
 {
+    if (argc == 3 && std::string_view(argv[2]) == "--help") {
+        std::cout << "Usage: skan os-detect <target-spec> [options]\n"
+                  << "  --os-db <path>                 Project-owned OS fingerprint database\n"
+                  << "  --timeout-ms <N>               Per-probe timeout\n"
+                  << "  --max-outstanding <N>          Bounded concurrent probes\n"
+                  << "  --retries <N>                  Bounded timeout retries\n"
+                  << "  --adaptive-timing              Enable Phase 7 adaptive timing\n"
+                  << "  --interface <name>             Explicit interface for Linux raw mode\n"
+                  << "  --transport offline|linux      Select transport; no implicit fallback\n"
+                  << "  --json                         Emit JSON output\n"
+                  << "  --output normal|json|xml|grepable\n"
+                  << "  --output-file <path>            Write output to a file\n";
+        return EXIT_SUCCESS;
+    }
     if (argc < 3) {
-        std::cerr << "Error: os-detect requires an explicit IPv4 target. Use --help for usage.\n";
+        std::cerr << "Error: os-detect requires a target specification. Use --help for usage.\n";
         return EXIT_FAILURE;
     }
-    const std::string target_address = argv[2];
     std::string database_path = "data/os-fingerprints.db";
     std::chrono::milliseconds timeout{1000};
     std::size_t max_outstanding = 8U;
-    bool json = false;
+    std::size_t retries = 0U;
+    bool adaptive_timing = false;
+    std::string transport_mode{"offline"};
+    std::optional<std::string> interface_name;
+    skan::output::OutputFormat output_format = skan::output::OutputFormat::Normal;
+    std::optional<std::string> output_file;
+    skan::target::TargetLimits target_limits;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "--os-db" && index + 1 < argc) {
@@ -454,36 +475,103 @@ int run_os_detect(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             max_outstanding = static_cast<std::size_t>(value);
+        } else if (argument == "--retries" && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value)) {
+                std::cerr << "Error: invalid OS detection retries value.\n";
+                return EXIT_FAILURE;
+            }
+            retries = static_cast<std::size_t>(value);
+        } else if (argument == "--adaptive-timing") {
+            adaptive_timing = true;
+        } else if (argument == "--interface" && index + 1 < argc) {
+            interface_name = argv[++index];
+            if (interface_name->empty()) {
+                std::cerr << "Error: interface name cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argument == "--transport" && index + 1 < argc) {
+            transport_mode = argv[++index];
+            if (transport_mode != "offline" && transport_mode != "linux") {
+                std::cerr << "Error: os-detect transport must be offline or linux.\n";
+                return EXIT_FAILURE;
+            }
         } else if (argument == "--json") {
-            json = true;
+            output_format = skan::output::OutputFormat::Json;
+        } else if (argument == "--output" && index + 1 < argc) {
+            if (skan::output::parse_output_format(argv[++index], output_format) != skan::output::OutputStatus::Ok) {
+                std::cerr << "Error: output format must be normal, json, xml, or grepable.\n";
+                return EXIT_FAILURE;
+            }
+        } else if ((argument == "-o" || argument == "--output-file") && index + 1 < argc) {
+            output_file = argv[++index];
+            if (output_file->empty()) {
+                std::cerr << "Error: output file path cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
+        } else if ((argument == "--max-targets" || argument == "--max-hostname-results") && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U) {
+                std::cerr << "Error: target limits must be positive integers.\n";
+                return EXIT_FAILURE;
+            }
+            if (argument == "--max-targets") {
+                target_limits.max_targets = static_cast<std::size_t>(value);
+            } else {
+                target_limits.max_hostname_results = static_cast<std::size_t>(value);
+            }
         } else {
             std::cerr << "Error: unknown or incomplete os-detect option. Use --help for usage.\n";
             return EXIT_FAILURE;
         }
     }
-
-    skan::core::StatusCode database_status = skan::core::StatusCode::Ok;
-    const skan::db::OSFingerprintDatabase database =
-        skan::db::OSFingerprintDatabase::load_file(database_path, database_status);
-    if (!skan::osdetect::live_os_fingerprinting_available()) {
-        const std::string reason = database_status == skan::core::StatusCode::Ok
-                                       ? "live OS fingerprinting transport is unavailable; no probes were sent"
-                                       : "OS fingerprint database could not be loaded; no probes were sent";
-        if (json) {
-            std::cout << "{\"target\":\"" << json_escape(target_address)
-                      << "\",\"state\":\"unavailable\",\"matches\":[],"
-                      << "\"confidence\":0,\"error\":\"capability-unavailable\","
-                      << "\"reason\":\"" << json_escape(reason) << "\"}\n";
-        } else {
-            std::cout << target_address << " state=UNAVAILABLE confidence=0 error=capability-unavailable\n"
-                      << "  " << reason << "\n";
-        }
-        (void)timeout;
-        (void)max_outstanding;
-        return EXIT_SUCCESS;
+    if (transport_mode == "linux" && !interface_name.has_value()) {
+        std::cerr << "Error: --transport linux requires an explicit --interface <name>.\n";
+        return EXIT_FAILURE;
     }
-    (void)database;
-    return EXIT_FAILURE;
+    if (transport_mode == "offline" && interface_name.has_value()) {
+        std::cerr << "Error: --interface requires --transport linux for os-detect.\n";
+        return EXIT_FAILURE;
+    }
+    const skan::target::TargetResolutionResult resolved =
+        skan::target::TargetEngine::resolve(argv[2], target_limits);
+    if (!resolved.success()) {
+        print_target_error(resolved.error);
+        return EXIT_FAILURE;
+    }
+    skan::core::Target target;
+    target.original_specification = argv[2];
+    target.resolved_hosts.reserve(resolved.target_set.targets.size());
+    for (const skan::target::ResolvedTarget &resolved_target : resolved.target_set.targets) {
+        target.resolved_hosts.push_back(skan::core::Host{
+            skan::target::format_ipv4(resolved_target.address), resolved_target.source_hostname, false});
+    }
+    skan::orchestrator::ScanConfig config;
+    config.targets.push_back(std::move(target));
+    config.transport = transport_mode == "linux" ? skan::orchestrator::ScanTransport::Linux
+                                                    : skan::orchestrator::ScanTransport::Offline;
+    config.interface_name = interface_name;
+    config.port_scan_enabled = false;
+    config.service_detection_enabled = false;
+    config.os_detection_enabled = true;
+    config.os_db_path = database_path;
+    config.timeout = timeout;
+    config.max_parallelism = max_outstanding;
+    config.retries = retries;
+    config.adaptive_timing = adaptive_timing;
+    config.output_format = output_format;
+    config.output_file = output_file;
+    skan::orchestrator::ScanOrchestrator orchestrator(std::move(config));
+    const skan::core::StatusCode status = orchestrator.run(std::cout);
+    if (status != skan::core::StatusCode::Ok) {
+        std::cerr << "Error: OS detection failed: " << skan::core::status_to_string(status);
+        if (!orchestrator.session().error_message().empty()) {
+            std::cerr << " (" << orchestrator.session().error_message() << ')';
+        }
+        std::cerr << '\n';
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
 
 int run_scan(int argc, char **argv)

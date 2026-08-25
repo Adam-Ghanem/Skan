@@ -120,6 +120,32 @@ void append_observation(ObservedOSFingerprint &fingerprint, TCPObservation obser
     fingerprint.timestamp = std::chrono::steady_clock::now();
 }
 
+void append_observation(ObservedOSFingerprint &fingerprint, UDPObservation observation)
+{
+    switch (observation.probe_status) {
+    case OSProbeStatus::Generated:
+        ++fingerprint.probes_generated;
+        break;
+    case OSProbeStatus::Sent:
+        ++fingerprint.probes_sent;
+        break;
+    case OSProbeStatus::ResponseReceived:
+        ++fingerprint.responses_received;
+        break;
+    case OSProbeStatus::Timeout:
+        ++fingerprint.probes_timed_out;
+        break;
+    case OSProbeStatus::Unsupported:
+        ++fingerprint.probes_unsupported;
+        break;
+    case OSProbeStatus::Malformed:
+        ++fingerprint.probes_malformed;
+        break;
+    }
+    fingerprint.udp_observations.push_back(std::move(observation));
+    fingerprint.timestamp = std::chrono::steady_clock::now();
+}
+
 void append_observation(ObservedOSFingerprint &fingerprint, ICMPObservation observation)
 {
     switch (observation.probe_status) {

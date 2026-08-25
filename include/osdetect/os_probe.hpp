@@ -26,6 +26,8 @@ struct OSProbeConfig final {
     std::chrono::milliseconds timeout{1000};
     std::uint16_t probe_port{80U};
     std::string source_address{"192.0.2.254"};
+    std::uint16_t udp_probe_port{161U};
+    std::vector<std::uint8_t> udp_probe_payload{0x53U, 0x4BU, 0x41U, 0x4EU};
 };
 
 struct OSProbeSubmission final {
@@ -50,6 +52,11 @@ struct OSProbeResponse final {
     OSProbeResponseKind kind{OSProbeResponseKind::Data};
     int error_number{0};
     std::vector<std::uint8_t> bytes;
+    std::uint8_t ip_ttl{0U};
+    std::uint16_t ip_identification{0U};
+    bool ip_dont_fragment{false};
+    std::uint16_t source_port{0U};
+    std::uint16_t destination_port{0U};
     OSProbeTimePoint received_at{};
 };
 
@@ -65,6 +72,7 @@ struct OSProbeAssessment final {
     ResponseBehavior response_behavior{ResponseBehavior::Unknown};
     std::optional<TCPObservation> tcp_observation;
     std::optional<ICMPObservation> icmp_observation;
+    std::optional<UDPObservation> udp_observation;
 };
 
 class OSProbe {
@@ -91,6 +99,7 @@ public:
     virtual ~OSProbeTransport() = default;
 
     virtual bool supports(OSProbeType type) const noexcept = 0;
+    virtual std::string local_source_address() const { return {}; }
     virtual core::StatusCode submit(OSProbeSubmission submission, OSProbeCallback callback) = 0;
     virtual core::StatusCode cancel(OSProbeId id) noexcept = 0;
 };

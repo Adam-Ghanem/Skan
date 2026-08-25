@@ -4,7 +4,7 @@ Skan is an original, modular, **Nmap-inspired, Linux-first network-scanning engi
 
 ## Project goals
 
-Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, TCP port scanning, service detection, a capability-honest OS fingerprinting architecture, Phase 10 explicit Linux transport integration, a Phase 11 unified scan orchestrator, and a Phase 12 target-resolution engine; it does not claim a full unrestricted scanning workflow.
+Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, TCP port scanning, service detection, a capability-honest OS fingerprinting architecture, a Phase 10 explicit Linux transport integration, a Phase 11 unified scan orchestrator, a Phase 12 target-resolution engine, and a Phase 14 live OS fingerprinting engine; it does not claim a full unrestricted scanning workflow.
 
 ## Language and platform
 
@@ -29,8 +29,9 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 11 — Unified Scan Orchestrator and audit hardening | **COMPLETE** |
 | Phase 12 — Target Resolution and Target Engine | **COMPLETE** |
 | Phase 13 — Bounded UDP Scan Engine | **COMPLETE** |
+| Phase 14 — Live OS Fingerprinting Engine | **COMPLETE** |
 
-Phase 3 is deliberately scoped to normalized IPv4 targets. Phase 12 now owns strict target parsing, bounded IPv4 CIDR/range expansion, platform hostname-to-A resolution, deduplication, and numeric deterministic ordering before discovery or scanning begins. Its default transport remains a deterministic recording transport for offline tests and safe CLI exercises, while Phase 10 adds an explicit Linux transport option that requires an interface. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect for normalized IPv4 targets, and now supports capability-gated Linux SYN transmission only through `--transport linux --interface <name>`; no raw mode is selected implicitly. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 10 adds real ICMP/TCP/ARP discovery adapters under the same explicit interface boundary. No public Internet target is used by the test suite.
+Phase 3 is deliberately scoped to normalized IPv4 targets. Phase 12 now owns strict target parsing, bounded IPv4 CIDR/range expansion, platform hostname-to-A resolution, deduplication, and numeric deterministic ordering before discovery or scanning begins. Its default transport remains a deterministic recording transport for offline tests and safe CLI exercises, while Phase 10 adds an explicit Linux transport option that requires an interface. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect for normalized IPv4 targets, and now supports capability-gated Linux SYN transmission only through `--transport linux --interface <name>`; no raw mode is selected implicitly. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds the OS fingerprinting architecture and Phase 14 adds deterministic live-capable packet probes, bounded evidence collection, and an explicit Linux raw-packet transport; capability failures remain visible and never fall back silently. Phase 10 adds real ICMP/TCP/ARP discovery adapters under the same explicit interface boundary. No public Internet target is used by the test suite.
 
 ## Phase 3 Host Discovery
 
@@ -91,7 +92,7 @@ The minimal CLI is:
   --timeout-ms 500 --max-outstanding 16
 ```
 
-`--method syn` is accepted as a capability-gated mode and exits without network activity when the raw-packet capability is unavailable. UDP scanning, alternate TCP flag scans, evasion, decoys, spoofing, fragmentation tricks, OS fingerprinting, scripting, dashboards, and bypass mechanisms remain outside scope. Phase 5 service detection is opt-in and limited to bounded TCP banner/probe matching on OPEN results.
+`--method syn` is accepted as a capability-gated mode and exits without network activity when the raw-packet capability is unavailable. Alternate TCP evasion modes, decoys, spoofing, fragmentation tricks, scripting, dashboards, and bypass mechanisms remain outside scope; Phase 14 adds the bounded OS fingerprinting path described below. Phase 5 service detection is opt-in and limited to bounded TCP banner/probe matching on OPEN results.
 
 ## Phase 5 Service Detection
 
@@ -111,7 +112,7 @@ The CLI extension is:
   --max-response-bytes 8192 --max-probes 2
 ```
 
-An explicit project-owned database may be selected with `--service-db data/service-probes.db`. Service detection is performed only after the port scan completes, and only OPEN TCP results enter the service scheduler. The current implementation intentionally does not claim protocol-complete identification, TLS negotiation, credential handling, service exploitation, UDP detection, live OS fingerprinting, or Internet-wide scanning. Phase 5 is complete for this bounded banner/probe scope.
+An explicit project-owned database may be selected with `--service-db data/service-probes.db`. Service detection is performed only after the port scan completes, and only OPEN TCP results enter the service scheduler. Phase 5 itself intentionally does not claim protocol-complete identification, TLS negotiation, credential handling, service exploitation, UDP detection, or Internet-wide scanning; live OS fingerprinting is implemented separately in the Phase 14 path below. Phase 5 is complete for this bounded banner/probe scope.
 
 ## Phase 6 OS Fingerprinting Architecture
 
@@ -126,11 +127,11 @@ Phase 4 PortResult / optional Phase 5 context
                     ↓
               OSScheduler
                     ↓
-  bounded TCP SYN variants, closed variants, ICMP echo
+  bounded TCP SYN/ACK/FIN/NULL/XMAS variants, closed variants, ICMP echo, UDP fingerprint
                     ↓
           OSProbeTransport seam
              ↙                 ↘
- RecordingOSProbeTransport   future capability-gated transport
+ RecordingOSProbeTransport   LinuxOSProbeTransport (explicit AF_PACKET)
              ↓
  Phase 1 IOEngine timers and bounded pending map
                     ↓
@@ -143,11 +144,11 @@ Phase 4 PortResult / optional Phase 5 context
  ranked OSDetectionResult
 ```
 
-The runtime data file `data/os-fingerprints.db` is intentionally a small Skan-owned laboratory dataset, not a copied broad fingerprint corpus. It supports comments, blank lines, typed numeric and boolean fields, TCP option ordering, response behavior, duplicate detection, missing metadata rejection, and deterministic declaration ordering. Both the CLI and library loader use this project-owned runtime file; no broad external fingerprint corpus is embedded in C++.
+The runtime data file `data/os-fingerprints.db` is intentionally a small Skan-owned laboratory dataset, not a copied broad fingerprint corpus. It supports comments, blank lines, optional Class metadata, typed numeric and boolean fields, bounded numeric ranges, TCP option ordering, UDP payload/response behavior, response-presence rules, duplicate detection, missing metadata rejection, and deterministic declaration ordering. Both the CLI and library loader use this project-owned runtime file; no broad external fingerprint corpus is embedded in C++.
 
 Matching uses only fields in `Observed` state. Absent, timed-out, unsupported, and unavailable fields contribute no penalty; observed mismatches reduce confidence. The current weights emphasize TCP option ordering, window, and transport values while retaining TTL, DF, MSS, window scale, SACK, timestamps, flags, behavior, and ICMP evidence. Results are categorized as `NO_MATCH` below `0.30`, `LOW` from `0.30` to below `0.60`, `POSSIBLE` from `0.60` to below `0.85`, and `STRONG` at or above `0.85`. Top-N output is sorted by descending confidence and then fingerprint name.
 
-Probe and scheduler states remain explicit: `Generated`, `Sent`, `ResponseReceived`, `Timeout`, `Unsupported`, and `Malformed`. TCP SYN variants, ECN flags, closed-port variants, ICMP Echo, and an optional offline UDP-port-unreachable representation are available to the model. The recording transport intentionally does not claim UDP or any other live packet capability. `live_os_fingerprinting_available()` is false, so the CLI reports `UNAVAILABLE`, empty matches, and confidence `0` rather than fabricating an identity. Unit and integration tests inject serialized packet responses and never require root privileges, external targets, or public traffic.
+Probe and scheduler states remain explicit: `Generated`, `Sent`, `ResponseReceived`, `Timeout`, `Unsupported`, and `Malformed`. TCP SYN, ACK, FIN, NULL, and XMAS variants, ECN flags, closed-port variants, ICMP Echo, UDP fingerprint, and UDP Port Unreachable probes are available to the model. Offline recording and injected transports exercise every probe family; the Linux transport uses the selected interface IPv4 and shared capture/reactor lifecycle. `UNAVAILABLE` is returned only when the selected live capability cannot be opened, and no OS identity is inferred from local host information. Unit, integration, stress, and capability-aware tests inject serialized packet responses and never require public targets or public traffic.
 
 The minimal CLI form is:
 
@@ -156,7 +157,7 @@ The minimal CLI form is:
   --timeout-ms 500 --max-outstanding 8 --json
 ```
 
-In this build that command validates options and database loading, then honestly reports that the live transport is unavailable and sends no probes. The library transport seam is the supported deterministic test path.
+The default `os-detect` transport is deterministic offline mode and records bounded probe timeouts without network traffic. `--transport linux --interface <name>` explicitly selects the live AF_PACKET path; permission, interface, capture, and injection failures are reported as `UNAVAILABLE` evidence without fallback. Injected transports remain the deterministic test path.
 
 ## Phase 7 Adaptive Timing + Scan Engine
 
@@ -168,7 +169,7 @@ Phase 7 adds Skan’s own protocol-agnostic, event-driven adaptive timing layer.
 
 `ScanGroup` owns an independent generic queue of `ScanWorkItem` values. Work items contain an ID, target string, protocol metadata, timestamps, deadline, retry count, and one of `QUEUED`, `SUBMITTED`, `COMPLETED`, `TIMED_OUT`, `CANCELLED`, or `FAILED`. `AdaptiveScheduler` borrows an existing Phase 1 `IOEngine`, uses one-shot shared timers, maintains a bounded pending map, and accepts an injected protocol-agnostic `ScanTransport`. It handles completion, timeout, retry, cancellation, shutdown, duplicate, late, malformed, and transport-failure events without threads, sleeps, busy loops, or a second reactor.
 
-`TimingController` is the integration seam used by Phase 4 TCP port scanning, Phase 5 service detection, and Phase 6 OS detection when their new `adaptive_timing` configuration flag is enabled. The original static timeout, concurrency, retry, and transport defaults remain unchanged when the flag is false. TCP Connect transport remains nonblocking and unchanged at the transport layer; TCP SYN remains capability-limited/injected; service matching and OS evidence matching remain protocol-specific. The adaptive layer supplies concurrency, timeout calculation, RTT feedback, bounded retries, and metrics without inferring protocol results.
+`TimingController` is the integration seam used by Phase 4 TCP port scanning, Phase 5 service detection, and Phase 14 OS detection when their new `adaptive_timing` configuration flag is enabled. The original static timeout, concurrency, retry, and transport defaults remain unchanged when the flag is false. TCP Connect transport remains nonblocking and unchanged at the transport layer; TCP SYN remains capability-limited/injected; service matching and OS evidence matching remain protocol-specific. The adaptive layer supplies concurrency, timeout calculation, RTT feedback, bounded retries, and metrics without inferring protocol results.
 
 The scan CLI exposes the controls on `scan` without expanding target scope:
 
@@ -178,7 +179,7 @@ The scan CLI exposes the controls on `scan` without expanding target scope:
   --min-parallelism 2 --max-parallelism 32 --retries 1
 ```
 
-Invalid profile, parallelism, timeout, or retry values are rejected. `--retries 0` is valid and remains the conservative default. There is still no implicit `1–65535` port scan. The OS detection command retains its capability-honest unavailable behavior and does not require or imply live raw-packet support.
+Invalid profile, parallelism, timeout, or retry values are rejected. `--retries 0` is valid and remains the conservative default. There is still no implicit `1–65535` port scan. The OS detection command retains capability-honest explicit status reporting and supports the Phase 14 Linux raw-packet path only when selected with an interface.
 
 `ScanMetrics` records queued work, submitted attempts, completed/timed-out/failed/cancelled work, duplicate/late/malformed responses, current and maximum observed parallelism, current/minimum/maximum/average RTT, timeout and retry counts, EWMA drop rate, and elapsed time. Deterministic tests cover the RTT equations and bounds, congestion backoff/recovery, queue and state transitions, retries, cancellation, shared IOEngine timers, multi-group independence, Phase 4 scheduler integration, and a 1000-item offline stress run. No network traffic is generated by the Phase 7 tests.
 
@@ -211,7 +212,7 @@ Examples:
 ./bin/skan scan 127.0.0.1 --tcp-ports 22,80 --output json -o scan.json
 ```
 
-The grepable schema is intentionally small and script-friendly. `Port` records contain `target`, `number`, `protocol`, `state`, `probe`, `reason`, and optional `rtt_ms`; `Service` records contain target/port/protocol/state/port-state, optional identity fields, confidence, method, and error; `OS` records contain address, name, confidence, and class. `Summary` contains derived host, port, service, and OS counts. No writer reconstructs information from another writer.
+The grepable schema is intentionally small and script-friendly. `Port` records contain `target`, `number`, `protocol`, `state`, `probe`, `reason`, and optional `rtt_ms`; `Service` records contain target/port/protocol/state/port-state, optional identity fields, confidence, method, and error; `OSStatus` records contain address, state, error, confidence, probe counters, and evidence counts; `OS` records contain address, name, confidence, and class. `Summary` contains derived host, port, service, and OS counts. No writer reconstructs information from another writer.
 
 ## Phase 9 Network Transport + Packet Capture
 
@@ -303,7 +304,7 @@ make debug
 
 ## Tests
 
-Compile and execute all Phase 0 through Phase 12 tests with:
+Compile and execute all Phase 0 through Phase 14 tests with:
 
 ```sh
 make test
@@ -322,7 +323,7 @@ make coverage
 make fuzz
 ```
 
-`asan` enables AddressSanitizer with leak detection, `ubsan` enables UndefinedBehaviorSanitizer, and `coverage` builds the complete offline test suite with coverage instrumentation. `fuzz` builds the offline libFuzzer parser harness when `clang++` and its fuzzer runtime are available; otherwise it reports `SKIPPED` without failing the build. The fuzz harness exercises Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, port-selection, timing-profile, and target-spec parsing entirely in memory.
+`asan` enables AddressSanitizer with leak detection, `ubsan` enables UndefinedBehaviorSanitizer, and `coverage` builds the complete offline test suite with coverage instrumentation. `fuzz` builds the offline libFuzzer parser harness when `clang++` and its fuzzer runtime are available; otherwise it reports `SKIPPED` without failing the build. The fuzz harness exercises Ethernet, IPv4, TCP, UDP, ICMP, service-database, OS-database, OS probe construction/assessment, port-selection, timing-profile, and target-spec parsing entirely in memory.
 
 ## CLI usage
 
@@ -363,7 +364,7 @@ Phase 6 adds a capability-honest OS detection command:
 ./bin/skan os-detect 192.0.2.10 --json
 ```
 
-The default live OS transport is unavailable in this build, so both forms report `UNAVAILABLE` with empty matches and zero confidence; no OS identity is inferred without injected response evidence.
+The default offline form runs the bounded probe scheduler without network traffic and reports explicit `PARTIAL` evidence when no responses are injected. Add `--transport linux --interface <name>` to request live raw packets; capability failure is reported as `UNAVAILABLE` with zero confidence, never as a fabricated match.
 
 Phase 8 adds deterministic output selection for `scan`, Phase 9 adds infrastructure interface inspection, and Phase 10 adds explicit real/offline transport selection:
 
@@ -377,11 +378,11 @@ Phase 8 adds deterministic output selection for `scan`, Phase 9 adds infrastruct
 
 The default is `normal`. `-o` and `--output-file` explicitly replace the selected file; serialized results remain separate from stderr diagnostics. Invalid output formats fail before scanning.
 
-The `interfaces` command does not scan or transmit; it reports the interfaces visible to the current Linux environment. `scan --method connect` retains normal TCP sockets without requiring an interface. `scan --method syn` requires explicit `--transport offline` or `--transport linux --interface <name>`, while `discover --transport linux` also requires an explicit interface. Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, UDP option, alternate TCP flag option, or full-port-range default.
+The `interfaces` command does not scan or transmit; it reports the interfaces visible to the current Linux environment. `scan --method connect` retains normal TCP sockets without requiring an interface. `scan --method syn` requires explicit `--transport offline` or `--transport linux --interface <name>`, while `discover --transport linux` also requires an explicit interface. Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, alternate TCP flag option, or full-port-range default.
 
 ## Phase 11 — Unified scan orchestrator
 
-Phase 11 adds the production scan entry point that coordinates the existing Phase 0–10 subsystems without replacing them. `ScanOrchestrator` owns a `ScanPipeline`, and each `ScanSession` owns exactly one Phase 1 `io::IOEngine`. The pipeline runs the stages in a deterministic order: **Discovery → Port Scan → Service Detection → OS Detection → Output**. Discovery, service detection, and OS detection are optional; port scanning remains the normal scan operation unless configuration validation rejects the selected combination.
+Phase 11 adds the production scan entry point that coordinates the existing Phase 0–10 subsystems without replacing them. `ScanOrchestrator` owns a `ScanPipeline`, and each `ScanSession` owns exactly one Phase 1 `io::IOEngine`. The pipeline runs the stages in a deterministic order: **Discovery → Port Scan → UDP Scan (when explicitly requested) → Service Detection → OS Detection → Output**. Discovery, service detection, and OS detection are optional; port scanning remains the normal scan operation unless configuration validation rejects the selected combination.
 
 ### Configuration and transport selection
 
@@ -444,7 +445,7 @@ The CLI examples are:
 
 ## Network and safety boundary
 
-Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. Phase 9 adds explicit-interface Linux `AF_PACKET` byte transport and bounded capture as reusable infrastructure. Phase 10 connects that infrastructure to the existing TCP SYN and discovery scheduler seams without moving scan strategy into the transport. These classes do not implement spoofing, ARP attack behavior, host-range expansion, public-target defaults, UDP scanning, alternate TCP flag scanning, evasion, live operating-system fingerprinting, Lua scripting, or dashboard functionality. Phase 6 provides packet-model-backed synthetic/injected OS evidence collection and deterministic matching only; it does not claim a live OS fingerprint. Linux mode reports unavailable capabilities rather than fabricating success.
+Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. Phase 9 adds explicit-interface Linux `AF_PACKET` byte transport and bounded capture as reusable infrastructure. Phase 10 connects that infrastructure to the existing TCP SYN and discovery scheduler seams without moving scan strategy into the transport. At the Phase 10 scope, these classes did not implement spoofing, ARP attack behavior, host-range expansion, public-target defaults, UDP scanning, alternate TCP flag scanning, evasion, live operating-system fingerprinting, Lua scripting, or dashboard functionality. Phase 6 provided packet-model-backed synthetic/injected OS evidence collection and deterministic matching; Phase 14 now adds the separate live-capable OS path documented below. Linux mode reports unavailable capabilities rather than fabricating success.
 
 The default Phase 3 integration remains offline. Phase 4 and Phase 5 integration use only `127.0.0.1` and deliberately created local listening sockets; Phase 5 additionally verifies controlled SSH and HTTP banner responses. Phase 10 raw-packet integration uses only explicitly selected local interfaces and controlled local targets; capability-dependent tests skip cleanly when raw-socket privileges are unavailable. No public Internet targets were scanned.
 
@@ -517,3 +518,33 @@ RecordingUDPTransport     LinuxUDPScanTransport
 ```
 
 The UDP transport is a sibling of the existing TCP raw adapter rather than a modification of TCP-specific submission or response contracts. It reuses the existing Linux transport, capture, packet receiver, interface selection, packet composition, and single-reactor lifecycle. Its protocol-specific correlation is kept in a bounded pending map keyed by the logical UDP probe identifier and verified against all wire-level correlation fields. The existing service stage receives only TCP `OPEN` results, and the OS stage filters merged results back to TCP before invoking the existing OS detector.
+
+## Phase 14 — Live OS Fingerprinting Engine
+
+Phase 14 completes the OS fingerprinting path without changing the existing discovery, TCP scan, service, target, timing, or output architecture. `OSDetectionStage` selects a deterministic recording transport for offline execution, an injected transport for tests and integrations, or `LinuxOSProbeTransport` only when the caller explicitly selects `--transport linux --interface <name>`. Each path uses the same `io::IOEngine`, bounded pending map, one-shot timers, packet models, response assessment, and matcher. The Linux adapter owns one raw transport and one capture descriptor, attaches capture to the existing reactor, and performs explicit teardown on every terminal and cancellation path.
+
+The scheduler submits a bounded deterministic probe set for each resolved IPv4 host. The current families are TCP SYN, TCP ACK, TCP FIN, TCP NULL, TCP XMAS, closed-port TCP variants, ICMP Echo, UDP fingerprint, and UDP Port Unreachable probes. TCP probes vary flags and preserve IP characteristics; UDP probes use a project-owned payload and the existing `packet::UDP` and `packet::Packet` composition paths. The scheduler records generated, sent, response, timeout, unsupported, and malformed states, retries only according to the configured bounded timing profile, and never treats an absent response as an operating-system identity.
+
+The runtime database is `data/os-fingerprints.db`. It is a small Skan-owned data file and is not imported from Nmap or another scanner. Its strict parser supports optional `Class` version/device fields, exact typed values, bounded inclusive numeric ranges, TCP option ordering, UDP payload length, UDP response behavior, response presence, duplicate signature rejection, duplicate fingerprint-name rejection, and malformed-value rejection. Matching uses only available evidence. TCP, ICMP, UDP, and correlated ICMP-error observations are retained in `OSDetectionResult`, together with confidence, match category, probe counters, timeout/malformed counters, and optional RTT. A missing response, unsupported probe, or unavailable capability is represented explicitly and does not become a guessed OS.
+
+The live capture path validates both outer and embedded packet fields. TCP matching requires the target/local addresses, response ports, and acknowledgment relationship. UDP matching requires target/local addresses and reversed response ports. ICMP Destination Unreachable matching validates the ICMP checksum, type/code, quoted IPv4 header, quoted protocol, and quoted UDP or TCP fields required for correlation. Truncated, malformed, unrelated, duplicate, and late packets cannot complete or mutate another host’s pending work. Source addresses are obtained from the selected interface for live mode; offline tests retain deterministic source addresses.
+
+| Mode | Behavior |
+| --- | --- |
+| Offline | Runs the complete bounded scheduler and matcher with no network descriptors. With no injected responses, the host receives explicit partial evidence and no fabricated identity. |
+| Injected | Allows deterministic serialized TCP, UDP, ICMP, and ICMP-error responses for unit and integration tests. It is the preferred non-privileged validation seam. |
+| Linux raw | Requires an explicit interface and AF_PACKET capture/injection capability. Permission, interface, capture, or send failures produce explicit unavailable evidence; there is no offline fallback. |
+| Connect | Not used as a live OS transport. The OS stage reports capability-unavailable semantics rather than silently converting stream sockets into packet probes. |
+
+The `os-detect` command accepts normalized IPv4 targets, IPv4 CIDRs and ranges through the Phase 12 target engine, `--os-db`, `--timeout-ms`, `--max-outstanding`, `--retries`, `--adaptive-timing`, `--transport offline|linux`, `--interface`, `--output`, `--output-file`, and `--json`. The default is deterministic offline mode. For live operation, selection is explicit:
+
+```sh
+./bin/skan os-detect 192.0.2.10 --transport linux --interface lo \
+  --timeout-ms 500 --max-outstanding 8 --output json
+```
+
+Normal, JSON, XML, and grepable reports preserve OS state, error, confidence, probe counters, RTT, and TCP/ICMP/UDP evidence counts when available. Existing OS match records remain compatible. Phase 14 does not infer UDP service names from port numbers, does not run UDP service detection, does not add UDP-specific OS fingerprinting beyond the declared evidence probes, and does not implement IPv6, evasion, spoofing, decoys, credentials, exploitation, or public-target scanning. The test suite uses reserved documentation addresses, loopback capability checks, deterministic transports, and no public traffic.
+
+## Phase 14 verification scope
+
+The Phase 14 tests cover strict OS database parsing, optional metadata, ranges, UDP signatures, all probe families, packet-backed TCP/UDP/ICMP assessment, malformed and unrelated evidence, scheduler retries/timeouts/cancellation, injected multi-host completion, a 1,000-host/12,000-probe offline stress case, structured output fields, CLI validation, and explicit Linux capability skips. Sanitizer, coverage, fuzz, debug, release, and clean production builds use the same source and test registration paths as earlier phases.

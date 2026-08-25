@@ -22,6 +22,7 @@ namespace skan::orchestrator {
 struct OSReportEvidence final {
     std::string target;
     std::vector<osdetect::OSMatchResult> matches;
+    std::optional<osdetect::OSDetectionResult> result;
 };
 
 class ScanReportBuilder final {

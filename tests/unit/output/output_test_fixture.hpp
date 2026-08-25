@@ -5,6 +5,7 @@
 #include <string>
 
 #include "output/result_model.hpp"
+#include "osdetect/os_matcher.hpp"
 
 namespace skan::output::test {
 
@@ -84,6 +85,30 @@ inline ScanReport make_report()
     second.os_matches.push_back(osdetect::OSMatchResult{
         "SkanLinuxGeneric", "Skan", "Linux", "generic", "server", 0.91,
         db::MatchCategory::StrongMatch, {"ttl"}, {}, {}});
+    osdetect::OSDetectionResult os_detection;
+    os_detection.target = second.address;
+    os_detection.state = osdetect::OSDetectionState::Complete;
+    os_detection.vendor = "Skan";
+    os_detection.family = "Linux";
+    os_detection.generation = "generic";
+    os_detection.device_type = "server";
+    os_detection.confidence = 0.91;
+    os_detection.category = db::MatchCategory::StrongMatch;
+    os_detection.matches = second.os_matches;
+    os_detection.probes_generated = 12U;
+    os_detection.probes_sent = 12U;
+    os_detection.responses_received = 7U;
+    os_detection.probes_timed_out = 5U;
+    os_detection.probes_unsupported = 0U;
+    os_detection.probes_malformed = 0U;
+    os_detection.rtt_ms = 4.5;
+    os_detection.error = osdetect::OSDetectionError::None;
+    os_detection.observed.target = second.address;
+    os_detection.observed.probes_generated = 12U;
+    os_detection.observed.probes_sent = 12U;
+    os_detection.observed.responses_received = 7U;
+    os_detection.observed.probes_timed_out = 5U;
+    second.os_detection = std::move(os_detection);
     second.warnings.push_back("host warning > & <");
     second.errors.push_back("host error");
 

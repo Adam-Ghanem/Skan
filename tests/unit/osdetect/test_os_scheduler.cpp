@@ -2,6 +2,7 @@
 #include <chrono>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "db/os_db.hpp"
@@ -10,6 +11,7 @@
 #include "packet/icmp.hpp"
 #include "packet/ipv4.hpp"
 #include "packet/tcp.hpp"
+#include "packet/udp.hpp"
 
 namespace {
 
@@ -23,6 +25,16 @@ std::vector<std::uint8_t> response_for(const skan::osdetect::OSProbeSubmission &
         reply.set_identifier(request->identifier());
         reply.set_sequence(request->sequence());
         reply.set_payload(request->payload());
+        return reply.serialize();
+    }
+    if (submission.type == osdetect::OSProbeType::UdpFingerprint ||
+        submission.type == osdetect::OSProbeType::UdpPortUnreachable) {
+        const auto request = packet::UDP::parse(submission.bytes);
+        assert(request.has_value());
+        packet::UDP reply;
+        reply.set_source_port(request->destination_port());
+        reply.set_destination_port(request->source_port());
+        reply.set_payload({0x01U, 0x02U, 0x03U});
         return reply.serialize();
     }
     const auto source = discovery::parse_ipv4_address(submission.target);
@@ -63,7 +75,7 @@ void deliver_all_matching(
     using namespace skan;
     std::size_t index = 0U;
     while (!scheduler.complete()) {
-        assert(index < 32U);
+        assert(index < 20000U);
         const osdetect::OSProbeSubmission submission = transport.submissions()[index++];
         osdetect::OSProbeResponse response;
         response.id = submission.id;
@@ -86,9 +98,9 @@ int main()
         {core::Host{"192.0.2.10", std::nullopt, true}, core::Host{"192.0.2.11", std::nullopt, true}}};
     const std::vector<portscan::PortResult> ports{
         {"192.0.2.10", {8080U, portscan::Protocol::Tcp}, portscan::PortState::Open,
-         portscan::ScanProbeType::TcpConnect, portscan::ScanReason::ImmediateSuccess, std::nullopt, {}},
+         portscan::ScanProbeType::TcpConnect, portscan::ScanReason::ImmediateSuccess, std::nullopt, {}, 0U, std::nullopt},
         {"192.0.2.11", {8081U, portscan::Protocol::Tcp}, portscan::PortState::Open,
-         portscan::ScanProbeType::TcpConnect, portscan::ScanReason::ImmediateSuccess, std::nullopt, {}}};
+         portscan::ScanProbeType::TcpConnect, portscan::ScanReason::ImmediateSuccess, std::nullopt, {}, 0U, std::nullopt}};
 
     io::IOEngine engine;
     osdetect::RecordingOSProbeTransport transport;
@@ -104,8 +116,8 @@ int main()
     assert(scheduler.complete());
     assert(scheduler.result().has_value());
     assert(scheduler.result()->state == osdetect::OSDetectionState::Complete);
-    assert(scheduler.result()->responses_received == 14U);
-    assert(scheduler.result()->probes_unsupported == 2U);
+    assert(scheduler.result()->responses_received == 24U);
+    assert(scheduler.result()->probes_unsupported == 0U);
     assert(scheduler.result()->matches.front().fingerprint_name == "SkanLinuxGeneric");
     assert(scheduler.result()->confidence == 1.0);
 
@@ -122,8 +134,8 @@ int main()
     assert(timeout_scheduler.complete());
     assert(timeout_scheduler.result().has_value());
     assert(timeout_scheduler.result()->state == osdetect::OSDetectionState::Partial);
-    assert(timeout_scheduler.result()->probes_timed_out == 7U);
-    assert(timeout_scheduler.result()->probes_unsupported == 1U);
+    assert(timeout_scheduler.result()->probes_timed_out == 12U);
+    assert(timeout_scheduler.result()->probes_unsupported == 0U);
 
     io::IOEngine cancelled_engine;
     osdetect::RecordingOSProbeTransport cancelled_transport;
@@ -136,5 +148,27 @@ int main()
     assert(cancelled_scheduler.result().has_value());
     assert(cancelled_scheduler.result()->state == osdetect::OSDetectionState::Partial);
     assert(cancelled_scheduler.pending_count() == 0U);
+
+    std::vector<core::Host> stress_hosts;
+    stress_hosts.reserve(1000U);
+    for (std::size_t index = 0U; index < 1000U; ++index) {
+        const std::string address = "198.18." + std::to_string(index / 256U) + "." +
+                                    std::to_string(index % 256U);
+        stress_hosts.push_back(core::Host{address, std::nullopt, true});
+    }
+    io::IOEngine stress_engine;
+    osdetect::RecordingOSProbeTransport stress_transport;
+    osdetect::OSSchedulerConfig stress_config = config;
+    stress_config.max_outstanding = 32U;
+    stress_config.timeout = std::chrono::milliseconds{50};
+    osdetect::OSScheduler stress_scheduler(
+        stress_engine, stress_transport, database, stress_config);
+    assert(stress_scheduler.submit(core::Target{"one-thousand-hosts", std::move(stress_hosts)}, {}) ==
+           core::StatusCode::Ok);
+    deliver_all_matching(stress_scheduler, stress_transport);
+    assert(stress_scheduler.complete());
+    assert(stress_scheduler.result().has_value());
+    assert(stress_scheduler.result()->state == osdetect::OSDetectionState::Complete);
+    assert(stress_scheduler.result()->responses_received == 12000U);
     return 0;
 }

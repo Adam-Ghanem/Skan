@@ -270,6 +270,57 @@ void write_os_match(JsonWriter &json, const osdetect::OSMatchResult &match, std:
     json.end_object(depth, !first);
 }
 
+void write_os_detection(JsonWriter &json, const osdetect::OSDetectionResult &result, std::size_t depth)
+{
+    json.begin_object();
+    bool first = true;
+    json.key("state", first, depth + 1U);
+    json.string(osdetect::os_detection_state_name(result.state));
+    json.key("error", first, depth + 1U);
+    json.string(osdetect::os_detection_error_name(result.error));
+    if (!result.vendor.empty()) {
+        json.key("vendor", first, depth + 1U);
+        json.string(result.vendor);
+    }
+    if (!result.family.empty()) {
+        json.key("family", first, depth + 1U);
+        json.string(result.family);
+    }
+    if (!result.generation.empty()) {
+        json.key("generation", first, depth + 1U);
+        json.string(result.generation);
+    }
+    if (!result.device_type.empty()) {
+        json.key("device_type", first, depth + 1U);
+        json.string(result.device_type);
+    }
+    json.key("confidence", first, depth + 1U);
+    json.number(result.confidence);
+    json.key("probes_generated", first, depth + 1U);
+    json.integer(result.probes_generated);
+    json.key("probes_sent", first, depth + 1U);
+    json.integer(result.probes_sent);
+    json.key("responses_received", first, depth + 1U);
+    json.integer(result.responses_received);
+    json.key("probes_timed_out", first, depth + 1U);
+    json.integer(result.probes_timed_out);
+    json.key("probes_unsupported", first, depth + 1U);
+    json.integer(result.probes_unsupported);
+    json.key("probes_malformed", first, depth + 1U);
+    json.integer(result.probes_malformed);
+    if (result.rtt_ms.has_value()) {
+        json.key("rtt_ms", first, depth + 1U);
+        json.number(*result.rtt_ms);
+    }
+    json.key("tcp_observations", first, depth + 1U);
+    json.integer(result.observed.tcp_observations.size());
+    json.key("icmp_observations", first, depth + 1U);
+    json.integer(result.observed.icmp_observations.size());
+    json.key("udp_observations", first, depth + 1U);
+    json.integer(result.observed.udp_observations.size());
+    json.end_object(depth, !first);
+}
+
 void write_host(JsonWriter &json, const HostResult &host, const OutputContext &context, std::size_t depth)
 {
     json.begin_object();
@@ -313,6 +364,10 @@ void write_host(JsonWriter &json, const HostResult &host, const OutputContext &c
         write_os_match(json, match, depth + 2U);
     }
     json.end_array(depth + 1U, !first_match);
+    if (host.os_detection.has_value()) {
+        json.key("os_detection", first, depth + 1U);
+        write_os_detection(json, *host.os_detection, depth + 1U);
+    }
     json.key("warnings", first, depth + 1U);
     write_string_array(json, host.warnings, depth + 2U);
     json.key("errors", first, depth + 1U);

@@ -51,7 +51,7 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 | Language | Responsibility | Status |
 | --- | --- | --- |
-| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, target resolution, and CLI | Phase 0–12 implemented where applicable |
+| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, target resolution, and CLI | Phase 0–14 implemented where applicable |
 | C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
 | Lua 5.4 | Future scripting layer | Planned |
 | TypeScript/React | Future dashboard | Planned |
@@ -68,9 +68,9 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 **Phase 4 — Scoped TCP Port Scan** provides TCP-only port selection and results, a bounded scheduler over the Phase 1 reactor, real nonblocking IPv4 TCP Connect transport, and an offline packet-model-backed TCP SYN probe. Phase 10 adds the explicit-interface Linux SYN adapter without changing this scheduler contract.
 
-**Phase 5 — Service Detection** provides an opt-in, TCP-only detector that consumes OPEN Phase 4 results, performs bounded nonblocking banner/probe exchanges through the same reactor, matches responses against a compact project-owned database, and emits deterministic structured `ServiceResult` values. It is complete for this bounded scope; it does not implement UDP detection, live OS fingerprinting, credential handling, or service exploitation.
+**Phase 5 — Service Detection** provides an opt-in, TCP-only detector that consumes OPEN Phase 4 results, performs bounded nonblocking banner/probe exchanges through the same reactor, matches responses against a compact project-owned database, and emits deterministic structured `ServiceResult` values. It is complete for this bounded scope; Phase 5 itself does not implement UDP detection, credential handling, or service exploitation. Live OS fingerprinting is provided separately by the Phase 14 path.
 
-**Phase 6 — OS Fingerprinting Architecture** is complete for its synthetic/injected scope. It provides typed packet evidence extraction, a small Skan-owned runtime fingerprint database, deterministic weighted available-evidence matching, and a bounded `OSScheduler`/`OSDetector` over the shared Phase 1 reactor. TCP SYN variants, closed variants, ECN concepts, ICMP Echo, and an offline UDP representation are injectable test capabilities; live raw-packet OS fingerprinting is deliberately unavailable and never fabricates an identity.
+**Phase 6 — OS Fingerprinting Architecture** provides typed packet evidence extraction, a small Skan-owned runtime fingerprint database, deterministic weighted available-evidence matching, and a bounded `OSScheduler`/`OSDetector` over the shared Phase 1 reactor. Phase 14 extends this architecture with TCP SYN/ACK/FIN/NULL/XMAS and UDP/ICMP evidence families plus explicit live transport capability handling.
 
 **Phase 7 — Adaptive Timing + Scan Engine** is complete for the reusable offline and opt-in scheduler scope described below.
 
@@ -78,7 +78,7 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 **Phase 9 — Network Transport + Packet Capture** is complete for the infrastructure-only scope described below. It supplies explicit-interface Linux byte transport and bounded capture, deterministic offline seams, layered packet observation, small filtering, and a reusable correlation boundary. It does not add a scanner or traffic-evasion mechanism.
 
-**Phase 10 — Real Network Scan Integration** is complete for the explicit Linux TCP SYN and discovery adapter scope described below. It preserves offline mode, uses one IOEngine, feeds existing scheduler callbacks, and keeps live OS fingerprinting capability-honest and unavailable where its required transport is not implemented.
+**Phase 10 — Real Network Scan Integration** is complete for the explicit Linux TCP SYN and discovery adapter scope described below. It preserves offline mode, uses one IOEngine, feeds existing scheduler callbacks, and provides the raw transport/capture lifecycle reused by the Phase 14 Linux OS adapter.
 
 **Phase 11 — Unified Scan Orchestrator** is complete for sequential discovery, port, service, OS, and output coordination over the existing bounded asynchronous subsystems, with cancellation, typed events, deterministic offline transports, and capability-honest Linux behavior.
 
@@ -201,7 +201,7 @@ A successful match produces a `DETECTED` result with service identity, optional 
 
 ## OS fingerprinting architecture
 
-The Phase 6 execution model is:
+The Phase 6 and Phase 14 execution model is:
 
 ```text
 Phase 4 PortResult / optional Phase 5 context
@@ -210,11 +210,11 @@ Phase 4 PortResult / optional Phase 5 context
                     ↓
               OSScheduler
                     ↓
-  bounded TCP SYN variants, ECN, closed variants, ICMP Echo
+  bounded TCP SYN/ACK/FIN/NULL/XMAS variants, closed variants, ICMP Echo, UDP fingerprint, UDP Port Unreachable
                     ↓
           OSProbeTransport seam
              ↙                 ↘
- RecordingOSProbeTransport   future capability-gated transport
+ RecordingOSProbeTransport   LinuxOSProbeTransport / injected transport
              ↓
  Phase 1 IOEngine timers and bounded pending map
                     ↓
@@ -229,11 +229,11 @@ Phase 4 PortResult / optional Phase 5 context
 
 `OSDetector` is a thin façade. It accepts the existing `core::Target`, prior TCP `PortResult` values, and optional Phase 5 context. Prior results select an OPEN TCP port when one exists, or the configured explicit port otherwise; they do not become OS evidence. Service names and port numbers are never used to infer an operating-system identity.
 
-The database is a compact, Skan-owned, line-oriented laboratory dataset. It supports comments, blank lines, class metadata, typed numeric and boolean fields, TCP option ordering, response behavior, deterministic declaration ordering, duplicate rejection, missing metadata rejection, and explicit file-load status. It is not an imported broad fingerprint corpus. Both the CLI and library loader load `data/os-fingerprints.db`; no broad external fingerprint corpus or duplicate signature set is embedded in C++.
+The database is a compact, Skan-owned, line-oriented laboratory dataset. It supports comments, blank lines, optional class metadata, typed numeric and boolean fields, bounded numeric ranges, TCP option ordering, UDP payload/response behavior, response presence, deterministic declaration ordering, duplicate rejection, missing metadata rejection, and explicit file-load status. It is not an imported broad fingerprint corpus. Both the CLI and library loader load `data/os-fingerprints.db`; no broad external fingerprint corpus or duplicate signature set is embedded in C++.
 
 The matcher computes confidence from **available observed evidence only**. Absent, timed-out, unsupported, and otherwise unavailable fields do not lower a candidate’s score. Observed mismatches lower the score. Current weights emphasize TCP option ordering, window, MSS, and transport behavior while retaining TTL, DF, window scale, SACK, timestamps, flags, ACK/sequence behavior, response behavior, and ICMP fields. Categories are `NO_MATCH` below `0.30`, `LOW` from `0.30` to below `0.60`, `POSSIBLE` from `0.60` to below `0.85`, and `STRONG` at or above `0.85`. Top-N results sort by descending confidence and then fingerprint name.
 
-Probe lifecycle state is explicit: `Generated`, `Sent`, `ResponseReceived`, `Timeout`, `Unsupported`, or `Malformed`. The model includes TCP SYN standard/variant/timestamp/ECN probes, closed-port variants, ICMP Echo, and an optional offline UDP-port-unreachable representation. The recording transport supports deterministic injection but intentionally does not claim a live UDP or raw-packet capability. `live_os_fingerprinting_available()` is false in this build; a live CLI request reports `UNAVAILABLE`, empty matches, and zero confidence rather than fabricating an OS identity.
+Probe lifecycle state is explicit: `Generated`, `Sent`, `ResponseReceived`, `Timeout`, `Unsupported`, or `Malformed`. The model includes TCP SYN/ACK/FIN/NULL/XMAS probes, closed-port variants, ICMP Echo, UDP fingerprint, and UDP Port Unreachable probes. The recording transport supports deterministic injection for every family. `LinuxOSProbeTransport` is selected explicitly and reports `PermissionDenied`, `NotSupported`, interface, capture, and send failures as `UNAVAILABLE` evidence without offline fallback or fabricated identity.
 
 ## Phase 7 adaptive timing and scan engine
 
@@ -588,3 +588,49 @@ A validated target UDP datagram produces `OPEN` with `UDP_RESPONSE`. An embedded
 `RecordingUDPTransport` is deterministic and injection-only. `LinuxUDPScanTransport` reuses the existing interface lookup, Linux byte transport, bounded capture, packet receiver, and single-reactor attachment lifecycle. It requires an explicit interface and host AF_PACKET capture/injection capability. A failed Linux open is returned as a typed capability or system error; there is no automatic offline fallback. Connect transport is rejected for UDP rather than being silently reinterpreted as a stream scan.
 
 The project-owned `data/udp-probes.db` parser rejects malformed records, duplicate names or destination ports, invalid hexadecimal payloads, oversized payloads, invalid response limits, and multiple default records. Each record is small and bounded; the built-in dataset covers minimal DNS, NTP, SNMP, NetBIOS, TFTP, IKE, and generic fallback probes. No Nmap database or broad external probe corpus is used.
+
+
+## Phase 14 live OS fingerprinting
+
+Phase 14 extends the existing OS architecture rather than introducing a second networking stack. `OSDetectionStage` chooses an injected, offline recording, or explicit Linux transport. `LinuxOSProbeTransport` owns one `LinuxTransport`, one `LinuxCapture`, one bounded `PacketReceiver`, and one shared `io::IOEngine` attachment. It uses the existing `packet::Packet` composition boundary for Ethernet, IPv4, TCP, UDP, and ICMP serialization. It does not hand-serialize protocol headers, open a second reactor, create worker threads, poll in a loop, or silently fall back when AF_PACKET capability is absent.
+
+The live execution path is:
+
+```text
+normalized core::Target
+        ↓
+OSDetectionStage / OSDetector
+        ↓
+OSScheduler: bounded deterministic probe queue
+        ↓
+OSProbe::build(): TCP SYN/ACK/FIN/NULL/XMAS, ICMP Echo, UDP
+        ↓
+LinuxOSProbeTransport::submit()
+        ↓
+packet::Packet composition → LinuxTransport send
+        ↓
+LinuxCapture → PacketReceiver → bounded observation
+        ↓
+strong response correlation by address, protocol, ports, sequence, and ICMP quote
+        ↓
+OSProbe::assess(): matching / unrelated / malformed
+        ↓
+ObservedOSFingerprint → OSMatcher → OSDetectionResult
+        ↓
+ScanReportBuilder → HostResult → all output writers
+```
+
+TCP correlation validates the local and remote IPv4 addresses, response source/destination ports, and the acknowledgment relation to the submitted sequence. UDP correlation validates the local/remote addresses and reversed response ports. ICMP Destination Unreachable correlation validates the outer source/destination addresses and the quoted IPv4 header, quoted protocol, and quoted transport ports. ICMP port-unreachable evidence is distinct from a valid UDP datagram response. The quoted packet parser accepts only the bounded bytes required by ICMPv4 and never reads beyond the capture buffer. Completed, cancelled, expired, unrelated, duplicate, and malformed observations cannot mutate another pending probe.
+
+The probe database parser is strict and deterministic. It rejects malformed numeric values, descending ranges, duplicate fields, duplicate fingerprint names, unsupported fields, and missing required metadata. Optional Class version/device columns remain optional. UDP signatures include bounded payload-length ranges, response behavior, and response presence. The matcher computes confidence only over available evidence and preserves unavailable/malformed/timeout counters in `OSDetectionResult`; it does not infer an operating-system identity from a port number, service label, local platform, or missing response.
+
+`OSDetectionResult` is propagated into the canonical report in addition to the legacy sorted match vector. Normal, JSON, XML, and grepable writers expose explicit state and error values, confidence, sent/received/timeout counters, RTT when available, and TCP/ICMP/UDP evidence counts. This makes a live capability failure observable as `UNAVAILABLE` rather than indistinguishable from an empty match list.
+
+| Capability boundary | Required behavior |
+| --- | --- |
+| Offline transport | Execute the same typed scheduler and matcher without network descriptors; no live evidence is fabricated. |
+| Injected transport | Provide deterministic serialized packet responses for unit and integration tests, including UDP and ICMP-error evidence. |
+| Linux AF_PACKET | Require an explicit interface, discover a usable local IPv4 source, attach capture to the existing reactor, and report permission/not-supported/send/capture failures explicitly. |
+| Unsupported transport | Do not reinterpret Connect sockets as OS packet probes and do not silently downgrade a requested Linux run to offline mode. |
+
+Phase 14 intentionally remains IPv4-only and bounded. It does not add IPv6, TCP option evasion, decoys, spoofing, fragmentation, credential handling, exploitation, service inference, or public-target traffic.

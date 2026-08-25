@@ -26,6 +26,16 @@ int main()
     assert(first.str().find(",]") == std::string::npos);
     assert(first.str().find(",}") == std::string::npos);
     assert(first.str().find("\"os\": [\n") != std::string::npos);
+    assert(first.str().find("\"os_detection\": {") != std::string::npos);
+    assert(first.str().find("\"state\": \"complete\"") != std::string::npos);
+    assert(first.str().find("\"family\": \"Linux\"") != std::string::npos);
+    assert(first.str().find("\"confidence\": 0.91") != std::string::npos);
+    assert(first.str().find("\"probes_generated\": 12") != std::string::npos);
+    assert(first.str().find("\"responses_received\": 7") != std::string::npos);
+    assert(first.str().find("\"rtt_ms\": 4.5") != std::string::npos);
+    assert(first.str().find("\"tcp_observations\": 0") != std::string::npos);
+    assert(first.str().find("\"icmp_observations\": 0") != std::string::npos);
+    assert(first.str().find("\"udp_observations\": 0") != std::string::npos);
 
     skan::output::OutputContext compact;
     compact.pretty_json = false;

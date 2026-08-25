@@ -8,6 +8,7 @@
 #include "detect/service_probe.hpp"
 #include "discovery/discovery_types.hpp"
 #include "net/linux_discovery_transport.hpp"
+#include "net/linux_os_probe_transport.hpp"
 #include "net/network_scan_transport.hpp"
 #include "net/udp_network_scan_transport.hpp"
 #include "portscan/tcp_connect.hpp"
@@ -446,11 +447,6 @@ StageResult OSDetectionStage::start(
         return result_;
     }
     const bool injected_transport = dependencies_ != nullptr && dependencies_->os_transport;
-    if (!injected_transport && (config_.transport != ScanTransport::Offline || !osdetect::live_os_fingerprinting_available())) {
-        unavailable_ = true;
-        result_ = stage_success();
-        return result_;
-    }
     osdetect::OSSchedulerConfig os_config;
     os_config.timeout = config_.timeout;
     os_config.max_outstanding = config_.max_parallelism;
@@ -458,11 +454,43 @@ StageResult OSDetectionStage::start(
     os_config.timing_profile = config_.timing_profile;
     os_config.timing_profile.max_retries = config_.retries;
     os_config.timing_profile.max_parallelism = config_.max_parallelism;
+    os_config.udp_probe_port = 161U;
     if (injected_transport) {
         transport_ = dependencies_->os_transport(engine_, config_);
+    } else if (config_.transport == ScanTransport::Offline) {
+        transport_ = std::make_unique<osdetect::RecordingOSProbeTransport>();
+    } else if (config_.transport == ScanTransport::Linux) {
+        if (!config_.interface_name.has_value()) {
+            unavailable_ = true;
+            result_ = stage_success();
+            return result_;
+        }
+        auto linux = std::make_unique<net::LinuxOSProbeTransport>(
+            engine_, net::NetworkScanConfig{*config_.interface_name, 65535U, true, std::nullopt});
+        const net::NetworkScanResult opened = linux->open();
+        if (!opened.success()) {
+            unavailable_ = true;
+            osdetect::OSDetectionResult unavailable;
+            unavailable.target = target_.original_specification;
+            unavailable.state = osdetect::OSDetectionState::Unavailable;
+            unavailable.error = opened.status == net::NetworkScanStatus::PermissionDenied ||
+                                        opened.status == net::NetworkScanStatus::NotSupported
+                                    ? osdetect::OSDetectionError::CapabilityUnavailable
+                                    : osdetect::OSDetectionError::TransportFailure;
+            detection_result_ = std::move(unavailable);
+            result_ = stage_success();
+            return result_;
+        }
+        transport_ = std::move(linux);
     } else {
-        auto recording = std::make_unique<osdetect::RecordingOSProbeTransport>();
-        transport_ = std::move(recording);
+        unavailable_ = true;
+        osdetect::OSDetectionResult unavailable;
+        unavailable.target = target_.original_specification;
+        unavailable.state = osdetect::OSDetectionState::Unavailable;
+        unavailable.error = osdetect::OSDetectionError::CapabilityUnavailable;
+        detection_result_ = std::move(unavailable);
+        result_ = stage_success();
+        return result_;
     }
     if (transport_ == nullptr) {
         result_ = stage_failure(core::StatusCode::InternalError, "OS transport factory returned null");
@@ -494,6 +522,7 @@ StageResult OSDetectionStage::start(
         return result_;
     }
     if (detector_->result().has_value()) {
+        detection_result_ = detector_->result();
         matches_ = detector_->result()->matches;
         unavailable_ = detector_->result()->state == osdetect::OSDetectionState::Unavailable;
     }
@@ -519,6 +548,10 @@ void OSDetectionStage::cancel() noexcept
 bool OSDetectionStage::completed() const noexcept { return result_.completed; }
 const StageResult &OSDetectionStage::result() const noexcept { return result_; }
 const std::vector<osdetect::OSMatchResult> &OSDetectionStage::matches() const noexcept { return matches_; }
+const std::optional<osdetect::OSDetectionResult> &OSDetectionStage::detection_result() const noexcept
+{
+    return detection_result_;
+}
 bool OSDetectionStage::unavailable() const noexcept { return unavailable_; }
 
 } // namespace skan::orchestrator

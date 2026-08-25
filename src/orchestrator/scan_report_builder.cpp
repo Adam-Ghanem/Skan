@@ -107,6 +107,9 @@ output::ScanReport ScanReportBuilder::build(
     for (const OSReportEvidence &os : os_results) {
         output::HostResult &host = report.hosts[host_index(os.target)];
         host.os_matches.insert(host.os_matches.end(), os.matches.begin(), os.matches.end());
+        if (os.result.has_value()) {
+            host.os_detection = os.result;
+        }
     }
 
     std::sort(report.hosts.begin(), report.hosts.end(), [](const output::HostResult &left, const output::HostResult &right) {

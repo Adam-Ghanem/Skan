@@ -26,6 +26,7 @@ ICMPObservation observe_icmp_response(
 
 void append_observation(ObservedOSFingerprint &fingerprint, TCPObservation observation);
 void append_observation(ObservedOSFingerprint &fingerprint, ICMPObservation observation);
+void append_observation(ObservedOSFingerprint &fingerprint, UDPObservation observation);
 
 } // namespace skan::osdetect
 

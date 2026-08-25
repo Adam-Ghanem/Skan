@@ -20,6 +20,8 @@ int main()
            first.str().find("Port: target=\"192.0.2.20\" number=80"));
     assert(first.str().find("Service:") != std::string::npos);
     assert(first.str().find("OS: address=\"192.0.2.20\"") != std::string::npos);
+    assert(first.str().find("OSStatus: address=\"192.0.2.20\" state=complete error=none confidence=0.91 probes=12 responses=7 timeouts=5 tcp_evidence=0") !=
+           std::string::npos);
     assert(first.str().find("\\n") != std::string::npos);
     assert(first.str().find("\\\"") != std::string::npos);
     assert(first.str().find('\x1b') == std::string::npos);

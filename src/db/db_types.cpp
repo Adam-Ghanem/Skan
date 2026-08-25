@@ -35,6 +35,12 @@ const char *fingerprint_field_name(FingerprintField field) noexcept
         return "ICMP_TYPE";
     case FingerprintField::IcmpCode:
         return "ICMP_CODE";
+    case FingerprintField::UdpPayloadLength:
+        return "UDP_PAYLOAD_LENGTH";
+    case FingerprintField::UdpResponseBehavior:
+        return "UDP_RESPONSE_BEHAVIOR";
+    case FingerprintField::ResponsePresence:
+        return "RESPONSE_PRESENCE";
     default:
         return "UNKNOWN";
     }

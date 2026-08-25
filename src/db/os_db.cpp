@@ -35,6 +35,20 @@ bool parse_integer(std::string_view text, std::int64_t &value) noexcept
     return result.ec == std::errc{} && result.ptr == text.data() + text.size();
 }
 
+bool parse_range(std::string_view text, std::int64_t &minimum, std::int64_t &maximum) noexcept
+{
+    text = trim(text);
+    const std::size_t separator = text.find('-');
+    if (separator == std::string_view::npos || separator == 0U || separator + 1U >= text.size()) {
+        return false;
+    }
+    if (!parse_integer(text.substr(0U, separator), minimum) ||
+        !parse_integer(text.substr(separator + 1U), maximum) || minimum < 0 || maximum < minimum) {
+        return false;
+    }
+    return true;
+}
+
 bool parse_boolean(std::string_view text, bool &value) noexcept
 {
     text = trim(text);
@@ -127,7 +141,7 @@ bool finalize(
         return true;
     }
     if (!has_class || current->signatures.empty() || current->vendor.empty() || current->family.empty() ||
-        current->generation.empty() || current->device_type.empty() || !names.insert(current->name).second) {
+        !names.insert(current->name).second) {
         return false;
     }
     fingerprints.push_back(std::move(*current));
@@ -185,16 +199,17 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
                     return database;
                 }
                 const std::vector<std::string_view> values = split_pipe(view.substr(6U));
-                if (values.size() != 4U || values[0].empty() || values[1].empty() || values[2].empty() ||
-                    values[3].empty()) {
+                if ((values.size() != 2U && values.size() != 3U && values.size() != 4U) || values[0].empty() ||
+                    values[1].empty() || (values.size() >= 3U && values[2].empty()) ||
+                    (values.size() == 4U && values[3].empty())) {
                     database.fingerprints_.clear();
                     status = core::StatusCode::ParseError;
                     return database;
                 }
                 current->vendor = std::string{values[0]};
                 current->family = std::string{values[1]};
-                current->generation = std::string{values[2]};
-                current->device_type = std::string{values[3]};
+                current->generation = values.size() >= 3U ? std::string{values[2]} : std::string{};
+                current->device_type = values.size() == 4U ? std::string{values[3]} : std::string{};
                 has_class = true;
                 continue;
             }
@@ -214,7 +229,7 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
             FingerprintSignature signature;
             bool recognized = true;
             if (key == "TTL" || key == "WINDOW" || key == "MSS" || key == "WSCALE" || key == "TCP_FLAGS" ||
-                key == "ICMP_TTL" || key == "ICMP_TYPE" || key == "ICMP_CODE") {
+                key == "ICMP_TTL" || key == "ICMP_TYPE" || key == "ICMP_CODE" || key == "UDP_PAYLOAD_LENGTH") {
                 std::int64_t number = 0;
                 if (!parse_integer(value, number) || number < 0) {
                     recognized = false;
@@ -235,6 +250,9 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
                     signature.number = number;
                 } else if (key == "ICMP_TTL") {
                     signature.field = FingerprintField::IcmpTtl;
+                    signature.number = number;
+                } else if (key == "UDP_PAYLOAD_LENGTH") {
+                    signature.field = FingerprintField::UdpPayloadLength;
                     signature.number = number;
                 } else if (key == "ICMP_TYPE") {
                     signature.field = FingerprintField::IcmpType;
@@ -269,6 +287,40 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
                 }
                 if (signature.options.empty()) {
                     recognized = false;
+                }
+            } else if (key == "TTL_RANGE" || key == "WINDOW_RANGE" || key == "ICMP_TTL_RANGE" ||
+                       key == "UDP_PAYLOAD_RANGE") {
+                std::int64_t minimum = 0;
+                std::int64_t maximum = 0;
+                if (!parse_range(value, minimum, maximum)) {
+                    recognized = false;
+                } else if (key == "TTL_RANGE") {
+                    signature.field = FingerprintField::Ttl;
+                    signature.minimum = minimum;
+                    signature.maximum = maximum;
+                } else if (key == "WINDOW_RANGE") {
+                    signature.field = FingerprintField::Window;
+                    signature.minimum = minimum;
+                    signature.maximum = maximum;
+                } else if (key == "ICMP_TTL_RANGE") {
+                    signature.field = FingerprintField::IcmpTtl;
+                    signature.minimum = minimum;
+                    signature.maximum = maximum;
+                } else {
+                    signature.field = FingerprintField::UdpPayloadLength;
+                    signature.minimum = minimum;
+                    signature.maximum = maximum;
+                }
+            } else if (key == "UDP_RESPONSE_BEHAVIOR") {
+                signature.field = FingerprintField::UdpResponseBehavior;
+                signature.text = std::string{value};
+            } else if (key == "RESPONSE_PRESENCE") {
+                bool presence = false;
+                if (!parse_boolean(value, presence)) {
+                    recognized = false;
+                } else {
+                    signature.field = FingerprintField::ResponsePresence;
+                    signature.boolean = presence;
                 }
             } else if (key == "ACK_BEHAVIOR") {
                 signature.field = FingerprintField::AckBehavior;

@@ -167,6 +167,24 @@ void write_service(XmlWriter &xml, const detect::ServiceResult &service, std::si
     xml.close(depth, "service");
 }
 
+void write_os_detection(XmlWriter &xml, const osdetect::OSDetectionResult &result, std::size_t depth)
+{
+    xml.open(depth, "os-detection");
+    xml.element(depth + 1U, "state", osdetect::os_detection_state_name(result.state));
+    xml.element(depth + 1U, "error", osdetect::os_detection_error_name(result.error));
+    xml.element(depth + 1U, "confidence", detail::number(result.confidence));
+    xml.element(depth + 1U, "probes-sent", std::to_string(result.probes_sent));
+    xml.element(depth + 1U, "responses-received", std::to_string(result.responses_received));
+    xml.element(depth + 1U, "probes-timed-out", std::to_string(result.probes_timed_out));
+    xml.element(depth + 1U, "tcp-evidence", std::to_string(result.observed.tcp_observations.size()));
+    xml.element(depth + 1U, "icmp-evidence", std::to_string(result.observed.icmp_observations.size()));
+    xml.element(depth + 1U, "udp-evidence", std::to_string(result.observed.udp_observations.size()));
+    if (result.rtt_ms.has_value()) {
+        xml.element(depth + 1U, "rtt-ms", detail::number(*result.rtt_ms));
+    }
+    xml.close(depth, "os-detection");
+}
+
 void write_os_match(XmlWriter &xml, const osdetect::OSMatchResult &match, std::size_t depth)
 {
     std::string attributes = attribute("name", match.fingerprint_name) + attribute_number("confidence", match.confidence) +
@@ -261,6 +279,9 @@ OutputStatus XmlOutputWriter::write(
                 write_service(xml, service, 3U);
             }
             xml.close(2U, "services");
+        }
+        if (host->os_detection.has_value()) {
+            write_os_detection(xml, *host->os_detection, 2U);
         }
         const std::vector<osdetect::OSMatchResult> matches = detail::ordered_os_matches(*host);
         if (!matches.empty()) {
