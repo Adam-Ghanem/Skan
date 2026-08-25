@@ -25,6 +25,14 @@ discovery::HostState discovery_state_for(
     return saw_down ? discovery::HostState::Down : discovery::HostState::Unknown;
 }
 
+core::AddressFamily family_for(std::string_view address, const core::IpAddress &typed_address = {}) noexcept
+{
+    if (typed_address.valid()) {
+        return typed_address.family;
+    }
+    return address.find(':') == std::string_view::npos ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6;
+}
+
 std::optional<double> rtt_for(std::string_view address, std::span<const discovery::DiscoveryResult> results)
 {
     std::optional<double> best;
@@ -75,6 +83,7 @@ output::ScanReport ScanReportBuilder::build(
         output::HostResult result;
         result.address = host.address;
         result.hostname = host.hostname;
+        result.family = family_for(host.address, host.ip_address);
         if (config.discovery_enabled) {
             result.state = discovery_state_for(host.address, discovery_results);
             result.rtt_ms = rtt_for(host.address, discovery_results);
@@ -93,6 +102,7 @@ output::ScanReport ScanReportBuilder::build(
         const std::size_t index = report.hosts.size();
         output::HostResult created;
         created.address = address;
+        created.family = family_for(address);
         report.hosts.push_back(std::move(created));
         host_indices.emplace(address, index);
         return index;

@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "core/types.hpp"
 #include "net/packet_receiver.hpp"
 
 namespace skan::net {
@@ -15,9 +16,11 @@ namespace skan::net {
 enum class PacketProtocol {
     Any,
     IPv4,
+    IPv6,
     TCP,
     UDP,
-    ICMP
+    ICMP,
+    ICMPv6
 };
 
 struct PacketFilter final {
@@ -33,6 +36,7 @@ struct CorrelationKey final {
     std::uint16_t source_port{0U};
     std::uint16_t destination_port{0U};
     std::uint32_t sequence{0U};
+    core::IpAddress target_ip{};
 
     bool operator==(const CorrelationKey &) const noexcept = default;
 };

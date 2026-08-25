@@ -5,6 +5,7 @@
 #include <span>
 #include <vector>
 
+#include "packet/ipv6.hpp"
 #include "packet/udp.hpp"
 #include "portscan/udp_scan.hpp"
 
@@ -108,6 +109,37 @@ int main()
     assert(timed_out->state == PortState::OpenOrFiltered);
     assert(timed_out->reason == ScanReason::UdpTimeout);
     assert(timed_out->retry_count == 1U);
+
+    const core::IpAddress loopback = core::IpAddress::from_ipv6({0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+                                                                  0U, 0U, 0U, 0U, 0U, 0U, 0U, 1U});
+    const core::Target ipv6_target{"::1", {core::Host{"::1", std::nullopt, false, loopback}}};
+    RecordingUDPTransport ipv6_transport;
+    PortScanConfig ipv6_config = config;
+    ipv6_config.max_outstanding = 1U;
+    ipv6_config.retries = 0U;
+    UDPScheduler ipv6_scheduler(engine, ipv6_transport, database, ipv6_config);
+    assert(ipv6_scheduler.submit(ipv6_target, {{53U, Protocol::Udp}}) == core::StatusCode::Ok);
+    assert(ipv6_transport.submissions().size() == 1U);
+    const UDPSubmission &ipv6_submission = ipv6_transport.submissions().front();
+    assert(ipv6_submission.destination_ip == loopback);
+    assert(packet::IPv6::parse(std::span<const std::uint8_t>{ipv6_submission.packet}).has_value());
+    packet::UDP ipv6_response_packet;
+    ipv6_response_packet.set_source_port(53U);
+    ipv6_response_packet.set_destination_port(ipv6_submission.source_port);
+    ipv6_response_packet.set_payload({0x36U, 0x36U});
+    std::vector<std::uint8_t> ipv6_response_bytes(ipv6_response_packet.serialized_size(), 0U);
+    assert(ipv6_response_packet.serialize(ipv6_response_bytes) == core::StatusCode::Ok);
+    UDPResponse ipv6_response;
+    ipv6_response.id = ipv6_submission.id;
+    ipv6_response.source_port = 53U;
+    ipv6_response.destination_port = ipv6_submission.source_port;
+    ipv6_response.kind = UDPResponseKind::Datagram;
+    ipv6_response.bytes = ipv6_response_bytes;
+    ipv6_response.source_ip = loopback;
+    ipv6_transport.deliver(ipv6_response);
+    assert(ipv6_scheduler.results().size() == 1U);
+    assert(ipv6_scheduler.results().front().state == PortState::Open);
+    assert(ipv6_scheduler.run() == core::StatusCode::Ok);
 
     RecordingUDPTransport malformed_transport;
     PortScanConfig malformed_config = config;

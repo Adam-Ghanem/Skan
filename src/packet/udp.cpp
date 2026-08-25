@@ -80,6 +80,43 @@ std::uint16_t UDP::checksum_for_ipv4(
     return calculated == 0U ? 0xFFFFU : calculated;
 }
 
+core::StatusCode UDP::serialize_with_checksum(
+    std::span<std::uint8_t> output,
+    const std::array<std::uint8_t, 16U> &source_address,
+    const std::array<std::uint8_t, 16U> &destination_address) const
+{
+    if (!validate() || output.size() < serialized_size()) {
+        return core::StatusCode::InvalidArgument;
+    }
+    std::vector<std::uint8_t> bytes(serialized_size(), 0U);
+    if (serialize(std::span<std::uint8_t>{bytes}) != core::StatusCode::Ok) {
+        return core::StatusCode::InvalidArgument;
+    }
+    wire::write_u16(std::span<std::uint8_t>{bytes}, 6U, 0U);
+    const std::uint16_t calculated = checksum::ipv6_pseudo_header(
+        source_address, destination_address, 17U, std::span<const std::uint8_t>{bytes});
+    wire::write_u16(std::span<std::uint8_t>{bytes}, 6U, calculated == 0U ? 0xFFFFU : calculated);
+    std::copy(bytes.begin(), bytes.end(), output.begin());
+    return core::StatusCode::Ok;
+}
+
+std::uint16_t UDP::checksum_for_ipv6(
+    const std::array<std::uint8_t, 16U> &source_address,
+    const std::array<std::uint8_t, 16U> &destination_address) const
+{
+    if (!validate()) {
+        return 0U;
+    }
+    std::vector<std::uint8_t> bytes(serialized_size(), 0U);
+    if (serialize(std::span<std::uint8_t>{bytes}) != core::StatusCode::Ok) {
+        return 0U;
+    }
+    wire::write_u16(std::span<std::uint8_t>{bytes}, 6U, 0U);
+    const std::uint16_t calculated = checksum::ipv6_pseudo_header(
+        source_address, destination_address, 17U, std::span<const std::uint8_t>{bytes});
+    return calculated == 0U ? 0xFFFFU : calculated;
+}
+
 std::optional<UDP> UDP::parse(std::span<const std::uint8_t> input)
 {
     if (input.size() < kHeaderSize) {

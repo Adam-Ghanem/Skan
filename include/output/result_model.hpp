@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/constants.hpp"
+#include "core/types.hpp"
 #include "detect/service_types.hpp"
 #include "discovery/discovery_types.hpp"
 #include "osdetect/os_matcher.hpp"
@@ -49,6 +50,7 @@ struct HostResult final {
     std::optional<osdetect::OSDetectionResult> os_detection;
     std::vector<std::string> warnings;
     std::vector<std::string> errors;
+    core::AddressFamily family{core::AddressFamily::Unknown};
 };
 
 struct ScanSummary final {

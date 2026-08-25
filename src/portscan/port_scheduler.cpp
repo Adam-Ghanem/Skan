@@ -1,6 +1,7 @@
 #include "portscan/port_scheduler.hpp"
 
 #include <algorithm>
+#include <arpa/inet.h>
 #include <chrono>
 #include <limits>
 #include <new>
@@ -10,6 +11,15 @@
 
 namespace skan::portscan {
 namespace {
+
+bool valid_host_address(const core::Host &host) noexcept
+{
+    if (host.ip_address.valid() || discovery::parse_ipv4_address(host.address).has_value()) {
+        return true;
+    }
+    in6_addr address{};
+    return ::inet_pton(AF_INET6, host.address.c_str(), &address) == 1;
+}
 
 bool result_less(const PortResult &left, const PortResult &right) noexcept
 {
@@ -103,8 +113,7 @@ core::StatusCode PortScanScheduler::submit(
     submitted_ = true;
     try {
         for (const core::Host &host : target.resolved_hosts) {
-            const bool valid_ipv4 = discovery::parse_ipv4_address(host.address).has_value();
-            if (!valid_ipv4) {
+            if (!valid_host_address(host)) {
                 for (const Port &port : ports) {
                     append_terminal_result(
                         WorkItem{host, port},

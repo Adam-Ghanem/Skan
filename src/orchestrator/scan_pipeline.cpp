@@ -1,6 +1,7 @@
 #include "orchestrator/scan_pipeline.hpp"
 
 #include <algorithm>
+#include <arpa/inet.h>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -17,6 +18,23 @@
 
 namespace skan::orchestrator {
 namespace {
+
+core::IpAddress host_ip(const core::Host &host) noexcept
+{
+    if (host.ip_address.valid()) {
+        return host.ip_address;
+    }
+    if (const auto ipv4 = discovery::parse_ipv4_address(host.address); ipv4.has_value()) {
+        return core::IpAddress::from_ipv4(*ipv4);
+    }
+    in6_addr ipv6{};
+    if (::inet_pton(AF_INET6, host.address.c_str(), &ipv6) == 1) {
+        std::array<std::uint8_t, 16U> bytes{};
+        std::copy(std::begin(ipv6.s6_addr), std::end(ipv6.s6_addr), bytes.begin());
+        return core::IpAddress::from_ipv6(bytes);
+    }
+    return {};
+}
 
 core::Target aggregate_targets(const std::vector<core::Target> &targets)
 {
@@ -36,10 +54,13 @@ core::Target aggregate_targets(const std::vector<core::Target> &targets)
     }
     std::sort(aggregate.resolved_hosts.begin(), aggregate.resolved_hosts.end(),
               [](const core::Host &left, const core::Host &right) {
-                  const auto left_address = discovery::parse_ipv4_address(left.address);
-                  const auto right_address = discovery::parse_ipv4_address(right.address);
-                  if (left_address.has_value() && right_address.has_value()) {
-                      return *left_address < *right_address;
+                  const core::IpAddress left_address = host_ip(left);
+                  const core::IpAddress right_address = host_ip(right);
+                  if (left_address.valid() && right_address.valid()) {
+                      return left_address < right_address;
+                  }
+                  if (left_address.valid() != right_address.valid()) {
+                      return left_address.valid();
                   }
                   return left.address < right.address;
               });

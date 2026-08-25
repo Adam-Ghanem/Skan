@@ -28,6 +28,8 @@ struct ProbeSubmission final {
     std::uint32_t sequence_number{0U};
     std::uint32_t source_ipv4{0U};
     std::uint32_t target_ipv4{0U};
+    core::IpAddress source_ip{};
+    core::IpAddress target_ip{};
 };
 
 enum class ResponseDisposition {

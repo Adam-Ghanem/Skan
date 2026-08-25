@@ -39,9 +39,9 @@ void print_help()
               << "Nmap-inspired modular network scanning platform\n\n"
               << "Usage:\n"
               << "  skan [options]\n"
-              << "  skan discover <ipv4-address> [options]\n"
+              << "  skan discover <ip-address> [options]\n"
               << "  skan scan <target-spec> [options]\n"
-              << "  skan os-detect <ipv4-address> [options]\n"
+              << "  skan os-detect <ip-address> [options]\n"
               << "  skan interfaces [options]\n"
               << "  skan resolve <target-spec> [options]\n\n"
               << "Options:\n"
@@ -94,9 +94,9 @@ void print_help()
               << "  Phase 12 — Target Resolution and Target Engine\n"
               << "  Phase 13 — Bounded UDP Scan Engine\n"
               << "  Phase 14 — Live OS Fingerprinting Engine\n"
-              << "\nTarget specifications accept IPv4, CIDR, inclusive ranges, hostnames, and comma-separated mixtures.\n"
+              << "\nTarget specifications accept IPv4/IPv6, CIDR, inclusive ranges, hostnames, and comma-separated mixtures.\n"
               << "The resolve command normalizes targets without scanning; use --max-targets to bound expansion.\n"
-              << "Discovery CLI mode uses an offline recording transport.\n"
+              << "Discovery CLI mode uses an offline recording transport; Linux IPv6 discovery is reported unavailable without fallback.\n"
               << "Scan Connect mode uses normal nonblocking TCP sockets unless --transport offline is selected.\n"
               << "Scan SYN mode requires explicit --transport offline or --transport linux --interface <name>.\n"
               << "The scan pipeline runs Discovery, TCP Port, UDP (when --udp), Service, OS, and Output stages sequentially.\n"
@@ -125,6 +125,12 @@ int run_discover(int argc, char **argv)
     }
 
     const std::string target_address = argv[2];
+    const auto parsed_target_address = skan::target::parse_ip_address(target_address);
+    if (!parsed_target_address.has_value()) {
+        std::cerr << "Error: discover requires one valid IPv4 or IPv6 address.\n";
+        return EXIT_FAILURE;
+    }
+    const std::string canonical_target_address = skan::target::format_ip_address(*parsed_target_address);
     skan::discovery::DiscoveryConfig config;
     std::vector<skan::discovery::ProbeType> selected_probes;
     std::string transport_mode;
@@ -175,6 +181,11 @@ int run_discover(int argc, char **argv)
     if (explicit_probe_selection) {
         config.probes = std::move(selected_probes);
     }
+    if (parsed_target_address->is_ipv6() &&
+        std::find(config.probes.begin(), config.probes.end(), skan::discovery::ProbeType::Arp) != config.probes.end()) {
+        std::cerr << "Error: ARP discovery is IPv4-only; use ICMP or TCP for IPv6.\n";
+        return EXIT_FAILURE;
+    }
     if (!interface_name.empty() && transport_mode != "linux") {
         std::cerr << "Error: --interface for discovery requires --transport linux.\n";
         return EXIT_FAILURE;
@@ -183,8 +194,14 @@ int run_discover(int argc, char **argv)
         std::cerr << "Error: --transport linux requires an explicit --interface <name>.\n";
         return EXIT_FAILURE;
     }
+    if (transport_mode == "linux" && parsed_target_address->is_ipv6()) {
+        std::cerr << "Error: Linux IPv6 discovery is unavailable in this phase; no fallback transport is used.\n";
+        return EXIT_FAILURE;
+    }
 
-    skan::core::Target target{target_address, {skan::core::Host{target_address, std::nullopt, false}}};
+    skan::core::Target target{
+        canonical_target_address,
+        {skan::core::Host{canonical_target_address, std::nullopt, false, *parsed_target_address}}};
     skan::io::IOEngine io_engine;
     if (io_engine.initialization_status() != skan::core::StatusCode::Ok) {
         std::cerr << "Error: unable to initialize the asynchronous I/O engine.\n";
@@ -231,7 +248,7 @@ int run_discover(int argc, char **argv)
         std::cerr << "Error: discovery engine failed: " << skan::core::status_to_string(run_status) << '\n';
         return EXIT_FAILURE;
     }
-    std::cout << target_address << " " << skan::discovery::host_state_name(discovery.host_state(target_address)) << '\n';
+    std::cout << canonical_target_address << " " << skan::discovery::host_state_name(discovery.host_state(canonical_target_address)) << '\n';
     for (const skan::discovery::DiscoveryResult &result : discovery.results()) {
         std::cout << "  " << skan::discovery::probe_type_name(result.probe)
                   << ": " << skan::discovery::discovery_reason_name(result.reason);
@@ -292,12 +309,14 @@ int run_resolve(int argc, char **argv)
             if (index != 0U) {
                 std::cout << ',';
             }
-            std::cout << "{\"address\":\"" << skan::target::format_ipv4(resolved.target_set.targets[index].address) << "\"}";
+            const skan::core::IpAddress &address = resolved.target_set.targets[index].ip_address;
+            std::cout << "{\"address\":\"" << skan::target::format_ip_address(address)
+                      << "\",\"family\":\"" << skan::core::address_family_name(address.family) << "\"}";
         }
         std::cout << "]}\n";
     } else {
         for (const skan::target::ResolvedTarget &target : resolved.target_set.targets) {
-            std::cout << skan::target::format_ipv4(target.address) << '\n';
+            std::cout << skan::target::format_ip_address(target.ip_address) << '\n';
         }
     }
     return EXIT_SUCCESS;
@@ -544,7 +563,8 @@ int run_os_detect(int argc, char **argv)
     target.resolved_hosts.reserve(resolved.target_set.targets.size());
     for (const skan::target::ResolvedTarget &resolved_target : resolved.target_set.targets) {
         target.resolved_hosts.push_back(skan::core::Host{
-            skan::target::format_ipv4(resolved_target.address), resolved_target.source_hostname, false});
+            skan::target::format_ip_address(resolved_target.ip_address), resolved_target.source_hostname, false,
+            resolved_target.ip_address});
     }
     skan::orchestrator::ScanConfig config;
     config.targets.push_back(std::move(target));
@@ -814,8 +834,11 @@ int run_scan(int argc, char **argv)
     normalized_target.original_specification = target_specification;
     normalized_target.resolved_hosts.reserve(resolved.target_set.targets.size());
     for (const skan::target::ResolvedTarget &target : resolved.target_set.targets) {
+        const skan::core::IpAddress ip_address = target.ip_address.valid()
+                                                    ? target.ip_address
+                                                    : skan::core::IpAddress::from_ipv4(target.address);
         normalized_target.resolved_hosts.push_back(
-            skan::core::Host{skan::target::format_ipv4(target.address), target.source_hostname, false});
+            skan::core::Host{skan::target::format_ip_address(ip_address), target.source_hostname, false, ip_address});
     }
     config.targets.push_back(std::move(normalized_target));
     skan::orchestrator::ScanOrchestrator orchestrator(config);

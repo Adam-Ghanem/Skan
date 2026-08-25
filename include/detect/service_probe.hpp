@@ -36,6 +36,7 @@ struct ServiceSubmission final {
     std::string probe_name;
     std::string payload;
     std::size_t max_response_bytes{8192U};
+    core::IpAddress target_ip{};
 };
 
 struct ServiceResponse final {

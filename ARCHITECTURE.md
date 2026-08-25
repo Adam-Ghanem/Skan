@@ -51,7 +51,7 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 | Language | Responsibility | Status |
 | --- | --- | --- |
-| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, target resolution, and CLI | Phase 0–14 implemented where applicable |
+| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, target resolution, and CLI | Phase 0–15 implemented where applicable |
 | C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
 | Lua 5.4 | Future scripting layer | Planned |
 | TypeScript/React | Future dashboard | Planned |
@@ -62,13 +62,13 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 **Phase 1 — Asynchronous I/O Engine** provides a Linux-first `epoll` reactor, logical event registration and lifecycle management, bounded and continuous run modes, monotonic one-shot timers, cancellation, nonblocking descriptor support, callback lifecycle protection, and RAII cleanup.
 
-**Phase 2 — Packet Layer** provides offline packet representation, composition, validation, deterministic serialization, lightweight parsing, and checksums for Ethernet II, IPv4, TCP, UDP, and ICMPv4 Echo messages.
+**Phase 2/15 — Packet Layer** provides offline packet representation, composition, validation, deterministic serialization, lightweight parsing, and checksums for Ethernet II, IPv4/IPv6, TCP, UDP, ICMPv4, ICMPv6, and bounded IPv6 extension chains.
 
 **Phase 3 — Host Discovery** provides a bounded scheduler, common probe abstraction, ICMP Echo correlation, TCP SYN/ACK and RST evidence classification, minimal ARP request/reply representation, monotonic timeouts, RTT calculation, duplicate and late response handling, deterministic host-state aggregation, and a safe recording transport for offline tests.
 
-**Phase 4 — Scoped TCP Port Scan** provides TCP-only port selection and results, a bounded scheduler over the Phase 1 reactor, real nonblocking IPv4 TCP Connect transport, and an offline packet-model-backed TCP SYN probe. Phase 10 adds the explicit-interface Linux SYN adapter without changing this scheduler contract.
+**Phase 4/15 — Scoped TCP Port Scan** provides TCP-only port selection and results, a bounded scheduler over the Phase 1 reactor, real nonblocking AF_INET/AF_INET6 TCP Connect transport, and an offline packet-model-backed TCP SYN probe. Phase 10 adds the explicit-interface Linux SYN adapter without changing this scheduler contract.
 
-**Phase 5 — Service Detection** provides an opt-in, TCP-only detector that consumes OPEN Phase 4 results, performs bounded nonblocking banner/probe exchanges through the same reactor, matches responses against a compact project-owned database, and emits deterministic structured `ServiceResult` values. It is complete for this bounded scope; Phase 5 itself does not implement UDP detection, credential handling, or service exploitation. Live OS fingerprinting is provided separately by the Phase 14 path.
+**Phase 5/15 — Service Detection** provides an opt-in, TCP-only detector that consumes OPEN Phase 4 results, performs bounded nonblocking AF_INET/AF_INET6 banner/probe exchanges through the same reactor, matches responses against a compact project-owned database, and emits deterministic structured `ServiceResult` values. It is complete for this bounded scope; Phase 5 itself does not implement UDP detection, credential handling, or service exploitation. Live OS fingerprinting is provided separately by the Phase 14 path.
 
 **Phase 6 — OS Fingerprinting Architecture** provides typed packet evidence extraction, a small Skan-owned runtime fingerprint database, deterministic weighted available-evidence matching, and a bounded `OSScheduler`/`OSDetector` over the shared Phase 1 reactor. Phase 14 extends this architecture with TCP SYN/ACK/FIN/NULL/XMAS and UDP/ICMP evidence families plus explicit live transport capability handling.
 
@@ -82,14 +82,13 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 **Phase 11 — Unified Scan Orchestrator** is complete for sequential discovery, port, service, OS, and output coordination over the existing bounded asynchronous subsystems, with cancellation, typed events, deterministic offline transports, and capability-honest Linux behavior.
 
-**Phase 12 — Target Resolution and Target Engine** is complete
- for IPv4, CIDR, inclusive ranges, hostnames through bounded A-record resolution, mixed input, deduplication, deterministic numeric ordering, and normalized handoff to Phase 11. It deliberately does not add IPv6 or blocking DNS inside the scan reactor.
+**Phase 12/15 — Target Resolution and Target Engine** is complete for typed IPv4/IPv6 literals, CIDR, inclusive ranges, hostnames through bounded synchronous A+AAAA resolution, mixed input, binary-identity deduplication, deterministic family-aware ordering, and normalized handoff to Phase 11. Resolution occurs before the scan reactor and never blocks an IOEngine callback.
 
-**Phase 13 — Bounded UDP Scan Engine** is complete for explicit offline UDP scanning and capability-gated Linux AF_PACKET UDP transport. It adds strict project-owned UDP probes, bounded source-port allocation, ICMPv4 unreachable classification, retries and timeout semantics, pipeline/output integration, stress tests, and no implicit fallback. UDP service identification, UDP OS fingerprinting, IPv6, and evasion remain outside scope.
+**Phase 13/15 — Bounded UDP Scan Engine** is complete for explicit offline UDP scanning and capability-gated Linux AF_PACKET UDP transport. It adds strict project-owned UDP probes, bounded source-port allocation, IPv4/IPv6 offline packet construction, explicit unreachable classifications, retries and timeout semantics, pipeline/output integration, stress tests, and no implicit fallback. Linux raw IPv6 UDP and UDP OS fingerprinting remain unavailable.
 
 ## Target integration
 
-Phase 12 owns target selection parsing and normalization before the existing `core::Target` boundary. Discovery, port scanning, service detection, and OS detection continue to receive only normalized `core::Host` values and validate dotted-decimal IPv4 addresses; none of those modules understands CIDR, ranges, hostnames, or comma-separated input. The scan pipeline performs normal address, port, protocol, transport, and resource validation after Target Engine resolution; it does not add a hidden public-target default.
+Phase 12/15 owns target selection parsing and normalization before the existing `core::Target` boundary. Discovery, port scanning, service detection, and OS detection receive normalized `core::Host` values with typed binary family identity; none of those modules understands CIDR, ranges, hostnames, or comma-separated input. The scan pipeline performs normal address, port, protocol, transport, and resource validation after Target Engine resolution; it does not add a hidden public-target default.
 
 ## Discovery architecture
 
@@ -127,7 +126,7 @@ The `DiscoveryProbe` abstraction has three responsibilities: identify its strong
 
 | Probe | Packet and correlation behavior | Evidence |
 | --- | --- | --- |
-| ICMP Echo | Uses Phase 2 `ICMP` Echo Request serialization. Correlation requires the exact target source address, Echo Reply type/code, deterministic identifier, and sequence. | Matching Echo Reply produces `UP` with `ICMP_ECHO_REPLY`. |
+| ICMP Echo | Uses Phase 2 `ICMP` or `ICMPv6` Echo Request serialization. Correlation requires typed target identity, Echo Reply type/code, deterministic identifier, and sequence. | Matching Echo Reply produces `UP` with `ICMP_ECHO_REPLY`. |
 | TCP | Uses Phase 2 `TCP` serialization for exactly one configured port. Correlation requires the target source address, response source/destination ports, and SYN sequence acknowledgment when applicable. | SYN/ACK produces `UP` with `TCP_SYN_ACK`; RST produces `UP` with `TCP_RST`. A timeout is `UNKNOWN`. |
 | ARP | Uses a discovery-local 28-byte Ethernet/IPv4 ARP representation. Requests and replies are bounds-checked and correlate target IPv4, operation, and sender/target IPv4 fields. | Matching ARP reply produces `UP` with `ARP_REPLY`. |
 
@@ -159,7 +158,7 @@ PortResult (target, TCP port, state, probe, reason, optional RTT)
 
 `PortScanScheduler` owns the queue, pending correlation map, and one-shot timeout timers. It never creates a second reactor, sleeps, or starts one thread per port. `max_outstanding` bounds active work, and each accepted host/port pair receives a monotonically assigned `PortProbeId`. Results are sorted deterministically by target address, port number, and probe method.
 
-`TcpConnectTransport` opens `AF_INET` stream sockets with `SOCK_CLOEXEC`, sets them nonblocking, handles immediate `connect()` completion and `EINPROGRESS`, and registers a borrowed `io::Event` for writable/error/hangup readiness. Completion reads `SO_ERROR`; success is `OPEN`, `ECONNREFUSED` is `CLOSED`, other socket errors are `UNKNOWN`, and the scheduler deadline produces `FILTERED`. Every terminal path removes the event, cancels the shared timer, closes the descriptor exactly once, and discards the callback.
+`TcpConnectTransport` opens `AF_INET` or `AF_INET6` stream sockets with `SOCK_CLOEXEC`, sets them nonblocking, handles immediate `connect()` completion and `EINPROGRESS`, and registers a borrowed `io::Event` for writable/error/hangup readiness. Completion reads `SO_ERROR`; success is `OPEN`, `ECONNREFUSED` is `CLOSED`, other socket errors are `UNKNOWN`, and the scheduler deadline produces `FILTERED`. Every terminal path removes the event, cancels the shared timer, closes the descriptor exactly once, and discards the callback.
 
 `TcpSynProbe` reuses `packet::TCP` to construct an offline SYN header. It accepts only a response with matching source/destination ports; SYN/ACK requires acknowledgment equal to the SYN sequence plus one and produces `OPEN`, while a correlated RST produces `CLOSED`. Malformed or unrelated packets do not complete pending work. `tcp_syn_network_capability_available()` is false in this build because no raw-packet transport is implemented; a future transport must be injected explicitly and capability-checked rather than silently falling back to fabricated network evidence.
 
@@ -464,7 +463,7 @@ Typed `ScanEvent` values provide stable stage and lifecycle notifications. A suc
 
 ### Configuration and transport policy
 
-`ScanConfig` defaults are deliberately compatible with the earlier `scan` command: TCP Connect, no discovery, no service detection, no OS detection, the existing Phase 4 default ports when the port vector is empty, the Phase 7 default timing profile, bounded timeout and parallelism, normal output, and no file. Validation rejects empty or invalid targets, malformed dotted-decimal IPv4 addresses, port zero, invalid positive bounds, incompatible method/transport combinations, missing Linux interface requirements, unsupported discovery transport selections, invalid service limits, invalid timing profiles, and unusable output paths.
+`ScanConfig` defaults are deliberately compatible with the earlier `scan` command: TCP Connect, no discovery, no service detection, no OS detection, the existing Phase 4 default ports when the port vector is empty, the Phase 7 default timing profile, bounded timeout and parallelism, normal output, and no file. Validation rejects empty or invalid typed targets, malformed IPv4/IPv6 addresses, port zero, invalid positive bounds, incompatible method/transport combinations, missing Linux interface requirements, unsupported discovery transport selections, invalid service limits, invalid timing profiles, and unusable output paths.
 
 Offline mode uses the existing recording transports and is deterministic. Linux mode is selected explicitly and uses the Phase 10 adapters; raw capability or interface failures are surfaced as errors. There is no implicit fallback from Linux to offline. Explicit targets are the only supported scope mechanism, so Phase 11 adds no CIDR or range parser.
 
@@ -514,13 +513,13 @@ core::Target / core::Host conversion at the CLI boundary
 Phase 11 ScanOrchestrator
 ```
 
-`TargetSpec` carries a typed kind and parsed values for one IPv4 address, hostname, IPv4 CIDR, or inclusive IPv4 range. `ResolvedTarget` carries a numeric network-order `uint32_t` IPv4 address and optional source-hostname metadata. `TargetSet` owns normalized values. The implementation exposes explicit `TargetParser`, `TargetResolver`, `TargetNormalizer`, and `TargetDeduplicator` boundaries, with `TargetEngine` as the composed façade.
+`TargetSpec` carries a typed kind and parsed values for IPv4/IPv6 addresses, hostnames, CIDRs, or inclusive ranges. `ResolvedTarget` carries a typed binary IPv4/IPv6 identity and optional source-hostname metadata. `TargetSet` owns normalized values. The implementation exposes explicit `TargetParser`, `TargetResolver`, `TargetNormalizer`, and `TargetDeduplicator` boundaries, with `TargetEngine` as the composed façade.
 
-Parsing accepts strict dotted-decimal IPv4, `/0` through `/32` CIDR, non-reversed IPv4 ranges, DNS hostname syntax, and comma-separated mixtures with surrounding whitespace. Network and broadcast addresses are retained because the target engine represents the exact requested address space. Hostnames use `getaddrinfo()` with `AF_INET` and therefore resolve A records only; IPv6 is not added. The synchronous platform resolver runs at CLI/startup before the shared Phase 1 reactor enters its event loop. An injectable resolver boundary supports later asynchronous resolution without moving blocking DNS into an IOEngine callback.
+Parsing accepts strict IPv4/IPv6 literals, IPv4 `/0` through `/32` and IPv6 `/0` through `/128` CIDR, non-reversed ranges, DNS hostname syntax, and comma-separated mixtures with surrounding whitespace. Network and broadcast addresses are retained because the target engine represents the exact requested address space. Hostnames use `getaddrinfo()` with `AF_UNSPEC` and bounded A+AAAA results. The synchronous platform resolver runs at CLI/startup before the shared Phase 1 reactor enters its event loop. An injectable resolver boundary supports later asynchronous resolution without moving blocking DNS into an IOEngine callback.
 
-Expansion is protected by `TargetLimits::max_targets`, defaulting to 4,096, and `max_hostname_results`, defaulting to 64 per hostname. CIDR/range cardinalities are checked before iteration, duplicates are tracked with a hash set, and the final vector is sorted once by numeric IPv4 value. The engine returns typed `TargetErrorCode` values including `INVALID_IPV4`, `INVALID_CIDR`, `INVALID_RANGE`, `INVALID_HOSTNAME`, `RESOLUTION_FAILED`, `RESOURCE_EXHAUSTED`, and `EMPTY_TARGET_SET`; it never silently truncates. `core::StatusCode::ResourceExhausted` carries resource-limit failures across the existing status boundary.
+Expansion is protected by `TargetLimits::max_targets`, defaulting to 4,096, and `max_hostname_results`, defaulting to 64 per hostname. CIDR/range cardinalities are checked before iteration, duplicates are tracked by binary family-aware identity, and the final vector is sorted once by typed family and address bytes. The engine returns typed `TargetErrorCode` values including `INVALID_IPV4`, `INVALID_CIDR`, `INVALID_RANGE`, `INVALID_HOSTNAME`, `RESOLUTION_FAILED`, `RESOURCE_EXHAUSTED`, and `EMPTY_TARGET_SET`; it never silently truncates. `core::StatusCode::ResourceExhausted` carries resource-limit failures across the existing status boundary.
 
-The CLI provides `resolve <target-spec> [--max-targets N] [--max-hostname-results N] [--json]`. Default output is one normalized IPv4 address per line; JSON output is a compact `targets` array. `scan <target-spec>` resolves before constructing `core::Target`, then passes the same existing Phase 11 configuration and stage pipeline. `discover` and `os-detect` retain their earlier direct IPv4 command contracts in this phase. The Target Engine does no scanning or transport work, and the scan orchestrator does no target parsing or expansion.
+The CLI provides `resolve <target-spec> [--max-targets N] [--max-hostname-results N] [--json]`. Default output is one normalized IPv4/IPv6 address per line; JSON output is a compact `targets` array with an explicit family field. `scan <target-spec>` resolves before constructing `core::Target`, then passes the same existing Phase 11 configuration and stage pipeline. `discover` accepts numeric IPv4/IPv6 addresses for offline probe construction; Linux IPv6 discovery is explicitly unavailable. `os-detect` accepts IPv6 targets but returns structured unavailable evidence rather than running IPv4-only probes. The Target Engine does no scanning or transport work, and the scan orchestrator does no target parsing or expansion.
 
 ## Platform and network boundary
 
@@ -633,4 +632,50 @@ The probe database parser is strict and deterministic. It rejects malformed nume
 | Linux AF_PACKET | Require an explicit interface, discover a usable local IPv4 source, attach capture to the existing reactor, and report permission/not-supported/send/capture failures explicitly. |
 | Unsupported transport | Do not reinterpret Connect sockets as OS packet probes and do not silently downgrade a requested Linux run to offline mode. |
 
-Phase 14 intentionally remains IPv4-only and bounded. It does not add IPv6, TCP option evasion, decoys, spoofing, fragmentation, credential handling, exploitation, service inference, or public-target traffic.
+Phase 15 adds bounded IPv6 parsing and offline/Connect dual-stack behavior while keeping native Linux raw IPv6 and IPv6 OS fingerprinting unavailable. It does not add TCP option evasion, decoys, spoofing, fragmentation, credential handling, exploitation, service inference, or public-target traffic.
+
+
+## Phase 15 — IPv6 foundation and dual-stack boundaries
+
+Phase 15 preserves the Phase 0–14 architecture and extends the existing contracts with typed dual-stack identity. `core::IpAddress` stores an address family and binary bytes; canonical text formatting is a presentation concern. `core::Host`, `target::ResolvedTarget`, probe submissions, correlation keys, and `output::HostResult` carry the typed identity. Equality, hashing, deduplication, filtering, and ordering therefore cannot confuse an IPv4 address with an IPv6 address that has similar text or mapped representation.
+
+The target path is:
+
+```text
+CLI target text
+      ↓
+TargetParser
+      ↓
+synchronous bounded getaddrinfo(AF_UNSPEC)
+      ↓
+TargetResolver / TargetNormalizer / TargetDeduplicator
+      ↓
+deterministic typed TargetSet
+      ↓
+existing ScanOrchestrator and ScanPipeline
+```
+
+IPv4 and IPv6 literals, CIDR, inclusive ranges, comma-separated mixtures, and bounded A+AAAA hostname resolution are handled before the shared reactor starts. IPv6 CIDR/range expansion performs size checks before iteration and never materializes an uncontrolled address space. Downstream modules receive only normalized hosts and do not add another target parser.
+
+The packet path remains singular:
+
+```text
+Ethernet II
+    ↓ EtherType 0x0800 or 0x86DD
+IPv4 or strict IPv6 base header
+    ↓
+bounded IPv6 extension parser when required
+TCP / UDP / ICMPv4 / ICMPv6
+    ↓
+PacketReceiver observations
+    ↓
+family-aware filters and one correlation boundary
+```
+
+The IPv6 packet model validates the fixed 40-byte base header, version, payload length, traffic class, flow label, next-header, hop-limit, and binary addresses. The shared extension parser recognizes Hop-by-Hop Options, Routing, Fragment, and Destination Options headers under explicit count and byte budgets and returns typed malformed, unsupported, or limit outcomes. It is a recognition/parser boundary, not a fragmentation or evasion mechanism. TCP, UDP, and ICMPv6 checksums use the RFC-style IPv6 pseudo-header through one shared checksum helper.
+
+The same Phase 1 `io::IOEngine`, event lifecycle, one-shot timers, schedulers, capture path, and output model are reused for both families. AF_INET6 TCP Connect and bounded service detection use the existing nonblocking stream lifecycle. Offline discovery, UDP construction, ICMPv6 Echo, and synthetic receiver/correlation tests use the existing recording/injected seams. Canonical reports carry `family=ipv4` or `family=ipv6`; JSON, XML, normal, and grepable writers expose it without reconstructing another report model.
+
+Linux raw IPv6 capture/injection is an explicit unavailable capability in this phase. The existing Linux discovery, raw SYN, raw UDP, and live OS adapters remain IPv4/ARP-specific and require an explicitly selected interface. An IPv6 request to those paths returns an explicit unavailable/capability error; it is never changed to offline or Connect mode, and no interface is selected implicitly. IPv6 OS fingerprinting returns structured `UNAVAILABLE` with zero confidence rather than deriving identity from address, port, service, or local platform data. Limited ICMPv6 Neighbor Discovery recognition does not claim a complete ND implementation.
+
+Phase 15 introduces no second reactor, worker threads, polling loops, sleeps, duplicate packet stack, evasion, spoofing, decoys, fragmentation attacks, exploitation, credentials, persistence, or public-target traffic. Phase 16 is intentionally not part of this repository state.

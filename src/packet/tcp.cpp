@@ -187,6 +187,53 @@ core::StatusCode TCP::serialize_with_checksum(
 }
 
 
+core::StatusCode TCP::serialize_with_checksum(
+    std::span<std::uint8_t> output,
+    const std::array<std::uint8_t, 16U> &source_address,
+    const std::array<std::uint8_t, 16U> &destination_address,
+    std::span<const std::uint8_t> payload) const
+{
+    TCP segment = *this;
+    if (!payload.empty()) {
+        segment.payload_.assign(payload.begin(), payload.end());
+    }
+    if (!segment.validate() || output.size() < segment.serialized_size()) {
+        return core::StatusCode::InvalidArgument;
+    }
+    std::vector<std::uint8_t> bytes(segment.serialized_size(), 0U);
+    if (segment.serialize(std::span<std::uint8_t>{bytes}) != core::StatusCode::Ok) {
+        return core::StatusCode::InvalidArgument;
+    }
+    wire::write_u16(std::span<std::uint8_t>{bytes}, 16U, 0U);
+    const std::uint16_t calculated = checksum::ipv6_pseudo_header(
+        source_address, destination_address, 6U, std::span<const std::uint8_t>{bytes});
+    wire::write_u16(std::span<std::uint8_t>{bytes}, 16U, calculated == 0U ? 0xFFFFU : calculated);
+    std::copy(bytes.begin(), bytes.end(), output.begin());
+    return core::StatusCode::Ok;
+}
+
+std::uint16_t TCP::checksum_for_ipv6(
+    const std::array<std::uint8_t, 16U> &source_address,
+    const std::array<std::uint8_t, 16U> &destination_address,
+    std::span<const std::uint8_t> payload) const
+{
+    TCP segment = *this;
+    if (!payload.empty()) {
+        segment.payload_.assign(payload.begin(), payload.end());
+    }
+    if (!segment.validate()) {
+        return 0U;
+    }
+    std::vector<std::uint8_t> bytes(segment.serialized_size(), 0U);
+    if (segment.serialize(std::span<std::uint8_t>{bytes}) != core::StatusCode::Ok) {
+        return 0U;
+    }
+    wire::write_u16(std::span<std::uint8_t>{bytes}, 16U, 0U);
+    const std::uint16_t calculated = checksum::ipv6_pseudo_header(
+        source_address, destination_address, 6U, std::span<const std::uint8_t>{bytes});
+    return calculated == 0U ? 0xFFFFU : calculated;
+}
+
 std::uint16_t TCP::checksum_for_ipv4(
     std::uint32_t source_address,
     std::uint32_t destination_address,

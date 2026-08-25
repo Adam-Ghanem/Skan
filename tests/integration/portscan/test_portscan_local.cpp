@@ -1,7 +1,9 @@
 #include <cassert>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -31,6 +33,32 @@ int make_listener()
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     assert(::bind(socket_fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) == 0);
     assert(::listen(socket_fd, 4) == 0);
+    return socket_fd;
+}
+
+std::uint16_t local_port6(int socket_fd)
+{
+    sockaddr_in6 address{};
+    socklen_t length = sizeof(address);
+    assert(::getsockname(socket_fd, reinterpret_cast<sockaddr *>(&address), &length) == 0);
+    return ntohs(address.sin6_port);
+}
+
+int make_listener6()
+{
+    const int socket_fd = ::socket(AF_INET6, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (socket_fd < 0) {
+        return -1;
+    }
+    sockaddr_in6 address{};
+    address.sin6_family = AF_INET6;
+    address.sin6_port = htons(0U);
+    address.sin6_addr = in6addr_loopback;
+    if (::bind(socket_fd, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
+        ::listen(socket_fd, 4) != 0) {
+        (void)::close(socket_fd);
+        return -1;
+    }
     return socket_fd;
 }
 
@@ -84,6 +112,30 @@ int main()
     assert(saw_open);
     assert(saw_closed);
     assert(::close(listener) == 0);
+
+    const int listener6 = make_listener6();
+    if (listener6 >= 0) {
+        const std::uint16_t open_port6 = local_port6(listener6);
+        skan::io::IOEngine engine6;
+        TcpConnectTransport transport6(engine6);
+        PortScanConfig config6{ScanProbeType::TcpConnect, std::chrono::milliseconds{500}, 1U};
+        PortScanScheduler scheduler6(engine6, transport6, config6);
+        const skan::core::Host host6{
+            "::1", std::nullopt, true,
+            skan::core::IpAddress::from_ipv6({0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+                                               0U, 0U, 0U, 0U, 0U, 0U, 0U, 1U})};
+        const skan::core::Target target6{"local-service-v6", {host6}};
+        assert(scheduler6.submit(target6, {{open_port6, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        assert(scheduler6.run() == skan::core::StatusCode::Ok);
+        assert(scheduler6.complete());
+        assert(scheduler6.results().size() == 1U);
+        assert(scheduler6.results()[0].target == "::1");
+        assert(scheduler6.results()[0].state == PortState::Open);
+        assert(::close(listener6) == 0);
+    } else {
+        // IPv6 loopback is a platform capability; an unavailable local stack is a clear skip.
+        (void)::fprintf(stderr, "SKIP: IPv6 loopback listener unavailable (%s)\\n", std::strerror(errno));
+    }
 
     return 0;
 }

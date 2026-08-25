@@ -9,6 +9,7 @@
 #include "net/packet_receiver.hpp"
 #include "net/capture.hpp"
 #include "packet/checksum.hpp"
+#include "packet/packet.hpp"
 
 #include "net_test_fixture.hpp"
 
@@ -70,6 +71,33 @@ private:
     int descriptors_[2]{-1, -1};
     bool open_{false};
 };
+
+std::vector<std::uint8_t> test_ipv6_frame()
+{
+    const std::array<std::uint8_t, 16U> source{
+        0x20U, 0x01U, 0x0DU, 0xB8U, 0x00U, 0x00U, 0x00U, 0x01U,
+        0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U};
+    const std::array<std::uint8_t, 16U> destination{
+        0x20U, 0x01U, 0x0DU, 0xB8U, 0x00U, 0x00U, 0x00U, 0x02U,
+        0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x02U};
+    skan::packet::Ethernet ethernet(
+        {0x00U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U},
+        {0x66U, 0x77U, 0x88U, 0x99U, 0xAAU, 0xBBU}, 0x86DDU);
+    skan::packet::IPv6 ipv6;
+    ipv6.set_next_header(58U);
+    ipv6.set_source_address(source);
+    ipv6.set_destination_address(destination);
+    skan::packet::ICMPv6 icmpv6(skan::packet::Icmpv6Type::EchoReply);
+    icmpv6.set_identifier(7U);
+    icmpv6.set_sequence(8U);
+    icmpv6.set_payload({0x6FU, 0x6BU});
+    skan::packet::Packet packet;
+    packet.set_ethernet(ethernet);
+    packet.set_ipv6(ipv6);
+    packet.set_icmpv6(icmpv6);
+    assert(packet.validate());
+    return packet.serialize();
+}
 
 void set_ipv4_total_length(std::vector<std::uint8_t> &frame, std::uint16_t total_length)
 {
@@ -150,12 +178,21 @@ int main()
     malformed_icmp[14U + 20U + 2U] ^= 0x01U;
     assert(skan::net::PacketReceiver::parse(malformed_icmp).status == skan::net::ParseStatus::MalformedICMP);
 
-    auto unrelated = tcp_frame;
-    unrelated[12U] = 0x86U;
-    unrelated[13U] = 0xDDU;
-    const skan::net::PacketObservation unsupported = skan::net::PacketReceiver::parse(unrelated);
-    assert(unsupported.status == skan::net::ParseStatus::UnsupportedEtherType);
-    assert(unsupported.ethernet.has_value());
+    const auto ipv6_frame = test_ipv6_frame();
+    const skan::net::PacketObservation ipv6 = skan::net::PacketReceiver::parse(ipv6_frame, timestamp);
+    assert(ipv6.status == skan::net::ParseStatus::Valid);
+    assert(ipv6.ipv6.has_value());
+    assert(ipv6.icmpv6.has_value());
+    assert(ipv6.icmpv6->sequence() == 8U);
+
+    auto malformed_ipv6 = ipv6_frame;
+    malformed_ipv6[14U] = 0x45U;
+    assert(skan::net::PacketReceiver::parse(malformed_ipv6).status == skan::net::ParseStatus::MalformedIPv6);
+
+    auto unsupported = tcp_frame;
+    unsupported[12U] = 0x12U;
+    unsupported[13U] = 0x34U;
+    assert(skan::net::PacketReceiver::parse(unsupported).status == skan::net::ParseStatus::UnsupportedEtherType);
 
     skan::net::RecordingCapture capture;
     capture.enqueue(tcp_frame);

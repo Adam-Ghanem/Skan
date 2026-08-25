@@ -51,6 +51,8 @@ struct UDPSubmission final {
     std::vector<std::uint8_t> payload;
     std::string probe_name;
     std::size_t max_response_bytes{8192U};
+    core::IpAddress source_ip{};
+    core::IpAddress destination_ip{};
 };
 
 struct UDPResponse final {
@@ -62,6 +64,7 @@ struct UDPResponse final {
     UDPResponseKind kind{UDPResponseKind::Malformed};
     std::vector<std::uint8_t> bytes;
     UDPScanTimePoint received_at{};
+    core::IpAddress source_ip{};
 };
 
 using UDPResponseCallback = std::function<void(const UDPResponse &)>;

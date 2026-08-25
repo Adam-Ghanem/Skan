@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <utility>
 
+#include "packet/checksum.hpp"
+
 namespace skan::net {
 namespace {
 
 constexpr std::uint16_t kEtherTypeIpv4 = 0x0800U;
+constexpr std::uint16_t kEtherTypeIpv6 = 0x86DDU;
 constexpr std::size_t kMaximumFrameSize = 65535U;
 
 std::uint16_t read_u16(std::span<const std::uint8_t> input, std::size_t offset) noexcept
@@ -36,6 +39,16 @@ const char *parse_status_name(ParseStatus status) noexcept
         return "truncated-ipv4";
     case ParseStatus::MalformedIPv4:
         return "malformed-ipv4";
+    case ParseStatus::TruncatedIPv6:
+        return "truncated-ipv6";
+    case ParseStatus::MalformedIPv6:
+        return "malformed-ipv6";
+    case ParseStatus::UnsupportedIPv6Extension:
+        return "unsupported-ipv6-extension";
+    case ParseStatus::MalformedIPv6Extension:
+        return "malformed-ipv6-extension";
+    case ParseStatus::IPv6ExtensionLimitExceeded:
+        return "ipv6-extension-limit-exceeded";
     case ParseStatus::UnsupportedIpProtocol:
         return "unsupported-ip-protocol";
     case ParseStatus::TruncatedTCP:
@@ -50,6 +63,10 @@ const char *parse_status_name(ParseStatus status) noexcept
         return "truncated-icmp";
     case ParseStatus::MalformedICMP:
         return "malformed-icmp";
+    case ParseStatus::TruncatedICMPv6:
+        return "truncated-icmpv6";
+    case ParseStatus::MalformedICMPv6:
+        return "malformed-icmpv6";
     }
     return "unknown";
 }
@@ -78,6 +95,91 @@ PacketObservation PacketReceiver::parse(
     observation.ethernet = packet::Ethernet::parse(frame.first(packet::Ethernet::kHeaderSize));
     if (!observation.ethernet.has_value()) {
         observation.status = ParseStatus::MalformedEthernet;
+        return observation;
+    }
+    if (observation.ethernet->ether_type() == kEtherTypeIpv6) {
+        const std::span<const std::uint8_t> ip_input = frame.subspan(packet::Ethernet::kHeaderSize);
+        if (ip_input.size() < packet::IPv6::kHeaderSize) {
+            observation.status = ParseStatus::TruncatedIPv6;
+            return observation;
+        }
+        observation.ipv6 = packet::IPv6::parse(ip_input);
+        if (!observation.ipv6.has_value()) {
+            observation.status = ParseStatus::MalformedIPv6;
+            return observation;
+        }
+        const std::size_t ipv6_payload_size = static_cast<std::size_t>(observation.ipv6->payload_length());
+        const std::span<const std::uint8_t> ip_packet = ip_input.first(packet::IPv6::kHeaderSize + ipv6_payload_size);
+        const std::span<const std::uint8_t> ipv6_payload = ip_packet.subspan(packet::IPv6::kHeaderSize);
+        observation.ipv6_extensions = packet::parse_ipv6_extensions(
+            ipv6_payload, observation.ipv6->next_header(), 8U, 2048U);
+        switch (observation.ipv6_extensions.status) {
+        case packet::IPv6ExtensionParseStatus::Malformed:
+            observation.status = ParseStatus::MalformedIPv6Extension;
+            return observation;
+        case packet::IPv6ExtensionParseStatus::LimitExceeded:
+            observation.status = ParseStatus::IPv6ExtensionLimitExceeded;
+            return observation;
+        case packet::IPv6ExtensionParseStatus::Unsupported:
+            observation.status = ParseStatus::UnsupportedIPv6Extension;
+            return observation;
+        case packet::IPv6ExtensionParseStatus::NoNextHeader:
+            observation.status = ParseStatus::UnsupportedIpProtocol;
+            return observation;
+        case packet::IPv6ExtensionParseStatus::Complete:
+            break;
+        }
+        const std::span<const std::uint8_t> transport = ipv6_payload.subspan(observation.ipv6_extensions.consumed_bytes);
+        switch (observation.ipv6_extensions.terminal_next_header) {
+        case 6U:
+            if (transport.size() < packet::TCP::kMinimumHeaderSize) {
+                observation.status = ParseStatus::TruncatedTCP;
+                return observation;
+            }
+            observation.tcp = packet::TCP::parse(transport);
+            if (!observation.tcp.has_value()) {
+                observation.status = ParseStatus::MalformedTCP;
+                return observation;
+            }
+            break;
+        case 17U: {
+            if (transport.size() < packet::UDP::kHeaderSize) {
+                observation.status = ParseStatus::TruncatedUDP;
+                return observation;
+            }
+            const std::size_t udp_length = read_u16(transport, 4U);
+            if (udp_length < packet::UDP::kHeaderSize) {
+                observation.status = ParseStatus::MalformedUDP;
+                return observation;
+            }
+            if (udp_length > transport.size()) {
+                observation.status = ParseStatus::TruncatedUDP;
+                return observation;
+            }
+            observation.udp = packet::UDP::parse(transport.first(udp_length));
+            if (!observation.udp.has_value()) {
+                observation.status = ParseStatus::MalformedUDP;
+                return observation;
+            }
+            break;
+        }
+        case 58U:
+            if (transport.size() < packet::ICMPv6::kHeaderSize) {
+                observation.status = ParseStatus::TruncatedICMPv6;
+                return observation;
+            }
+            observation.icmpv6 = packet::ICMPv6::parse(transport);
+            if (!observation.icmpv6.has_value() || packet::checksum::ipv6_pseudo_header(
+                    observation.ipv6->source_address(), observation.ipv6->destination_address(), 58U, transport) != 0U) {
+                observation.status = ParseStatus::MalformedICMPv6;
+                return observation;
+            }
+            break;
+        default:
+            observation.status = ParseStatus::UnsupportedIpProtocol;
+            return observation;
+        }
+        observation.status = ParseStatus::Valid;
         return observation;
     }
     if (observation.ethernet->ether_type() != kEtherTypeIpv4) {

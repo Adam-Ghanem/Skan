@@ -256,6 +256,7 @@ OutputStatus XmlOutputWriter::write(
 
     for (const HostResult *host : detail::ordered_hosts(report)) {
         std::string attributes = attribute("address", host->address) +
+                                 attribute("family", core::address_family_name(host->family)) +
                                  attribute("state", discovery::host_state_name(host->state));
         if (context.include_hostnames && host->hostname.has_value()) {
             attributes += attribute("hostname", *host->hostname);

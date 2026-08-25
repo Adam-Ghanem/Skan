@@ -1,6 +1,7 @@
 #include "detect/service_probe.hpp"
 
 #include <arpa/inet.h>
+#include <array>
 #include <cerrno>
 #include <cstring>
 #include <netinet/in.h>
@@ -12,6 +13,25 @@
 #include <utility>
 
 namespace skan::detect {
+namespace {
+
+std::optional<core::IpAddress> parse_target_address(std::string_view text) noexcept
+{
+    const std::string value(text);
+    in_addr ipv4{};
+    if (::inet_pton(AF_INET, value.c_str(), &ipv4) == 1) {
+        return core::IpAddress::from_ipv4(ntohl(ipv4.s_addr));
+    }
+    in6_addr ipv6{};
+    if (::inet_pton(AF_INET6, value.c_str(), &ipv6) == 1) {
+        std::array<std::uint8_t, 16U> bytes{};
+        std::copy(std::begin(ipv6.s6_addr), std::end(ipv6.s6_addr), bytes.begin());
+        return core::IpAddress::from_ipv6(bytes);
+    }
+    return std::nullopt;
+}
+
+} // namespace
 
 core::StatusCode RecordingServiceTransport::submit(
     const ServiceSubmission &submission,
@@ -86,8 +106,9 @@ core::StatusCode ServiceProbe::build(
         definition_.protocol != TransportProtocol::Tcp || max_response_bytes_ == 0U) {
         return core::StatusCode::InvalidArgument;
     }
-    in_addr address{};
-    if (::inet_pton(AF_INET, target.address.c_str(), &address) != 1) {
+    const auto address = target.ip_address.valid() ? std::optional<core::IpAddress>{target.ip_address}
+                                                   : parse_target_address(target.address);
+    if (!address.has_value()) {
         return core::StatusCode::InvalidArgument;
     }
     submission = ServiceSubmission{};
@@ -98,6 +119,7 @@ core::StatusCode ServiceProbe::build(
     submission.probe_name = definition_.name;
     submission.payload = definition_.payload;
     submission.max_response_bytes = max_response_bytes_;
+    submission.target_ip = *address;
     return core::StatusCode::Ok;
 }
 
@@ -180,11 +202,13 @@ core::StatusCode ServiceTcpTransport::submit(
     if (connections_.find(submission.id) != connections_.end()) {
         return core::StatusCode::InvalidArgument;
     }
-    in_addr address{};
-    if (::inet_pton(AF_INET, submission.target.c_str(), &address) != 1) {
+    const auto address = submission.target_ip.valid() ? std::optional<core::IpAddress>{submission.target_ip}
+                                                       : parse_target_address(submission.target);
+    if (!address.has_value()) {
         return core::StatusCode::InvalidArgument;
     }
-    const int file_descriptor = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    const int address_family = address->is_ipv6() ? AF_INET6 : AF_INET;
+    const int file_descriptor = ::socket(address_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (file_descriptor < 0) {
         return errno == EACCES || errno == EPERM ? core::StatusCode::PermissionDenied
                                                   : core::StatusCode::IoError;
@@ -194,14 +218,30 @@ core::StatusCode ServiceTcpTransport::submit(
         ::close(file_descriptor);
         return nonblocking_status;
     }
-    sockaddr_in socket_address{};
-    socket_address.sin_family = AF_INET;
-    socket_address.sin_port = htons(submission.port.number);
-    socket_address.sin_addr = address;
+    sockaddr_storage socket_address{};
+    socklen_t socket_address_size = 0U;
+    if (address->is_ipv6()) {
+        auto *ipv6_address = reinterpret_cast<sockaddr_in6 *>(&socket_address);
+        ipv6_address->sin6_family = AF_INET6;
+        ipv6_address->sin6_port = htons(submission.port.number);
+        std::copy(address->bytes.begin(), address->bytes.end(), ipv6_address->sin6_addr.s6_addr);
+        socket_address_size = static_cast<socklen_t>(sizeof(sockaddr_in6));
+    } else {
+        auto *ipv4_address = reinterpret_cast<sockaddr_in *>(&socket_address);
+        ipv4_address->sin_family = AF_INET;
+        ipv4_address->sin_port = htons(submission.port.number);
+        const std::uint32_t network_address = htonl(
+            (static_cast<std::uint32_t>(address->bytes[0]) << 24U) |
+            (static_cast<std::uint32_t>(address->bytes[1]) << 16U) |
+            (static_cast<std::uint32_t>(address->bytes[2]) << 8U) |
+            static_cast<std::uint32_t>(address->bytes[3]));
+        ipv4_address->sin_addr.s_addr = network_address;
+        socket_address_size = static_cast<socklen_t>(sizeof(sockaddr_in));
+    }
     const int connect_result = ::connect(
         file_descriptor,
         reinterpret_cast<const sockaddr *>(&socket_address),
-        sizeof(socket_address));
+        socket_address_size);
     if (connect_result < 0 && errno != EINPROGRESS) {
         const int connect_error = errno;
         ::close(file_descriptor);

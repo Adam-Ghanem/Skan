@@ -16,6 +16,11 @@ bool matches(const PacketFilter &filter, const PacketObservation &packet) noexce
             return false;
         }
         break;
+    case PacketProtocol::IPv6:
+        if (!packet.ipv6.has_value()) {
+            return false;
+        }
+        break;
     case PacketProtocol::TCP:
         if (!packet.tcp.has_value()) {
             return false;
@@ -28,6 +33,11 @@ bool matches(const PacketFilter &filter, const PacketObservation &packet) noexce
         break;
     case PacketProtocol::ICMP:
         if (!packet.icmp.has_value()) {
+            return false;
+        }
+        break;
+    case PacketProtocol::ICMPv6:
+        if (!packet.icmpv6.has_value()) {
             return false;
         }
         break;
@@ -60,6 +70,13 @@ bool matches(const PacketFilter &filter, const PacketObservation &packet) noexce
 std::size_t CorrelationKeyHash::operator()(const CorrelationKey &key) const noexcept
 {
     std::size_t hash = static_cast<std::size_t>(key.target_ipv4);
+    if (key.target_ip.valid()) {
+        hash = static_cast<std::size_t>(key.target_ip.family);
+        for (const std::uint8_t byte : key.target_ip.bytes) {
+            hash ^= static_cast<std::size_t>(byte) + static_cast<std::size_t>(0x9e3779b9U) +
+                    (hash << 6U) + (hash >> 2U);
+        }
+    }
     hash ^= static_cast<std::size_t>(key.source_port) + static_cast<std::size_t>(0x9e3779b9U) +
             (hash << 6U) + (hash >> 2U);
     hash ^= static_cast<std::size_t>(key.destination_port) + static_cast<std::size_t>(0x9e3779b9U) +

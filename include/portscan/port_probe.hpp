@@ -33,6 +33,7 @@ struct PortSubmission final {
     std::vector<std::uint8_t> packet;
     std::uint16_t source_port{0U};
     std::uint32_t sequence_number{0U};
+    core::IpAddress target_ip{};
 };
 
 using PortResponseCallback = std::function<void(const PortResponse &)>;

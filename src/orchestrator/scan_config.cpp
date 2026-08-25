@@ -1,8 +1,23 @@
 #include "orchestrator/scan_config.hpp"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
 #include "discovery/discovery_types.hpp"
 
 namespace skan::orchestrator {
+namespace {
+
+bool valid_host_address(const core::Host &host) noexcept
+{
+    if (host.ip_address.valid() || discovery::parse_ipv4_address(host.address).has_value()) {
+        return true;
+    }
+    in6_addr address{};
+    return ::inet_pton(AF_INET6, host.address.c_str(), &address) == 1;
+}
+
+} // namespace
 
 const char *scan_transport_name(ScanTransport transport) noexcept
 {
@@ -80,7 +95,7 @@ core::StatusCode ScanConfig::validate() const noexcept
             return core::StatusCode::InvalidArgument;
         }
         for (const core::Host &host : target.resolved_hosts) {
-            if (!discovery::parse_ipv4_address(host.address).has_value()) {
+            if (!valid_host_address(host)) {
                 return core::StatusCode::InvalidArgument;
             }
         }

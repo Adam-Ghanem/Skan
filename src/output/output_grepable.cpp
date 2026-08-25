@@ -31,7 +31,8 @@ OutputStatus GrepableOutputWriter::write(
     output << '\n';
     for (const HostResult *host : detail::ordered_hosts(report)) {
         output << "Host: address=\"" << detail::grep_escape(host->address)
-               << "\" state=" << discovery::host_state_name(host->state);
+               << "\" family=" << core::address_family_name(host->family)
+               << " state=" << discovery::host_state_name(host->state);
         if (context.include_hostnames && host->hostname.has_value()) {
             output << " hostname=\"" << detail::grep_escape(*host->hostname) << '"';
         }

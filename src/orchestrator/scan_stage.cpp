@@ -16,6 +16,13 @@
 namespace skan::orchestrator {
 namespace {
 
+bool has_ipv6_hosts(const core::Target &target) noexcept
+{
+    return std::any_of(target.resolved_hosts.begin(), target.resolved_hosts.end(), [](const core::Host &host) {
+        return host.ip_address.is_ipv6() || host.address.find(':') != std::string::npos;
+    });
+}
+
 StageResult stage_success()
 {
     return {core::StatusCode::Ok, true, false, {}};
@@ -55,6 +62,10 @@ StageResult DiscoveryStage::start()
     if (dependencies_ != nullptr && dependencies_->discovery_transport) {
         transport_ = dependencies_->discovery_transport(engine_, config_);
     } else if (config_.transport == ScanTransport::Linux) {
+        if (has_ipv6_hosts(target_)) {
+            result_ = stage_failure(core::StatusCode::PermissionDenied, "IPv6 Linux discovery is unavailable; no fallback transport is used");
+            return result_;
+        }
         if (!config_.interface_name.has_value()) {
             result_ = stage_failure(core::StatusCode::InvalidArgument, "Linux discovery requires an interface");
             return result_;
@@ -170,6 +181,10 @@ StageResult PortScanStage::start()
     } else if (config_.transport == ScanTransport::Connect) {
         transport_ = std::make_unique<portscan::TcpConnectTransport>(engine_);
     } else {
+        if (has_ipv6_hosts(target_)) {
+            result_ = stage_failure(core::StatusCode::PermissionDenied, "IPv6 Linux TCP SYN scanning is unavailable; no fallback transport is used");
+            return result_;
+        }
         if (!config_.interface_name.has_value()) {
             result_ = stage_failure(core::StatusCode::InvalidArgument, "Linux port scan requires an interface");
             return result_;
@@ -277,6 +292,10 @@ StageResult UdpScanStage::start()
     } else if (config_.transport == ScanTransport::Offline) {
         transport_ = std::make_unique<portscan::RecordingUDPTransport>();
     } else if (config_.transport == ScanTransport::Linux) {
+        if (has_ipv6_hosts(target_)) {
+            result_ = stage_failure(core::StatusCode::PermissionDenied, "IPv6 Linux UDP scanning is unavailable; no fallback transport is used");
+            return result_;
+        }
         if (!config_.interface_name.has_value()) {
             result_ = stage_failure(core::StatusCode::InvalidArgument, "Linux UDP scan requires an interface");
             return result_;
@@ -444,6 +463,16 @@ StageResult OSDetectionStage::start(
     (void)service_results;
     if (cancelled_) {
         result_ = stage_cancelled();
+        return result_;
+    }
+    if (has_ipv6_hosts(target_)) {
+        unavailable_ = true;
+        osdetect::OSDetectionResult unavailable;
+        unavailable.target = target_.original_specification;
+        unavailable.state = osdetect::OSDetectionState::Unavailable;
+        unavailable.error = osdetect::OSDetectionError::CapabilityUnavailable;
+        detection_result_ = std::move(unavailable);
+        result_ = stage_success();
         return result_;
     }
     const bool injected_transport = dependencies_ != nullptr && dependencies_->os_transport;

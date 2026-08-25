@@ -96,7 +96,7 @@ AF_PACKET-dependent tests were skipped because the execution environment returne
 
 The next target-related upgrade should replace the current synchronous platform resolver with an asynchronous implementation behind the existing injectable `HostnameResolver` boundary if hostname resolution latency becomes material. The existing parser, CIDR/range expansion, canonicalization, deduplication, explicit limits, and numeric ordering should remain unchanged.
 
-Broader protocol coverage, larger corpus management, and optional scripting should follow only after their ownership and resource limits are specified. Phase 14 intentionally does not claim IPv6, evasion, spoofing, decoys, fragmentation, credentials, exploitation, UDP service inference, or public-target scanning. Performance work should continue with measured benchmarks for target expansion, packet parsing, correlation, queue operations, matching, and output serialization rather than speculative rewrites.
+Broader protocol coverage, larger corpus management, and optional scripting should follow only after their ownership and resource limits are specified. Phase 15 now implements the typed IPv6 foundation and bounded dual-stack offline/Connect paths; it still does not claim native Linux raw IPv6, complete ND, IPv6 OS fingerprinting, evasion, spoofing, decoys, fragmentation, credentials, exploitation, UDP service inference, or public-target scanning. Performance work should continue with measured benchmarks for target expansion, packet parsing, correlation, queue operations, matching, and output serialization rather than speculative rewrites.
 
 ## References
 
@@ -125,7 +125,7 @@ Phase 13 adds first-class UDP scanning without changing the established TCP/disc
 
 The expanded tests include malformed ICMP and embedded packet truncation, strict UDP database failures, response classification, retries, timeout state, duplicate/unrelated response isolation, pipeline ordering, ten-thousand-operation host/port coverage, one-hundred-thousand-operation offline coverage, and a Linux raw capability test that reports `SKIPPED` on hosts without AF_PACKET permission. The fuzz entry point now exercises UDP port/probe-database parsing and OS probe construction/assessment alongside the existing bounded packet parsers.
 
-The remaining UDP limitations are intentional: IPv6 is not implemented, Linux live results depend on host AF_PACKET and interface neighbor capabilities, UDP protocol/service matching is absent, and UDP data is not used for OS fingerprinting. The implementation makes no claim of evasion, spoofing, fragmentation, credentials, exploitation, or public-target safety beyond the existing explicit-target and capability boundaries.
+The remaining UDP limitations are intentional: offline IPv6 packet construction and family-aware correlation are implemented, but Linux live raw IPv6 remains unavailable; UDP protocol/service matching is absent, and UDP data is not used for OS fingerprinting. The implementation makes no claim of evasion, spoofing, fragmentation, credentials, exploitation, or public-target safety beyond the existing explicit-target and capability boundaries.
 
 
 ## K. Phase 14 live OS fingerprinting audit update
@@ -143,7 +143,7 @@ Phase 14 adds live-capable OS fingerprinting through the existing typed probe, s
 | Linux capability boundary | Passed | Permission, not-supported, interface, capture, and send failures are explicit `UNAVAILABLE` evidence; no offline fallback occurs. |
 | Stress and safety | Passed | Deterministic injected tests cover 1,000 hosts and 12,000 probes, cancellation, timeout, malformed, duplicate, and unrelated evidence. |
 
-The remaining limitations are intentional. Phase 14 is IPv4-only, uses a small project-owned fingerprint dataset rather than a broad corpus, does not implement UDP service inference, does not add evasion or spoofing, and does not generate public-target traffic. AF_PACKET tests remain environment-dependent and report `SKIPPED` when the sandbox returns `Operation not permitted`; this is not counted as live-network success.
+The remaining limitations are intentional. Live OS probe execution remains IPv4-only and uses a small project-owned fingerprint dataset rather than a broad corpus; IPv6 OS detection is structured `UNAVAILABLE`, UDP service inference is absent, evasion/spoofing are prohibited, and no public-target traffic is generated. AF_PACKET tests remain environment-dependent and report `SKIPPED` when the sandbox returns `Operation not permitted`; this is not counted as live-network success.
 
 
 ## L. Post-Phase-14 deep audit
@@ -168,7 +168,7 @@ No defect was found requiring a second reactor, a worker thread, polling, a slee
 
 The reactor boundary remains coherent. Production event multiplexing is centralized in `IOEngine` using epoll; timers are represented by the existing timer mechanism; transport descriptors are attached through existing event ownership; and callbacks revalidate opaque registration tokens before dereferencing events. The audit found no production `std::thread`, `pthread`, `std::async`, `poll`, `select`, `sleep`, or additional epoll reactor outside the existing `IOEngine` implementation.
 
-The packet boundary remains coherent. IPv4 total length is validated before transport dispatch, UDP length is validated before parsing, TCP data offsets and recognized option lengths are bounded, and ICMP checksums are verified. Unknown TCP options are skipped with alignment checks rather than being treated as malformed solely because they are not represented in the compact public model. The project still does not claim IPv6 parsing or scanning.
+The packet boundary remains coherent. IPv4 total length is validated before transport dispatch, UDP length is validated before parsing, TCP data offsets and recognized option lengths are bounded, ICMP checksums are verified, and IPv6 base/extension lengths are bounded before transport dispatch. Unknown TCP options are skipped with alignment checks rather than being treated as malformed solely because they are not represented in the compact public model. IPv6 parsing and offline/Connect scanning are implemented; native Linux raw IPv6 scanning remains unavailable.
 
 The primary remaining API caveat is borrowed database lifetime in direct `OSScheduler` and `ServiceScheduler` construction. It is now documented; direct callers must keep the database alive, and callers needing ownership should use `OSDetector` or `ServiceDetector`. Converting those low-level schedulers to value ownership would cause avoidable copies and broader API churn, so it is not included in this focused audit change.
 
@@ -203,16 +203,16 @@ The benchmark demonstrates approximately linear growth over the tested range. Th
 
 | Priority | Candidate work | Rationale and acceptance boundary |
 | --- | --- | --- |
-| P1 | Async hostname resolution behind the existing `HostnameResolver` seam | Avoid blocking the single reactor when DNS latency matters; preserve IPv4-only, bounded result count, deterministic ordering, and injectable tests. |
+| P1 | Async hostname resolution behind the existing `HostnameResolver` seam | Avoid blocking the single reactor when DNS latency matters; preserve typed A+AAAA bounds, deterministic ordering, and injectable tests. |
 | P1 | Broaden OS corpus and response model only with project-owned data and explicit provenance | Improve identification quality without importing Nmap’s database; add corpus validation, confidence calibration, and unknown/insufficient-evidence semantics. |
 | P1 | Add live-network integration in a controlled lab environment | Validate AF_PACKET send/capture and neighbor behavior with an explicit interface and private fixtures; never convert capability failure into offline fallback. |
 | P2 | Add measured output-path and report-builder profiling | Reduce avoidable copying/sorting only after profiling; retain canonical ordering and all four output contracts. |
 | P2 | Add direct CLI parser fuzzing and long-run cancellation/resource tests | Exercise malformed options, extreme target limits, repeated cancellation, timer exhaustion, and output-path failures without public traffic. |
 | P2 | Expand TCP/UDP protocol coverage within the existing packet layer | Consider additional safe scan semantics or UDP service evidence only with typed models, strict correlation, bounded payloads, and canonical `PortResult` states. |
-| P3 | IPv6 architecture and implementation | Requires new IPv6 packet, ICMPv6, Neighbor Discovery, target, capture, database, and output semantics; do not begin piecemeal. |
+| P3 | Native Linux IPv6 raw capability | Requires a separately reviewed, explicit-interface capture/injection implementation and controlled lab acceptance; current Phase 15 behavior remains unavailable with no fallback. |
 | P3 | Optional scripting/extensibility | Requires a separate sandbox, resource, authorization, and output design; it is not a small Phase 15 patch and is intentionally not started. |
 
-No Phase 15 implementation was started by this audit.
+Phase 15 implementation is now present in the working tree and is audited below; Phase 16 is not started.
 
 ## M. Additional references
 
@@ -224,3 +224,25 @@ No Phase 15 implementation was started by this audit.
 [11]: https://nmap.org/book/man-performance.html "Nmap Timing and Performance"
 [12]: https://nmap.org/book/man-output.html "Nmap Output"
 [13]: https://nmap.org/book/nse.html "Nmap Scripting Engine"
+
+
+## N. Phase 15 IPv6 and dual-stack audit update
+
+Phase 15 extends the existing single-reactor architecture with a typed binary IPv4/IPv6 identity and bounded dual-stack execution. No second packet stack, scheduler, reactor, worker thread, polling loop, sleep, implicit interface selection, or fallback path was introduced.
+
+| Area | Audit status | Evidence and boundary |
+| --- | --- | --- |
+| Typed identity | Passed | `core::IpAddress` carries family and binary bytes through targets, hosts, submissions, correlation, aggregation, and reports; IPv4 and IPv6 cannot cross-match. |
+| Target Engine | Passed | IPv4/IPv6 literals, CIDR, ranges, comma-separated mixtures, bounded A+AAAA resolution, binary deduplication, canonical formatting, and deterministic family-aware ordering. |
+| IPv6 packet model | Passed | Strict 40-byte base-header validation and serialization with payload bounds, traffic class, flow label, next-header, hop-limit, and binary addresses. |
+| IPv6 extensions | Passed within scope | Hop-by-Hop, Routing, Fragment, and Destination Options are recognized under header-count and byte budgets with malformed/unsupported/limit states; no extension attack generation or complete fragment reassembly is claimed. |
+| Checksums and ICMPv6 | Passed within scope | Shared IPv6 pseudo-header accumulation supports TCP, UDP, and ICMPv6; Echo, bounded error messages, and limited ND forms are parsed/serialized safely. |
+| PacketReceiver and filtering | Passed | EtherType `0x86DD`, bounded extension dispatch, typed IPv6 observations, and family-aware filters/correlation reuse the existing receiver and table boundaries. |
+| AF_INET6 Connect/service | Passed | Existing nonblocking event/timer lifecycle supports AF_INET6 loopback; bounded TCP service detection uses the same transport path. |
+| Offline discovery/UDP | Passed | Existing schedulers and recording seams construct IPv6 ICMP/TCP/UDP probes and correlate injected typed responses; UDP silence remains `OPEN_OR_FILTERED`. |
+| Linux raw IPv6 | Explicitly unavailable | Existing raw Linux adapters remain IPv4/ARP-specific and require an explicit interface; IPv6 requests fail clearly without fallback or fabricated success. |
+| IPv6 OS detection | Explicitly unavailable | The orchestrator returns `UNAVAILABLE` with zero confidence for IPv6-containing targets; no address/port/service-derived identity is emitted. |
+| Output and CLI | Passed | Canonical host results and JSON/XML/grepable output expose `family`; `resolve`, `scan`, and offline `discover` accept canonical IPv6 and mixed targets. |
+| Safety | Passed | Tests and smoke checks use loopback, documentation-space, synthetic, or injected data only; no public-target traffic, evasion, spoofing, credentials, exploitation, or persistence exists. |
+
+The environment continued to lack AF_PACKET permission, so raw Linux tests remained clear `SKIPPED` cases with `Operation not permitted`. The optional libFuzzer target also remained a clear `SKIPPED` case because `clang++` is unavailable; the harness itself is extended with IPv6, extension, ICMPv6, PacketReceiver, and typed-address entry points.

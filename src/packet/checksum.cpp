@@ -32,6 +32,38 @@ std::uint16_t internet(std::span<const std::uint8_t> bytes) noexcept
     return static_cast<std::uint16_t>(~sum & 0xFFFFU);
 }
 
+std::uint16_t ipv6_pseudo_header(
+    const std::array<std::uint8_t, 16U> &source_address,
+    const std::array<std::uint8_t, 16U> &destination_address,
+    std::uint8_t next_header,
+    std::span<const std::uint8_t> transport_bytes) noexcept
+{
+    if (transport_bytes.size() > 0xFFFFFFFFULL) {
+        return 0U;
+    }
+    std::uint32_t sum = 0U;
+    for (std::size_t index = 0U; index < 16U; index += 2U) {
+        sum = add_word(sum, static_cast<std::uint16_t>((static_cast<std::uint16_t>(source_address[index]) << 8U) |
+                                                        static_cast<std::uint16_t>(source_address[index + 1U])));
+        sum = add_word(sum, static_cast<std::uint16_t>((static_cast<std::uint16_t>(destination_address[index]) << 8U) |
+                                                        static_cast<std::uint16_t>(destination_address[index + 1U])));
+    }
+    sum = add_word(sum, static_cast<std::uint16_t>((transport_bytes.size() >> 16U) & 0xFFFFU));
+    sum = add_word(sum, static_cast<std::uint16_t>(transport_bytes.size() & 0xFFFFU));
+    sum = add_word(sum, static_cast<std::uint16_t>(next_header));
+    for (std::size_t offset = 0U; offset + 1U < transport_bytes.size(); offset += 2U) {
+        sum = add_word(sum, static_cast<std::uint16_t>((static_cast<std::uint16_t>(transport_bytes[offset]) << 8U) |
+                                                        static_cast<std::uint16_t>(transport_bytes[offset + 1U])));
+    }
+    if ((transport_bytes.size() & 1U) != 0U) {
+        sum = add_word(sum, static_cast<std::uint16_t>(static_cast<std::uint16_t>(transport_bytes.back()) << 8U));
+    }
+    while ((sum >> 16U) != 0U) {
+        sum = (sum & 0xFFFFU) + (sum >> 16U);
+    }
+    return static_cast<std::uint16_t>(~sum & 0xFFFFU);
+}
+
 std::uint16_t ipv4_pseudo_header(
     std::uint32_t source_address,
     std::uint32_t destination_address,

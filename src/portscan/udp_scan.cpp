@@ -1,6 +1,8 @@
 #include "portscan/udp_scan.hpp"
 
 #include <algorithm>
+#include <arpa/inet.h>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <fstream>
@@ -19,6 +21,25 @@ constexpr std::size_t kMaximumPayloadBytes = 512U;
 constexpr std::size_t kMaximumResponseBytes = 1U << 20U;
 constexpr std::uint16_t kFirstEphemeralPort = 40000U;
 constexpr std::uint16_t kLastEphemeralPort = 60000U;
+
+std::optional<core::IpAddress> parse_target_ip(const core::Host &host) noexcept
+{
+    if (host.ip_address.valid()) {
+        return host.ip_address;
+    }
+    const std::string value(host.address);
+    in_addr ipv4{};
+    if (::inet_pton(AF_INET, value.c_str(), &ipv4) == 1) {
+        return core::IpAddress::from_ipv4(ntohl(ipv4.s_addr));
+    }
+    in6_addr ipv6{};
+    if (::inet_pton(AF_INET6, value.c_str(), &ipv6) == 1) {
+        std::array<std::uint8_t, 16U> bytes{};
+        std::copy(std::begin(ipv6.s6_addr), std::end(ipv6.s6_addr), bytes.begin());
+        return core::IpAddress::from_ipv6(bytes);
+    }
+    return std::nullopt;
+}
 
 std::string trim_copy(std::string_view value)
 {
@@ -351,7 +372,7 @@ core::StatusCode UDPScheduler::submit(const core::Target &target, const std::vec
     submitted_ = true;
     try {
         for (const core::Host &host : target.resolved_hosts) {
-            if (!discovery::parse_ipv4_address(host.address).has_value()) {
+            if (!parse_target_ip(host).has_value()) {
                 for (const Port &port : ports) {
                     append_terminal_result(WorkItem{host, port, 0U, ""}, PortState::Unknown,
                                            ScanReason::InvalidTarget);
@@ -418,9 +439,16 @@ void UDPScheduler::receive(const UDPResponse &response) noexcept
         return;
     }
     const Pending &pending = found->second;
-    const auto target_ipv4 = discovery::parse_ipv4_address(pending.work.host.address);
-    if (!target_ipv4.has_value() ||
-        (response.source_ipv4 != 0U && response.source_ipv4 != *target_ipv4) ||
+    const auto target_ip = parse_target_ip(pending.work.host);
+    if (!target_ip.has_value() ||
+        (response.source_ip.valid() && response.source_ip != *target_ip) ||
+        (!response.source_ip.valid() && target_ip->is_ipv4() && response.source_ipv4 != 0U &&
+         response.source_ipv4 != ((static_cast<std::uint32_t>(target_ip->bytes[0]) << 24U) |
+                                  (static_cast<std::uint32_t>(target_ip->bytes[1]) << 16U) |
+                                  (static_cast<std::uint32_t>(target_ip->bytes[2]) << 8U) |
+                                  static_cast<std::uint32_t>(target_ip->bytes[3]))) ||
+        (!response.source_ip.valid() && target_ip->is_ipv6() && !response.source_address.empty() &&
+         response.source_address != pending.work.host.address) ||
         (response.source_port != 0U && response.source_port != pending.work.port.number) ||
         (response.destination_port != 0U && response.destination_port != pending.submission.source_port)) {
         return;
@@ -530,7 +558,7 @@ void UDPScheduler::pump() noexcept
             status_ = core::StatusCode::ResourceExhausted;
             break;
         }
-        const auto destination = discovery::parse_ipv4_address(work.host.address);
+        const auto destination = parse_target_ip(work.host);
         const UDPProbeDefinition *definition = database_.for_port(work.port.number);
         if (!destination.has_value() || definition == nullptr) {
             release_source_port(source_port);
@@ -542,12 +570,24 @@ void UDPScheduler::pump() noexcept
         udp.set_source_port(source_port);
         udp.set_destination_port(work.port.number);
         udp.set_payload(definition->payload);
-        packet::IPv4 ipv4;
-        ipv4.set_protocol(17U);
-        ipv4.set_source_address(0U);
-        ipv4.set_destination_address(*destination);
         packet::Packet packet;
-        packet.set_ipv4(ipv4);
+        if (destination->is_ipv4()) {
+            packet::IPv4 ipv4;
+            ipv4.set_protocol(17U);
+            ipv4.set_source_address(0U);
+            ipv4.set_destination_address(
+                (static_cast<std::uint32_t>(destination->bytes[0]) << 24U) |
+                (static_cast<std::uint32_t>(destination->bytes[1]) << 16U) |
+                (static_cast<std::uint32_t>(destination->bytes[2]) << 8U) |
+                static_cast<std::uint32_t>(destination->bytes[3]));
+            packet.set_ipv4(ipv4);
+        } else {
+            packet::IPv6 ipv6;
+            ipv6.set_next_header(17U);
+            ipv6.set_source_address({});
+            ipv6.set_destination_address(destination->bytes);
+            packet.set_ipv6(ipv6);
+        }
         packet.set_udp(udp);
         std::vector<std::uint8_t> bytes = packet.serialize();
         if (bytes.empty()) {
@@ -560,7 +600,15 @@ void UDPScheduler::pump() noexcept
         submission.id = next_id_++;
         submission.target = work.host.address;
         submission.port = work.port;
-        submission.destination_ipv4 = *destination;
+        if (destination->is_ipv4()) {
+            submission.destination_ipv4 =
+                (static_cast<std::uint32_t>(destination->bytes[0]) << 24U) |
+                (static_cast<std::uint32_t>(destination->bytes[1]) << 16U) |
+                (static_cast<std::uint32_t>(destination->bytes[2]) << 8U) |
+                static_cast<std::uint32_t>(destination->bytes[3]);
+        }
+        submission.source_ip = core::IpAddress::from_ipv6({});
+        submission.destination_ip = *destination;
         submission.source_port = source_port;
         submission.packet = bytes;
         submission.payload = definition->payload;

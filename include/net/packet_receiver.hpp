@@ -11,7 +11,10 @@
 #include "net/capture.hpp"
 #include "packet/ethernet.hpp"
 #include "packet/icmp.hpp"
+#include "packet/icmpv6.hpp"
 #include "packet/ipv4.hpp"
+#include "packet/ipv6.hpp"
+#include "packet/ipv6_extensions.hpp"
 #include "packet/tcp.hpp"
 #include "packet/udp.hpp"
 
@@ -26,13 +29,20 @@ enum class ParseStatus {
     UnsupportedEtherType,
     TruncatedIPv4,
     MalformedIPv4,
+    TruncatedIPv6,
+    MalformedIPv6,
+    UnsupportedIPv6Extension,
+    MalformedIPv6Extension,
+    IPv6ExtensionLimitExceeded,
     UnsupportedIpProtocol,
     TruncatedTCP,
     MalformedTCP,
     TruncatedUDP,
     MalformedUDP,
     TruncatedICMP,
-    MalformedICMP
+    MalformedICMP,
+    TruncatedICMPv6,
+    MalformedICMPv6
 };
 
 const char *parse_status_name(ParseStatus status) noexcept;
@@ -42,9 +52,12 @@ struct PacketObservation final {
     std::vector<std::uint8_t> raw_frame;
     std::optional<packet::Ethernet> ethernet;
     std::optional<packet::IPv4> ipv4;
+    std::optional<packet::IPv6> ipv6;
+    packet::IPv6ExtensionParseResult ipv6_extensions;
     std::optional<packet::TCP> tcp;
     std::optional<packet::UDP> udp;
     std::optional<packet::ICMP> icmp;
+    std::optional<packet::ICMPv6> icmpv6;
     ParseStatus status{ParseStatus::EmptyFrame};
 
     bool valid() const noexcept { return status == ParseStatus::Valid; }

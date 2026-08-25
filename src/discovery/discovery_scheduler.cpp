@@ -1,12 +1,22 @@
 #include "discovery/discovery_scheduler.hpp"
 
 #include <algorithm>
+#include <arpa/inet.h>
 #include <chrono>
 #include <limits>
 #include <utility>
 
 namespace skan::discovery {
 namespace {
+
+bool valid_host_address(const core::Host &host) noexcept
+{
+    if (host.ip_address.valid() || parse_ipv4_address(host.address).has_value()) {
+        return true;
+    }
+    in6_addr address{};
+    return ::inet_pton(AF_INET6, host.address.c_str(), &address) == 1;
+}
 
 DiscoveryReason reason_for_status(core::StatusCode status) noexcept
 {
@@ -84,7 +94,7 @@ core::StatusCode DiscoveryScheduler::submit(const core::Target &target)
 
 core::StatusCode DiscoveryScheduler::submit_host(const core::Target &target, const core::Host &host)
 {
-    if (host.address.empty() || !parse_ipv4_address(host.address).has_value()) {
+    if (host.address.empty() || !valid_host_address(host)) {
         append_result(DiscoveryResult{
             host.address,
             HostState::Unknown,

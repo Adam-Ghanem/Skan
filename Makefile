@@ -49,13 +49,16 @@ CPP_SOURCES := \
 						src/packet/packet_element.cpp \
 		src/packet/packet.cpp \
 	src/packet/ethernet.cpp \
-	src/packet/ipv4.cpp \
-	src/packet/tcp.cpp \
-	src/packet/udp.cpp \
-	src/packet/icmp.cpp \
-	src/packet/checksum.cpp \
-	src/discovery/discovery.cpp \
-	src/discovery/discovery_types.cpp \
+			src/packet/ipv4.cpp \
+					src/packet/ipv6.cpp \
+			src/packet/ipv6_extensions.cpp \
+			src/packet/tcp.cpp \
+		src/packet/udp.cpp \
+		src/packet/icmp.cpp \
+				src/packet/icmpv6.cpp \
+				src/packet/checksum.cpp \
+				src/discovery/discovery.cpp \
+		src/discovery/discovery_types.cpp \
 	src/discovery/discovery_probe.cpp \
 	src/discovery/discovery_scheduler.cpp \
 	src/discovery/icmp_discovery.cpp \
@@ -124,8 +127,9 @@ NET_OBJECTS := $(BUILD_DIR)/net/interface.o $(BUILD_DIR)/net/interface_types.o \
 		$(BUILD_DIR)/net/linux_discovery_transport.o
 
 PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packet.o \
-	$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/tcp.o \
-	$(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/icmp.o $(BUILD_DIR)/packet/checksum.o
+		$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/ipv6.o $(BUILD_DIR)/packet/ipv6_extensions.o $(BUILD_DIR)/packet/tcp.o \
+		$(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/icmp.o $(BUILD_DIR)/packet/icmpv6.o $(BUILD_DIR)/packet/checksum.o
+
 PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o \
 	$(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o \
 	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/port_scheduler.o \
@@ -154,11 +158,13 @@ TEST_SOURCES := \
 	tests/unit/packet/test_packet_element.cpp \
 	tests/unit/packet/test_packet.cpp \
 	tests/unit/packet/test_ethernet.cpp \
-	tests/unit/packet/test_ipv4.cpp \
-	tests/unit/packet/test_tcp.cpp \
+			tests/unit/packet/test_ipv4.cpp \
+		tests/unit/packet/test_ipv6.cpp \
+		tests/unit/packet/test_tcp.cpp \
 	tests/unit/packet/test_udp.cpp \
-	tests/unit/packet/test_icmp.cpp \
-	tests/unit/packet/test_checksum.cpp \
+			tests/unit/packet/test_icmp.cpp \
+		tests/unit/packet/test_icmpv6.cpp \
+		tests/unit/packet/test_checksum.cpp \
 	tests/unit/discovery/test_discovery_types.cpp \
 	tests/unit/discovery/test_discovery_probe.cpp \
 	tests/unit/discovery/test_discovery_scheduler.cpp \
@@ -220,7 +226,6 @@ TEST_SOURCES := \
 			tests/integration/orchestrator/test_pipeline_stress.cpp \
 		tests/unit/target/test_target_engine.cpp \
 		tests/integration/target/test_target_pipeline.cpp
-
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
 	$(BUILD_DIR)/test_types \
@@ -232,11 +237,13 @@ TEST_BINARIES := \
 	$(BUILD_DIR)/test_packet_element \
 	$(BUILD_DIR)/test_packet \
 	$(BUILD_DIR)/test_ethernet \
-	$(BUILD_DIR)/test_ipv4 \
-	$(BUILD_DIR)/test_tcp \
+			$(BUILD_DIR)/test_ipv4 \
+		$(BUILD_DIR)/test_ipv6 \
+		$(BUILD_DIR)/test_tcp \
 	$(BUILD_DIR)/test_udp \
-	$(BUILD_DIR)/test_icmp \
-	$(BUILD_DIR)/test_checksum \
+			$(BUILD_DIR)/test_icmp \
+		$(BUILD_DIR)/test_icmpv6 \
+		$(BUILD_DIR)/test_checksum \
 	$(BUILD_DIR)/test_discovery_types \
 	$(BUILD_DIR)/test_discovery_probe \
 	$(BUILD_DIR)/test_discovery_scheduler \
@@ -341,6 +348,9 @@ $(BUILD_DIR)/test_ethernet: $(BUILD_DIR)/tests/unit/packet/test_ethernet.o $(BUI
 $(BUILD_DIR)/test_ipv4: $(BUILD_DIR)/tests/unit/packet/test_ipv4.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/checksum.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+$(BUILD_DIR)/test_ipv6: $(BUILD_DIR)/tests/unit/packet/test_ipv6.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/ipv6.o $(BUILD_DIR)/packet/ipv6_extensions.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/test_tcp: $(BUILD_DIR)/tests/unit/packet/test_tcp.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/tcp.o $(BUILD_DIR)/packet/checksum.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
@@ -348,6 +358,9 @@ $(BUILD_DIR)/test_udp: $(BUILD_DIR)/tests/unit/packet/test_udp.o $(BUILD_DIR)/pa
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_icmp: $(BUILD_DIR)/tests/unit/packet/test_icmp.o $(PACKET_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_icmpv6: $(BUILD_DIR)/tests/unit/packet/test_icmpv6.o $(PACKET_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_checksum: $(BUILD_DIR)/tests/unit/packet/test_checksum.o $(BUILD_DIR)/packet/checksum.o | $(BUILD_DIR)

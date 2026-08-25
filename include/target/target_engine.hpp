@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/status.hpp"
+#include "core/types.hpp"
 
 namespace skan::target {
 
@@ -19,7 +20,10 @@ enum class TargetKind : std::uint8_t {
     IPv4 = 0,
     Hostname,
     IPv4Cidr,
-    IPv4Range
+    IPv4Range,
+    IPv6,
+    IPv6Cidr,
+    IPv6Range
 };
 
 enum class TargetErrorCode : std::uint8_t {
@@ -52,11 +56,14 @@ struct TargetSpec final {
     IPv4Address last_address{0U};
     std::uint8_t prefix_length{32U};
     std::string hostname;
+    core::IpAddress first_ip{};
+    core::IpAddress last_ip{};
 };
 
 struct ResolvedTarget final {
     IPv4Address address{0U};
     std::optional<std::string> source_hostname;
+    core::IpAddress ip_address{};
 };
 
 struct TargetSet final {
@@ -86,6 +93,7 @@ struct HostnameResolution final {
     core::StatusCode status{core::StatusCode::Ok};
     std::vector<IPv4Address> addresses;
     std::string message;
+    std::vector<core::IpAddress> ip_addresses;
 };
 
 using HostnameResolver = std::function<HostnameResolution(std::string_view hostname, std::size_t max_results)>;
@@ -113,7 +121,9 @@ struct TargetResolutionResult final {
 };
 
 std::optional<IPv4Address> parse_ipv4(std::string_view text) noexcept;
+std::optional<core::IpAddress> parse_ip_address(std::string_view text) noexcept;
 std::string format_ipv4(IPv4Address address);
+std::string format_ip_address(const core::IpAddress &address);
 
 class TargetParser final {
 public:

@@ -27,6 +27,9 @@ OutputStatus NormalOutputWriter::write(
     output << '\n';
     for (const HostResult *host : detail::ordered_hosts(report)) {
         output << "Host " << detail::grep_escape(host->address);
+        if (host->family == core::AddressFamily::IPv6) {
+            output << " [family=ipv6]";
+        }
         if (context.include_hostnames && host->hostname.has_value()) {
             output << " (" << detail::grep_escape(*host->hostname) << ')';
         }

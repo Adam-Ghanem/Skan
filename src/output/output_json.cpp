@@ -327,6 +327,8 @@ void write_host(JsonWriter &json, const HostResult &host, const OutputContext &c
     bool first = true;
     json.key("address", first, depth + 1U);
     json.string(host.address);
+    json.key("family", first, depth + 1U);
+    json.string(core::address_family_name(host.family));
     if (context.include_hostnames && host.hostname.has_value()) {
         json.key("hostname", first, depth + 1U);
         json.string(*host.hostname);

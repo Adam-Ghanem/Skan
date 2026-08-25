@@ -1,6 +1,7 @@
 #ifndef SKAN_PACKET_UDP_HPP
 #define SKAN_PACKET_UDP_HPP
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -40,6 +41,15 @@ public:
     std::uint16_t checksum_for_ipv4(
         std::uint32_t source_address,
         std::uint32_t destination_address) const;
+
+    core::StatusCode serialize_with_checksum(
+        std::span<std::uint8_t> output,
+        const std::array<std::uint8_t, 16U> &source_address,
+        const std::array<std::uint8_t, 16U> &destination_address) const;
+
+    std::uint16_t checksum_for_ipv6(
+        const std::array<std::uint8_t, 16U> &source_address,
+        const std::array<std::uint8_t, 16U> &destination_address) const;
 
     /** Parse a UDP header and payload with exact length and bounds checks. */
     static std::optional<UDP> parse(std::span<const std::uint8_t> input);

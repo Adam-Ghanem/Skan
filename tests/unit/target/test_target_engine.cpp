@@ -8,6 +8,13 @@
 
 namespace {
 
+skan::core::IpAddress ip_address(std::string_view text)
+{
+    const auto parsed = skan::target::parse_ip_address(text);
+    assert(parsed.has_value());
+    return *parsed;
+}
+
 skan::target::IPv4Address address(std::string_view text)
 {
     const auto parsed = skan::target::parse_ipv4(text);
@@ -32,6 +39,14 @@ int main()
     assert(parsed.specifications[2].last_address == address("192.168.1.12"));
     assert(parsed.specifications[3].kind == TargetKind::Hostname);
     assert(parsed.specifications[3].hostname == "example.com");
+
+    const TargetParseResult ipv6_parsed = TargetParser::parse("::1,2001:db8::/64,2001:db8::1-2001:db8::3");
+    assert(ipv6_parsed.success());
+    assert(ipv6_parsed.specifications[0].kind == TargetKind::IPv6);
+    assert(ipv6_parsed.specifications[0].first_ip == ip_address("::1"));
+    assert(ipv6_parsed.specifications[1].kind == TargetKind::IPv6Cidr);
+    assert(ipv6_parsed.specifications[1].prefix_length == 64U);
+    assert(ipv6_parsed.specifications[2].kind == TargetKind::IPv6Range);
 
     const TargetResolutionResult cidr = TargetEngine::resolve("192.168.1.0/30");
     assert(cidr.success());
@@ -65,6 +80,33 @@ int main()
     assert(localhost.success());
     assert(!localhost.target_set.empty());
 
+    const TargetResolutionResult ipv6_single = TargetEngine::resolve("2001:db8::1");
+    assert(ipv6_single.success());
+    assert(ipv6_single.target_set.size() == 1U);
+    assert(ipv6_single.target_set.targets.front().ip_address == ip_address("2001:db8::1"));
+    assert(ipv6_single.target_set.targets.front().ip_address.to_string() == "2001:db8::1");
+
+    const TargetResolutionResult ipv6_127 = TargetEngine::resolve("2001:db8::/127");
+    assert(ipv6_127.success());
+    assert(ipv6_127.target_set.size() == 2U);
+    assert(ipv6_127.target_set.targets[0].ip_address == ip_address("2001:db8::"));
+    assert(ipv6_127.target_set.targets[1].ip_address == ip_address("2001:db8::1"));
+
+    const TargetResolutionResult ipv6_range = TargetEngine::resolve("2001:db8::1-2001:db8::3");
+    assert(ipv6_range.success());
+    assert(ipv6_range.target_set.size() == 3U);
+
+    const TargetResolutionResult mixed = TargetEngine::resolve("::1,127.0.0.1");
+    assert(mixed.success());
+    assert(mixed.target_set.size() == 2U);
+    assert(mixed.target_set.targets[0].ip_address.is_ipv4());
+    assert(mixed.target_set.targets[1].ip_address.is_ipv6());
+
+    const TargetResolutionResult ipv6_exhausted = TargetEngine::resolve("2001:db8::/64");
+    assert(!ipv6_exhausted.success());
+    assert(ipv6_exhausted.status == skan::core::StatusCode::ResourceExhausted);
+    assert(ipv6_exhausted.error.code == TargetErrorCode::ResourceExhausted);
+
     const TargetResolutionResult ordered = TargetEngine::resolve("10.0.0.10,10.0.0.2,10.0.0.1,10.0.0.2");
     assert(ordered.success());
     assert(ordered.target_set.size() == 3U);
@@ -75,9 +117,9 @@ int main()
     const HostnameResolver controlled_resolver = [](std::string_view hostname, std::size_t max_results) {
         assert(hostname == "lab.example");
         if (max_results < 2U) {
-            return HostnameResolution{skan::core::StatusCode::ResourceExhausted, {}, "too many A records"};
+            return HostnameResolution{skan::core::StatusCode::ResourceExhausted, {}, "too many A/AAAA records", {}};
         }
-        return HostnameResolution{skan::core::StatusCode::Ok, {address("10.0.0.10"), address("10.0.0.2")}, {}};
+        return HostnameResolution{skan::core::StatusCode::Ok, {address("10.0.0.10"), address("10.0.0.2")}, {}, {}};
     };
     const TargetResolutionResult hostname = TargetEngine::resolve("lab.example,10.0.0.1,10.0.0.10", {}, controlled_resolver);
     assert(hostname.success());
@@ -105,7 +147,8 @@ int main()
         {"192.168.1.20-192.168.1.10", TargetErrorCode::InvalidRange},
         {"-bad.example", TargetErrorCode::InvalidHostname},
         {"192.168.1.1,,192.168.1.2", TargetErrorCode::InvalidTarget},
-        {"::1", TargetErrorCode::UnsupportedTarget}};
+        {"2001:db8:::1", TargetErrorCode::InvalidTarget},
+        {"2001:db8::/129", TargetErrorCode::InvalidCIDR}};
     for (const auto &[input, expected] : invalid) {
         const TargetParseResult result = TargetParser::parse(input);
         assert(!result.success());
@@ -116,7 +159,7 @@ int main()
         "missing.example",
         {},
         [](std::string_view, std::size_t) {
-            return HostnameResolution{skan::core::StatusCode::NotFound, {}, "controlled DNS failure"};
+            return HostnameResolution{skan::core::StatusCode::NotFound, {}, "controlled DNS failure", {}};
         });
     assert(!missing.success());
     assert(missing.status == skan::core::StatusCode::NotFound);

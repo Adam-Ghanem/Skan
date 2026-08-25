@@ -1,30 +1,38 @@
-# Next-Phase Roadmap
+# Skan Next-Phase Roadmap
 
 **Author:** Manus AI
-**Status:** Planning only; no Phase 15 implementation was started.
+**Status:** Phase 15 implementation complete; future work remains explicitly scoped.
 
-## P1: preserve the current safety and capability boundary
+## Completed Phase 15 boundary
 
-The first priority is asynchronous hostname resolution behind the existing injectable `HostnameResolver` seam if synchronous DNS latency becomes material. The implementation should retain IPv4-only behavior, bounded A-record results, deterministic ordering, duplicate suppression, and clear resolution errors. It must not add a second reactor or background thread.
+Phase 15 established a typed binary IPv4/IPv6 target identity, bounded IPv6 literals/CIDR/ranges, synchronous A+AAAA resolution before the reactor, a strict IPv6 base-header model, bounded extension recognition, IPv6 pseudo-header checksums, ICMPv6 support within the declared message scope, family-aware packet observation/correlation, AF_INET6 Connect and TCP service detection, offline IPv6 discovery/UDP construction, canonical family-aware output, CLI support, and deterministic local/injected tests.
 
-The second priority is controlled live-network validation in a private lab or loopback fixture. The existing Linux AF_PACKET transport should be exercised with an explicitly selected interface, known peers, and captured expected responses. Capability failure must remain an explicit unavailable result; it must never select offline mode implicitly.
+The implementation continues to use one `IOEngine`, one timer mechanism, the existing packet composer, existing schedulers, existing capture/receiver, the existing Target Engine, the existing orchestrator, and the existing output model. It does not add threads, polling, sleeps, implicit interface selection, fallback, evasion, exploitation, credentials, persistence, or public-target traffic.
 
-The third priority is improving OS identification quality through a broader **project-owned** corpus and calibrated evidence. Any corpus expansion must have provenance, strict parser tests, bounded candidate work, explicit insufficient-evidence semantics, and no copied Nmap database content.
+## P1: native Linux IPv6 capability, only with a controlled design
+
+A future phase may add native Linux IPv6 raw discovery and packet scanning through explicit-interface AF_PACKET capture/injection. Acceptance requires a separately reviewed typed transport path, IPv6 neighbor and source-selection handling, bounded extension parsing reuse, family-aware correlation, controlled loopback/private-lab fixtures, and capability tests that remain explicit when unavailable. It must never select an interface implicitly or fall back to offline or Connect mode.
+
+A future phase may add a complete, bounded Neighbor Discovery implementation only if solicitation/advertisement state, link-local scope handling, options, timers, and malformed-input behavior are specified independently. The current Phase 15 code recognizes limited ND message forms but does not claim a complete ND stack.
+
+## P1: IPv6 OS evidence only with real transport support
+
+IPv6 OS fingerprinting remains unavailable with confidence zero. It may be considered only after a real IPv6 probe/capture transport and a project-owned evidence model are available. No future implementation may infer OS identity from an IPv6 address, port, service label, host platform, or other non-observed evidence.
 
 ## P2: measured correctness and protocol coverage
 
-Add direct CLI parser fuzzing and long-run cancellation/resource tests. These should cover extreme target limits, malformed combinations, repeated cancellation, timer exhaustion, output-path failures, duplicate and late responses, and memory-pressure behavior without sending public-target traffic.
+If synchronous hostname resolution becomes material, replace it behind the existing injectable `HostnameResolver` seam with an asynchronous implementation that preserves A+AAAA bounds, deterministic ordering, duplicate suppression, pre-reactor ownership, and clear failure semantics.
 
-Profile report building and serialization before changing data structures. Only measured avoidable copies or sorts should be optimized, and all canonical output ordering and structured OS metadata must remain stable. The current benchmark provides a baseline for target expansion, schedulers, orchestration, and JSON/XML serialization.
+Additional TCP or UDP semantics may be considered only when they fit the existing typed models, strict correlation, bounded payload policies, shared packet composition, existing schedulers, canonical result states, and capability reporting. UDP service inference is not an implicit extension of UDP port scanning.
 
-Consider additional TCP or UDP semantics only when they can be represented by typed models, strict correlation, bounded payloads, existing packet composition, and canonical result states. UDP service inference is not an implicit extension of UDP port scanning and should be separately specified and tested.
+Report-building and serialization changes should remain measurement-driven. Any optimization must preserve canonical ordering, family fields, escaping, atomic output-file replacement, and the existing writer contracts.
 
 ## P3: larger architectural commitments
 
-IPv6 requires a coordinated design across targets, packet models, ICMPv6, Neighbor Discovery, capture, transports, discovery, OS evidence, database fields, output, and tests. It should not be started as an isolated parser or transport patch.
+Optional scripting or extensibility would require a separate sandbox, execution budget, authorization model, cancellation contract, output model, and audit boundary. It remains deliberately out of scope.
 
-Optional scripting or extensibility would require a separate sandbox, execution budget, authorization model, cancellation contract, output model, and audit boundary. It is not a small Phase 15 feature and remains deliberately out of scope.
+Broader fingerprint corpora, additional protocol families, and platform backends should be introduced only with project-owned provenance, strict resource limits, deterministic tests, and an explicit safety review. Nmap’s documented breadth is a comparison reference, not a requirement to reproduce unsafe or unimplemented features.
 
 ## Non-goals
 
-The project should continue to reject evasion, spoofing, decoys, fragmentation, idle scanning, exploitation, credential handling, public-target automation, and any fallback that disguises missing live capability. Nmap’s documented breadth is a comparison reference, not a requirement to reproduce those features.
+The project continues to reject evasion, spoofing, decoys, fragmentation attacks, idle scanning, exploitation, credential handling, persistence, public-target automation, implicit raw-interface selection, and any fallback that disguises missing live capability. Phase 16 is not started by this roadmap update.
