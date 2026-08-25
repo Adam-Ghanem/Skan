@@ -17,6 +17,7 @@ Skan
 ├── Data Layer
 ├── Lua Scripting
 ├── Output
+├── Network Transport and Packet Capture
 ├── Evasion
 ├── CLI
 └── Dashboard
@@ -39,7 +40,9 @@ Service Detection
   ↓
 OS Fingerprinting Architecture
   ↓
-Future Output
+Output
+  ↓
+Network Transport and Packet Capture (infrastructure boundary)
 ```
 
 The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it through its public event-loop and timer API; they do not duplicate the reactor or create a second event loop.
@@ -48,7 +51,7 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 
 | Language | Responsibility | Status |
 | --- | --- | --- |
-| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, and CLI | Phase 0–5 implemented where applicable |
+| C++20 | Core, I/O engine, packet representation, discovery, orchestration, detection, data, output, networking, and CLI | Phase 0–9 implemented where applicable |
 | C11 | Selected low-level or system-facing primitives where a C boundary is justified | Minimal status boundary implemented |
 | Lua 5.4 | Future scripting layer | Planned |
 | TypeScript/React | Future dashboard | Planned |
@@ -72,6 +75,8 @@ The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it throug
 **Phase 7 — Adaptive Timing + Scan Engine** is complete for the reusable offline and opt-in scheduler scope described below.
 
 **Phase 8 — Output + Result Serialization** is complete for the pure presentation scope described below.
+
+**Phase 9 — Network Transport + Packet Capture** is complete for the infrastructure-only scope described below. It supplies explicit-interface Linux byte transport and bounded capture, deterministic offline seams, layered packet observation, small filtering, and a reusable correlation boundary. It does not add a scanner or traffic-evasion mechanism.
 
 ## Target integration
 
@@ -269,6 +274,48 @@ All writers implement `OutputWriter` and stream directly to a caller-owned `std:
 
 The CLI defaults to `normal` and accepts `--output normal|json|xml|grepable`, `-o <file>`, and `--output-file <file>`. Explicit file output uses RAII and the documented deterministic replace/truncate policy. Serialized output goes to stdout unless a file is selected; operational logs, warnings, and errors go to stderr. Output selection does not add scan logic or alter target/port scope.
 
+## Phase 9 network transport and packet capture
+
+Phase 9 is a low-level infrastructure layer between already-composed Phase 2 frames and future correlation consumers. Its dependency direction is intentionally narrow:
+
+```text
+packet::Packet serialization
+          ↓
+      net::Transport
+          ↓
+   explicit Linux interface
+          ↓
+      net::PacketCapture
+          ↓
+    net::PacketReceiver
+          ↓
+ Phase 2 protocol parsers
+          ↓
+  PacketObservation / filters
+          ↓
+ Future scan correlation
+```
+
+`NetworkInterface` is a strongly typed value containing an interface name, kernel index, IPv4 addresses and prefix lengths, operational state, and distinct capture/injection capability flags. `enumerate_interfaces_result()` uses Linux `getifaddrs()` and exact kernel interface indexes, sorts by name, and exposes structured errors. Capability flags are obtained by probing the ability to create and bind an `AF_PACKET` raw socket; no packets are transmitted during enumeration. `find_interface()` is exact-name lookup. There is no automatic interface selection for privileged injection.
+
+`Transport` knows only about moving caller-provided bytes. `RecordingTransport` stores exact frames without network access, and `NullTransport` intentionally performs no transmission. `LinuxTransport` requires an explicit interface name, opens an `AF_PACKET` socket, binds it to that interface, supports configured nonblocking sends, preserves system errors, and owns the descriptor through `detail::UniqueFd`. It does not choose ports, construct scan strategies, alter bytes, spoof source identity, fragment frames, or hide traffic.
+
+`PacketCapture` is independent of scanning. `RecordingCapture` provides deterministic queued frames. `LinuxCapture` requires an explicit interface, binds a nonblocking `AF_PACKET` socket, uses bounded `recvmsg(MSG_TRUNC)`, reports `WouldBlock`/`OversizedFrame`/receive failures explicitly, and never allocates based on an untrusted frame size. `PacketReceiver` copies only bounded frames and invokes the existing Phase 2 Ethernet, IPv4, TCP, UDP, and ICMP parsers. `ParseStatus` distinguishes empty, truncated, malformed, unsupported, and valid observations. No recursive packet-dissection framework is introduced.
+
+`PacketReceiver::attach()` registers the capture descriptor with the existing borrowed-event `io::IOEngine`; it does not create another reactor, polling loop, sleep timer, worker thread, or thread-per-packet mechanism. `PacketFilter` supports only `Any`, IPv4, TCP, UDP, ICMP, source-port, and destination-port predicates. `CorrelationTable` supplies deterministic insertion, lookup, duplicate detection, removal, timeout cleanup, and late-packet rejection without implementing a complete scanner.
+
+The CLI adds only infrastructure inspection:
+
+```text
+  skan interfaces [--json] [--interface <name>]
+```
+
+Normal output lists interface name, index, IPv4/prefix values, state, capture capability, and injection capability. JSON output follows stable interface/address ordering and contains only interface data. A selected interface is reported as not found rather than silently replaced with another interface. Opening Linux transport or capture returns `PermissionDenied`, `InterfaceNotFound`, `NotSupported`, or another structured status as appropriate; it never returns fake success when the capability is absent.
+
+> Skan's network transport is capability-honest. When packet capture or injection is unavailable, Skan reports the unavailable capability and does not fabricate successful network operations or packet responses.
+
+The Linux implementation is intentionally Linux-specific and privilege-dependent. Controlled integration tests use only the local `lo` interface, feed serialized bytes through `RecordingTransport`, and report `SKIPPED` when raw packet capture is unavailable. Phase 9 does not implement stealth, decoys, source spoofing, packet evasion, IDS/IPS bypass, fragmentation attacks, covert channels, firewall bypass, credential attacks, exploitation, persistence, Internet-wide scanning, or public-target traffic.
+
 ## Correlation and response lifecycle
 
 Each outbound submission contains a monotonically assigned `ProbeId`, target address, probe type, serialized packet, and protocol-specific correlation metadata. The scheduler stores the sent monotonic timestamp and deadline in its pending entry.
@@ -299,11 +346,11 @@ Discovery does not duplicate protocol serialization. ICMP and TCP probe builders
 
 ## I/O Engine integration
 
-The public discovery, port-scan, service-detection, and OS-detection APIs accept an existing `io::IOEngine&`. Probe deadlines use its monotonic timer service, and scheduler completion requests its `stop()`. The recording transports are injectable seams and do not own an event loop. The real Connect transports borrow the same reactor and own only their socket/event lifecycles. All schedulers remain single-thread-affine like the reactor.
+The public discovery, port-scan, service-detection, and OS-detection APIs accept an existing `io::IOEngine&`. Probe deadlines use its monotonic timer service, and scheduler completion requests its `stop()`. The recording transports are injectable seams and do not own an event loop. The real Connect transports borrow the same reactor and own only their socket/event lifecycles. Phase 9 `PacketReceiver::attach()` registers a Linux capture descriptor as another borrowed event with the same reactor; the receiver owns only its bounded buffer and event object, while `LinuxCapture` owns its descriptor. All schedulers and receiver callbacks remain single-thread-affine like the reactor.
 
 ## CLI boundary
 
-The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 4 adds the scoped TCP scan, Phase 5 adds opt-in service detection, Phase 6 adds the capability-honest OS detection command, and Phase 8 adds pure result-format selection for `scan`:
+The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 4 adds the scoped TCP scan, Phase 5 adds opt-in service detection, Phase 6 adds the capability-honest OS detection command, Phase 8 adds pure result-format selection for `scan`, and Phase 9 adds infrastructure interface inspection:
 
 ```text
   skan scan <ipv4-address> [--tcp-ports <single,list,range>]
@@ -314,6 +361,7 @@ The CLI retains `--version`, `--help`, and the Phase 3 discovery command. Phase 
           [-o|--output-file <path>]
   skan os-detect <ipv4-address> [--os-db <path>]
           [--timeout-ms <ms>] [--max-outstanding <n>] [--json]
+  skan interfaces [--json] [--interface <name>]
 
 ```
 
@@ -327,7 +375,7 @@ Discovery maps invalid IPv4 input to `InvalidArgument` and `INVALID_TARGET`, tra
 
 Phase 3 is Linux-first because Phase 1 uses Linux `epoll`, and any future ARP transport would require Linux interface capabilities. Current tests and the CLI do not require network privileges, external hosts, or public Internet access.
 
-The repository contains no packet transmission, `AF_PACKET`, raw-socket send path, `sendto()`, TCP SYN network transport, live UDP scanner, alternate TCP flag scan, live OS fingerprint transport, Lua, evasion, dashboard, or hidden scope-control mechanism. Phase 6’s OS layer is packet-model-backed and synthetic/injected only. Phase 4 contains a scoped IPv4 TCP Connect transport and deterministic TCP port enumeration after normal target validation. Phase 5 contains only TCP stream banner/probe detection on OPEN results through `ServiceTransport`; it does not perform service exploitation, credential exchange, or Internet-wide scanning.
+Phase 9 intentionally contains the repository's explicit `AF_PACKET` raw-socket byte transport and bounded capture. The repository still contains no TCP SYN scanner, live UDP scanner, alternate TCP flag scan, live OS fingerprint transport, Lua, evasion, dashboard, or hidden scope-control mechanism. Phase 6’s OS layer is packet-model-backed and synthetic/injected only. Phase 4 contains a scoped IPv4 TCP Connect transport and deterministic TCP port enumeration after normal target validation. Phase 5 contains only TCP stream banner/probe detection on OPEN results through `ServiceTransport`; it does not perform service exploitation, credential exchange, or Internet-wide scanning. Phase 9 transport and capture require explicit interfaces and report privilege/capability failures instead of fabricating network results.
 
 ## Module status
 
@@ -344,6 +392,7 @@ The repository contains no packet transmission, `AF_PACKET`, raw-socket send pat
 | Data Layer | Project-owned service and OS fingerprint databases plus future persistence and serialization | Phase 5/6 compact datasets implemented; persistence planned |
 | Lua Scripting | Optional user-defined scripting extensions | Planned |
 | Output | Pure Normal, JSON, XML, and grepable serialization of canonical reports | Phase 8 implemented |
+| Network | Interface enumeration, capability reporting, offline transports/capture, Linux AF_PACKET transport/capture, bounded receiver, filters, and correlation boundary | Phase 9 implemented; Linux raw sockets remain privilege-dependent |
 | Evasion | Future traffic and timing controls | Planned |
-| CLI | Version/help bootstrap, discovery exercise, scoped TCP scan, opt-in service detection, capability-honest os-detect, and output selection/file output | Phase 8 integration complete |
+| CLI | Version/help bootstrap, discovery exercise, scoped TCP scan, opt-in service detection, capability-honest os-detect, output selection/file output, and infrastructure interface inspection | Phase 9 integration complete |
 | Dashboard | Future TypeScript/React visualization and management interface | Planned |

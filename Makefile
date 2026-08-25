@@ -30,8 +30,19 @@ CPP_SOURCES := \
 		src/output/output_json.cpp \
 		src/output/output_xml.cpp \
 		src/output/output_grepable.cpp \
-		src/output/output_manager.cpp \
-	src/packet/packet_element.cpp \
+					src/output/output_manager.cpp \
+		 src/net/interface.cpp \
+		 src/net/interface_types.cpp \
+		 src/net/transport.cpp \
+		 src/net/transport_types.cpp \
+		 src/net/capture.cpp \
+		 src/net/capture_types.cpp \
+		 src/net/packet_receiver.cpp \
+		 src/net/packet_filter.cpp \
+		 src/net/linux_transport.cpp \
+		 src/net/linux_capture.cpp \
+		 src/net/unique_fd.cpp \
+		src/packet/packet_element.cpp \
 	src/packet/packet.cpp \
 	src/packet/ethernet.cpp \
 	src/packet/ipv4.cpp \
@@ -86,6 +97,12 @@ OUTPUT_OBJECTS := $(BUILD_DIR)/output/result_model.o $(BUILD_DIR)/output/output_
 	$(BUILD_DIR)/output/output_normal.o $(BUILD_DIR)/output/output_json.o \
 	$(BUILD_DIR)/output/output_xml.o $(BUILD_DIR)/output/output_grepable.o \
 	$(BUILD_DIR)/output/output_manager.o
+NET_OBJECTS := $(BUILD_DIR)/net/interface.o $(BUILD_DIR)/net/interface_types.o \
+	$(BUILD_DIR)/net/transport.o $(BUILD_DIR)/net/transport_types.o \
+	$(BUILD_DIR)/net/capture.o $(BUILD_DIR)/net/capture_types.o \
+	$(BUILD_DIR)/net/packet_receiver.o $(BUILD_DIR)/net/packet_filter.o \
+	$(BUILD_DIR)/net/linux_transport.o $(BUILD_DIR)/net/linux_capture.o \
+	$(BUILD_DIR)/net/unique_fd.o
 
 PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packet.o \
 	$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/tcp.o \
@@ -152,7 +169,14 @@ TEST_SOURCES := \
 		tests/unit/output/test_output_xml.cpp \
 		tests/unit/output/test_output_grepable.cpp \
 		tests/unit/output/test_output_manager.cpp \
-		tests/integration/output/test_output_integration.cpp
+			tests/integration/output/test_output_integration.cpp \
+			tests/unit/net/test_interface_types.cpp \
+			tests/unit/net/test_transport.cpp \
+			tests/unit/net/test_capture.cpp \
+			tests/unit/net/test_packet_receiver.cpp \
+			tests/unit/net/test_packet_filter.cpp \
+			tests/unit/net/test_linux_transport.cpp \
+			tests/integration/net/test_linux_loopback.cpp
 
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
@@ -205,7 +229,14 @@ TEST_BINARIES := \
 		$(BUILD_DIR)/test_output_xml \
 		$(BUILD_DIR)/test_output_grepable \
 		$(BUILD_DIR)/test_output_manager \
-		$(BUILD_DIR)/test_output_integration
+			$(BUILD_DIR)/test_output_integration \
+			$(BUILD_DIR)/test_interface_types \
+			$(BUILD_DIR)/test_transport \
+			$(BUILD_DIR)/test_capture \
+			$(BUILD_DIR)/test_packet_receiver \
+			$(BUILD_DIR)/test_packet_filter \
+			$(BUILD_DIR)/test_linux_transport \
+			$(BUILD_DIR)/test_linux_loopback
 
 .PHONY: all debug test clean
 
@@ -375,6 +406,28 @@ $(BUILD_DIR)/test_output_manager: $(BUILD_DIR)/tests/unit/output/test_output_man
 $(BUILD_DIR)/test_output_integration: $(BUILD_DIR)/tests/integration/output/test_output_integration.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+NET_TEST_OBJECTS := $(NET_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
+$(BUILD_DIR)/test_interface_types: $(BUILD_DIR)/tests/unit/net/test_interface_types.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_transport: $(BUILD_DIR)/tests/unit/net/test_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_capture: $(BUILD_DIR)/tests/unit/net/test_capture.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_packet_receiver: $(BUILD_DIR)/tests/unit/net/test_packet_receiver.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_packet_filter: $(BUILD_DIR)/tests/unit/net/test_packet_filter.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_linux_transport: $(BUILD_DIR)/tests/unit/net/test_linux_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_linux_loopback: $(BUILD_DIR)/tests/integration/net/test_linux_loopback.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
@@ -449,7 +502,14 @@ test: $(TEST_BINARIES)
 		./$(BUILD_DIR)/test_output_xml
 		./$(BUILD_DIR)/test_output_grepable
 		./$(BUILD_DIR)/test_output_manager
-		./$(BUILD_DIR)/test_output_integration
+			./$(BUILD_DIR)/test_output_integration
+			./$(BUILD_DIR)/test_interface_types
+			./$(BUILD_DIR)/test_transport
+			./$(BUILD_DIR)/test_capture
+			./$(BUILD_DIR)/test_packet_receiver
+			./$(BUILD_DIR)/test_packet_filter
+			./$(BUILD_DIR)/test_linux_transport
+			./$(BUILD_DIR)/test_linux_loopback
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

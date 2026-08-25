@@ -19,6 +19,7 @@
 #include "osdetect/os_probe.hpp"
 #include "output/output_manager.hpp"
 #include "output/result_model.hpp"
+#include "net/interface.hpp"
 #include "portscan/portscan.hpp"
 #include "scanengine/timing_profile.hpp"
 
@@ -32,7 +33,8 @@ void print_help()
               << "  skan [options]\n"
               << "  skan discover <ipv4-address> [options]\n"
               << "  skan scan <ipv4-address> [options]\n"
-              << "  skan os-detect <ipv4-address> [options]\n\n"
+              << "  skan os-detect <ipv4-address> [options]\n"
+              << "  skan interfaces [options]\n\n"
               << "Options:\n"
               << "  --help                 Show help\n"
               << "  --version              Show version\n"
@@ -55,7 +57,8 @@ void print_help()
               << "  --output <format>      normal, json, xml, or grepable\n"
               << "  -o, --output-file <path> Write serialized output to a file (replace)\n"
               << "  --os-db <path>         Use a project-owned OS fingerprint database\n"
-              << "  --json                 Emit structured output for os-detect\n\n"
+              << "  --json                 Emit structured output for os-detect or interfaces\n"
+              << "  --interface <name>     Select an interface for infrastructure inspection\n\n"
               << "Status:\n"
               << "  Phase 0 — Foundation\n"
               << "  Phase 1 — Async I/O Engine\n"
@@ -63,6 +66,8 @@ void print_help()
               << "  Phase 3 — Host Discovery\n"
               << "  Phase 4 — TCP Port Scan (scoped)\n"
               << "  Phase 7 — Adaptive Timing + Scan Engine\n"
+              << "  Phase 8 — Output & Result Serialization\n"
+              << "  Phase 9 — Network Transport & Packet Capture\n"
               << "\nDiscovery CLI mode uses an offline recording transport.\n"
               << "Scan CLI mode uses real nonblocking TCP Connect sockets.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
@@ -168,6 +173,117 @@ std::string json_escape(std::string_view value)
         escaped.push_back(character);
     }
     return escaped;
+}
+
+std::string interface_address_text(const skan::net::InterfaceAddress &address)
+{
+    return std::to_string(address.ipv4[0]) + "." + std::to_string(address.ipv4[1]) + "." +
+           std::to_string(address.ipv4[2]) + "." + std::to_string(address.ipv4[3]);
+}
+
+void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &interfaces)
+{
+    std::cout << "{\"interfaces\":[";
+    for (std::size_t index = 0U; index < interfaces.size(); ++index) {
+        const skan::net::NetworkInterface &interface = interfaces[index];
+        if (index != 0U) {
+            std::cout << ',';
+        }
+        std::cout << "{\"name\":\"" << json_escape(interface.name)
+                  << "\",\"index\":" << interface.index
+                  << ",\"up\":" << (interface.is_up ? "true" : "false")
+                  << ",\"addresses\":[";
+        for (std::size_t address_index = 0U; address_index < interface.ipv4_addresses.size(); ++address_index) {
+            const skan::net::InterfaceAddress &address = interface.ipv4_addresses[address_index];
+            if (address_index != 0U) {
+                std::cout << ',';
+            }
+            std::cout << "{\"ipv4\":\"" << interface_address_text(address)
+                      << "\",\"prefix_length\":" << static_cast<unsigned int>(address.prefix_length) << '}';
+        }
+        std::cout << "],\"capture\":" << (interface.supports_capture ? "true" : "false")
+                  << ",\"injection\":" << (interface.supports_injection ? "true" : "false") << '}';
+    }
+    std::cout << "]}\n";
+}
+
+void write_interfaces_normal(const std::vector<skan::net::NetworkInterface> &interfaces)
+{
+    for (const skan::net::NetworkInterface &interface : interfaces) {
+        std::cout << "Interface\n"
+                  << "Name: " << interface.name << '\n'
+                  << "Index: " << interface.index << '\n';
+        if (interface.ipv4_addresses.empty()) {
+            std::cout << "IPv4: none\n";
+        } else {
+            std::cout << "IPv4: ";
+            for (std::size_t index = 0U; index < interface.ipv4_addresses.size(); ++index) {
+                if (index != 0U) {
+                    std::cout << ", ";
+                }
+                const skan::net::InterfaceAddress &address = interface.ipv4_addresses[index];
+                std::cout << interface_address_text(address) << '/'
+                          << static_cast<unsigned int>(address.prefix_length);
+            }
+            std::cout << '\n';
+        }
+        std::cout << "State: " << (interface.is_up ? "UP" : "DOWN") << '\n'
+                  << "Capture: " << (interface.supports_capture ? "available" : "unavailable") << '\n'
+                  << "Injection: " << (interface.supports_injection ? "available" : "unavailable") << "\n\n";
+    }
+}
+
+int run_interfaces(int argc, char **argv)
+{
+    bool json = false;
+    std::string selected_name;
+    for (int index = 2; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument == "--json") {
+            json = true;
+        } else if (argument == "--interface" && index + 1 < argc) {
+            selected_name = argv[++index];
+            if (selected_name.empty()) {
+                std::cerr << "Error: interface name cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
+        } else {
+            std::cerr << "Error: unknown or incomplete interfaces option. Use --help for usage.\n";
+            return EXIT_FAILURE;
+        }
+    }
+
+    const skan::net::InterfaceEnumerationResult enumeration = skan::net::enumerate_interfaces_result();
+    if (!enumeration.success()) {
+        std::cerr << "Error: unable to enumerate interfaces: "
+                  << skan::net::interface_status_name(enumeration.status);
+        if (!enumeration.message.empty()) {
+            std::cerr << " (" << enumeration.message << ')';
+        }
+        std::cerr << '\n';
+        return EXIT_FAILURE;
+    }
+    std::vector<skan::net::NetworkInterface> interfaces;
+    if (selected_name.empty()) {
+        interfaces = enumeration.interfaces;
+    } else {
+        const auto found = std::find_if(
+            enumeration.interfaces.begin(), enumeration.interfaces.end(),
+            [&selected_name](const skan::net::NetworkInterface &interface) {
+                return interface.name == selected_name;
+            });
+        if (found == enumeration.interfaces.end()) {
+            std::cerr << "Error: interface was not found: " << selected_name << '\n';
+            return EXIT_FAILURE;
+        }
+        interfaces.push_back(*found);
+    }
+    if (json) {
+        write_interfaces_json(interfaces);
+    } else {
+        write_interfaces_normal(interfaces);
+    }
+    return EXIT_SUCCESS;
 }
 
 int run_os_detect(int argc, char **argv)
@@ -486,6 +602,10 @@ int main(int argc, char **argv)
 
     if (argc >= 2 && std::string_view(argv[1]) == "os-detect") {
         return run_os_detect(argc, argv);
+    }
+
+    if (argc >= 2 && std::string_view(argv[1]) == "interfaces") {
+        return run_interfaces(argc, argv);
     }
 
     std::cerr << "Error: unknown or missing argument. Use --help for usage.\n";

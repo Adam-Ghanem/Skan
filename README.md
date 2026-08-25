@@ -209,6 +209,32 @@ Examples:
 
 The grepable schema is intentionally small and script-friendly. `Port` records contain `target`, `number`, `protocol`, `state`, `probe`, `reason`, and optional `rtt_ms`; `Service` records contain target/port/protocol/state/port-state, optional identity fields, confidence, method, and error; `OS` records contain address, name, confidence, and class. `Summary` contains derived host, port, service, and OS counts. No writer reconstructs information from another writer.
 
+## Phase 9 Network Transport + Packet Capture
+
+Phase 9 adds infrastructure for connecting future packet-producing and packet-consuming components to Linux interfaces. It does not add a new scan mode. The `net` module is divided into interface discovery, byte transport, bounded packet capture, packet observation, small protocol/port filtering, and a reusable correlation-table boundary.
+
+`NetworkInterface` contains the kernel interface name, index, IPv4 addresses with prefix lengths, operational state, and separate capture/injection capability flags. Linux enumeration uses standard interface APIs, returns structured `InterfaceStatus` errors through `enumerate_interfaces_result()`, and returns interfaces in deterministic name order. `find_interface()` performs exact-name lookup. Skan never silently selects an interface for privileged packet injection; callers must explicitly provide `TransportConfig::interface_name` or `CaptureConfig::interface_name`.
+
+`Transport` moves only already-serialized bytes. `RecordingTransport` records exact frames without network access or privileges, and `NullTransport` accepts configuration while intentionally transmitting nothing. `LinuxTransport` uses an explicitly selected Linux `AF_PACKET` socket, has an explicit open/close lifecycle, preserves system errors, uses nonblocking send behavior when configured, and owns its descriptor through a move-only RAII wrapper. It never chooses ports, creates packets, modifies source identity, fragments frames, or implements evasion.
+
+`PacketCapture` is independent from scan strategy. `LinuxCapture` uses an explicitly selected, nonblocking `AF_PACKET` socket and bounded `recvmsg(MSG_TRUNC)` reception, so oversized frames are reported instead of being silently accepted. `RecordingCapture` supplies deterministic synthetic frames to tests. `PacketReceiver` copies only bounded frames and passes them through the existing Phase 2 Ethernet, IPv4, TCP, UDP, and ICMP parsers, preserving deterministic timestamps and distinguishing truncation, malformed data, unsupported protocols, and valid observations. Its descriptor can be attached to the existing Phase 1 `IOEngine`; no second reactor, polling thread, or blocking receive loop is introduced.
+
+`PacketFilter` supports only the small protocol and source/destination-port predicates required before future correlation. `CorrelationTable` provides deterministic insertion, duplicate detection, lookup, removal, late-packet rejection, and deadline cleanup. It is a reusable boundary rather than a scanner or packet strategy.
+
+The infrastructure-only CLI command is:
+
+```sh
+./bin/skan interfaces
+./bin/skan interfaces --json
+./bin/skan interfaces --interface lo --json
+```
+
+Normal output lists interface name, index, IPv4/prefix values, state, capture capability, and injection capability. JSON output uses stable interface and address ordering and contains only interface data. A missing raw-socket privilege is reported as unavailable capability in the listing or as a structured `PermissionDenied` result when opening a Linux transport or capture backend; no fake successful transmission or fabricated packet response is produced.
+
+> Skan's network transport is capability-honest. When packet capture or injection is unavailable, Skan reports the unavailable capability and does not fabricate successful network operations or packet responses.
+
+Linux AF_PACKET support is Linux-specific and normally requires the privileges permitted by the host's network policy. The controlled integration test uses only the local loopback interface and reports `SKIPPED` when the environment lacks the required capability. Phase 9 does not implement stealth or decoy scanning, source spoofing, evasion, IDS/IPS bypass, fragmentation attacks, credential handling, exploitation, persistence, Internet-wide scanning, or public-target traffic.
+
 ## Phase 2 Packet Layer
 
 The packet layer remains below discovery and is responsible for protocol representation, validation, deterministic serialization, checksums, and lightweight parsing. Discovery does not duplicate ICMP or TCP packet construction. Packet elements continue to serialize into caller-provided `std::span<std::uint8_t>` buffers and provide owned-vector convenience forms.
@@ -244,13 +270,13 @@ make debug
 
 ## Tests
 
-Compile and execute all Phase 0 through Phase 8 tests with:
+Compile and execute all Phase 0 through Phase 9 tests with:
 
 ```sh
 make test
 ```
 
-The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Existing Phase 0–6 tests remain active.
+The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Phase 9 adds deterministic interface, offline transport/capture, packet receiver, filtering, correlation, Linux lifecycle, and controlled loopback capability tests. Existing Phase 0–8 tests remain active.
 
 Sanitizer validation can be run with:
 
@@ -300,7 +326,7 @@ Phase 6 adds a capability-honest OS detection command:
 
 The default live OS transport is unavailable in this build, so both forms report `UNAVAILABLE` with empty matches and zero confidence; no OS identity is inferred without injected response evidence.
 
-Phase 8 adds deterministic output selection for `scan`:
+Phase 8 adds deterministic output selection for `scan`, and Phase 9 adds infrastructure interface inspection:
 
 ```sh
 ./bin/skan scan 127.0.0.1 --tcp-ports 22,80 --output normal
@@ -312,13 +338,13 @@ Phase 8 adds deterministic output selection for `scan`:
 
 The default is `normal`. `-o` and `--output-file` explicitly replace the selected file; serialized results remain separate from stderr diagnostics. Invalid output formats fail before scanning.
 
-Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, UDP option, alternate TCP flag option, or full-port-range default.
+The `interfaces` command does not scan or transmit; it reports the interfaces visible to the current Linux environment. Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, UDP option, alternate TCP flag option, or full-port-range default.
 
 ## Network and safety boundary
 
-Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. There is no raw packet transmission in this build: no `AF_PACKET`, `sendto()`, SYN network transport, spoofing, ARP attack behavior, host-range expansion, public-target default, UDP scanning, alternate TCP flag scanning, evasion, live operating-system fingerprinting, Lua scripting, or dashboard functionality. Phase 6 provides packet-model-backed synthetic/injected OS evidence collection and deterministic matching only; it does not claim a live OS fingerprint.
+Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. Phase 9 adds explicit-interface Linux `AF_PACKET` byte transport and bounded capture as reusable infrastructure; these classes do not choose scan strategies, implement SYN scanning, spoofing, ARP attack behavior, host-range expansion, public-target defaults, UDP scanning, alternate TCP flag scanning, evasion, live operating-system fingerprinting, Lua scripting, or dashboard functionality. Phase 6 provides packet-model-backed synthetic/injected OS evidence collection and deterministic matching only; it does not claim a live OS fingerprint. Phase 9's transport transmits only bytes supplied by higher layers and reports unavailable capabilities rather than fabricating success.
 
-The Phase 3 integration remains offline. Phase 4 and Phase 5 integration use only `127.0.0.1` and deliberately created local listening sockets; Phase 5 additionally verifies controlled SSH and HTTP banner responses. No public Internet targets were scanned.
+The Phase 3 integration remains offline. Phase 4 and Phase 5 integration use only `127.0.0.1` and deliberately created local listening sockets; Phase 5 additionally verifies controlled SSH and HTTP banner responses. Phase 9's controlled Linux integration uses only the local `lo` interface and does not send traffic; capability-dependent capture tests skip cleanly when raw-socket privileges are unavailable. No public Internet targets were scanned.
 
 ## License
 
