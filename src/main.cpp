@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <algorithm>
 #include <string>
 #include <string_view>
@@ -20,6 +22,8 @@
 #include "output/output_manager.hpp"
 #include "output/result_model.hpp"
 #include "net/interface.hpp"
+#include "net/linux_discovery_transport.hpp"
+#include "net/network_scan_transport.hpp"
 #include "portscan/portscan.hpp"
 #include "scanengine/timing_profile.hpp"
 
@@ -45,6 +49,7 @@ void print_help()
               << "  --timeout-ms <ms>      Set the asynchronous probe timeout\n"
               << "  --tcp-ports <spec>     TCP ports: single, list, or range\n"
               << "  --method <connect|syn> TCP Connect or capability-gated SYN\n"
+              << "  --transport <mode>     offline or explicit Linux raw-packet transport\n"
               << "  --max-outstanding <n>  Bound concurrent port probes\n"
               << "  --timing <T0..T5>      Select adaptive Skan timing profile\n"
               << "  --min-parallelism <n>  Set adaptive minimum parallelism\n"
@@ -58,7 +63,7 @@ void print_help()
               << "  -o, --output-file <path> Write serialized output to a file (replace)\n"
               << "  --os-db <path>         Use a project-owned OS fingerprint database\n"
               << "  --json                 Emit structured output for os-detect or interfaces\n"
-              << "  --interface <name>     Select an interface for infrastructure inspection\n\n"
+              << "  --interface <name>     Select an explicit interface for raw scans or inspection\n\n"
               << "Status:\n"
               << "  Phase 0 — Foundation\n"
               << "  Phase 1 — Async I/O Engine\n"
@@ -69,9 +74,11 @@ void print_help()
               << "  Phase 8 — Output & Result Serialization\n"
               << "  Phase 9 — Network Transport & Packet Capture\n"
               << "\nDiscovery CLI mode uses an offline recording transport.\n"
-              << "Scan CLI mode uses real nonblocking TCP Connect sockets.\n"
+              << "Scan Connect mode uses normal nonblocking TCP sockets unless --transport offline is selected.\n"
+              << "Scan SYN mode requires explicit --transport offline or --transport linux --interface <name>.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
-              << "OS fingerprinting is an offline/injected architecture; live raw-packet transport is unavailable.\n";
+              << "OS fingerprinting is an offline/injected architecture; live raw-packet transport is unavailable.\n"
+              << "Linux raw-packet failures are reported; Skan never silently falls back or fabricates results.\n";
 }
 
 bool parse_unsigned(std::string_view text, unsigned int &value)
@@ -95,6 +102,8 @@ int run_discover(int argc, char **argv)
     const std::string target_address = argv[2];
     skan::discovery::DiscoveryConfig config;
     std::vector<skan::discovery::ProbeType> selected_probes;
+    std::string transport_mode;
+    std::string interface_name;
     bool explicit_probe_selection = false;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
@@ -114,6 +123,18 @@ int run_discover(int argc, char **argv)
                 return EXIT_FAILURE;
             }
             config.tcp_port = static_cast<std::uint16_t>(port);
+        } else if (argument == "--transport" && index + 1 < argc) {
+            transport_mode = argv[++index];
+            if (transport_mode != "offline" && transport_mode != "linux") {
+                std::cerr << "Error: transport must be offline or linux.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argument == "--interface" && index + 1 < argc) {
+            interface_name = argv[++index];
+            if (interface_name.empty()) {
+                std::cerr << "Error: interface name cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
         } else if (argument == "--timeout-ms" && index + 1 < argc) {
             unsigned int timeout = 0U;
             if (!parse_unsigned(argv[++index], timeout) || timeout == 0U) {
@@ -129,6 +150,14 @@ int run_discover(int argc, char **argv)
     if (explicit_probe_selection) {
         config.probes = std::move(selected_probes);
     }
+    if (!interface_name.empty() && transport_mode != "linux") {
+        std::cerr << "Error: --interface for discovery requires --transport linux.\n";
+        return EXIT_FAILURE;
+    }
+    if (transport_mode == "linux" && interface_name.empty()) {
+        std::cerr << "Error: --transport linux requires an explicit --interface <name>.\n";
+        return EXIT_FAILURE;
+    }
 
     skan::core::Target target{target_address, {skan::core::Host{target_address, std::nullopt, false}}};
     skan::io::IOEngine io_engine;
@@ -136,9 +165,36 @@ int run_discover(int argc, char **argv)
         std::cerr << "Error: unable to initialize the asynchronous I/O engine.\n";
         return EXIT_FAILURE;
     }
-    skan::discovery::RecordingTransport transport;
+    std::unique_ptr<skan::discovery::DiscoveryTransport> transport;
+    std::unique_ptr<skan::discovery::RecordingTransport> offline_transport;
+    std::unique_ptr<skan::net::LinuxDiscoveryTransport> linux_transport;
+    skan::net::LinuxDiscoveryTransport *linux_transport_ptr = nullptr;
+    if (transport_mode == "linux") {
+        linux_transport = std::make_unique<skan::net::LinuxDiscoveryTransport>(io_engine, interface_name);
+        const skan::net::NetworkScanResult network_status = linux_transport->open();
+        if (!network_status.success()) {
+            std::cerr << "Error: unable to open Linux discovery transport: "
+                      << skan::net::network_scan_status_name(network_status.status);
+            if (!network_status.message.empty()) {
+                std::cerr << " (" << network_status.message << ')';
+            }
+            std::cerr << '\n';
+            return EXIT_FAILURE;
+        }
+        linux_transport_ptr = linux_transport.get();
+        transport = std::move(linux_transport);
+    } else {
+        offline_transport = std::make_unique<skan::discovery::RecordingTransport>();
+        transport = std::move(offline_transport);
+    }
     skan::discovery::Discovery discovery(
-        io_engine, config, transport);
+        io_engine, config, *transport);
+    if (linux_transport_ptr != nullptr) {
+        linux_transport_ptr->set_response_handler(
+            [&discovery](const skan::discovery::DiscoveryResponse &response) {
+                (void)discovery.receive(response);
+            });
+    }
     const skan::core::StatusCode submit_status = discovery.submit(target);
     if (submit_status != skan::core::StatusCode::Ok) {
         std::cerr << "Error: discovery submission failed: "
@@ -362,6 +418,8 @@ int run_scan(int argc, char **argv)
     skan::detect::ServiceDetectionConfig service_config;
     skan::output::OutputFormat output_format = skan::output::OutputFormat::Normal;
     std::string output_file_path;
+    std::string transport_mode;
+    std::string interface_name;
     bool adaptive_timing = false;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
@@ -421,6 +479,18 @@ int run_scan(int argc, char **argv)
                 config.timing_profile.max_retries = static_cast<std::size_t>(value);
             }
             adaptive_timing = true;
+        } else if (argument == "--transport" && index + 1 < argc) {
+            transport_mode = argv[++index];
+            if (transport_mode != "offline" && transport_mode != "linux") {
+                std::cerr << "Error: transport must be offline or linux.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argument == "--interface" && index + 1 < argc) {
+            interface_name = argv[++index];
+            if (interface_name.empty()) {
+                std::cerr << "Error: interface name cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
         } else if (argument == "--output" && index + 1 < argc) {
             if (skan::output::parse_output_format(argv[++index], output_format) != skan::output::OutputStatus::Ok) {
                 std::cerr << "Error: output format must be normal, json, xml, or grepable.\n";
@@ -474,10 +544,18 @@ int run_scan(int argc, char **argv)
     config.adaptive_timing = adaptive_timing;
     service_config.adaptive_timing = adaptive_timing;
     service_config.timing_profile = config.timing_profile;
-    if (config.method == skan::portscan::ScanProbeType::TcpSyn &&
-        !skan::portscan::tcp_syn_network_capability_available()) {
-        std::cerr << "Error: TCP SYN network capability is unavailable in this build; "
-                     "use synthetic transport tests or --method connect.\n";
+    if (config.method == skan::portscan::ScanProbeType::TcpSyn && transport_mode.empty()) {
+        std::cerr << "Error: TCP SYN requires an explicit --transport linux --interface <name> "
+                     "or --transport offline; no raw transport is selected implicitly.\n";
+        return EXIT_FAILURE;
+    }
+    if (config.method == skan::portscan::ScanProbeType::TcpConnect && transport_mode == "linux") {
+        std::cerr << "Error: the linux packet transport is only available for --method syn; "
+                     "Connect mode uses normal TCP sockets.\n";
+        return EXIT_FAILURE;
+    }
+    if (transport_mode == "linux" && interface_name.empty()) {
+        std::cerr << "Error: --transport linux requires an explicit --interface <name>.\n";
         return EXIT_FAILURE;
     }
 
@@ -489,10 +567,35 @@ int run_scan(int argc, char **argv)
         return EXIT_FAILURE;
     }
     const auto scan_started = std::chrono::steady_clock::now();
-    skan::portscan::TcpConnectTransport transport(io_engine);
+    std::unique_ptr<skan::portscan::PortScanTransport> transport;
+    std::unique_ptr<skan::portscan::TcpConnectTransport> connect_transport;
+    std::unique_ptr<skan::portscan::RecordingPortScanTransport> offline_transport;
+    std::unique_ptr<skan::net::LinuxNetworkScanTransport> linux_transport;
+    if (transport_mode == "offline") {
+        offline_transport = std::make_unique<skan::portscan::RecordingPortScanTransport>();
+        transport = std::move(offline_transport);
+    } else if (transport_mode == "linux") {
+        linux_transport = std::make_unique<skan::net::LinuxNetworkScanTransport>(
+            io_engine,
+            skan::net::NetworkScanConfig{interface_name, 65535U, true, std::nullopt});
+        const skan::net::NetworkScanResult network_status = linux_transport->open();
+        if (!network_status.success()) {
+            std::cerr << "Error: unable to open Linux scan transport: "
+                      << skan::net::network_scan_status_name(network_status.status);
+            if (!network_status.message.empty()) {
+                std::cerr << " (" << network_status.message << ')';
+            }
+            std::cerr << '\n';
+            return EXIT_FAILURE;
+        }
+        transport = std::move(linux_transport);
+    } else {
+        connect_transport = std::make_unique<skan::portscan::TcpConnectTransport>(io_engine);
+        transport = std::move(connect_transport);
+    }
     skan::portscan::PortScanScheduler scanner(
         io_engine,
-        transport,
+        *transport,
         config);
     const skan::core::StatusCode submit_status = scanner.submit(target, ports);
     if (submit_status != skan::core::StatusCode::Ok) {

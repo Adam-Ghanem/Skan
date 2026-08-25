@@ -4,7 +4,7 @@ Skan is an original, modular Linux network-scanning platform under development. 
 
 ## Project goals
 
-Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, the Phase 4 TCP port-scan foundation, and the Phase 5 service-detection layer; it does not implement a full network-scanning workflow.
+Skan is intended to grow into a serious Linux network-scanning platform with clear boundaries between the core, asynchronous I/O engine, packet layer, host discovery, scan engine, port scanning, detection, data, scripting, output, evasion, CLI, and dashboard layers. The current implementation provides reusable infrastructure, a scoped host-discovery engine, Phase 4 TCP port scanning, Phase 5 service detection, and Phase 10 explicit Linux transport integration; it does not claim a full unrestricted scanning workflow.
 
 ## Language and platform
 
@@ -25,8 +25,9 @@ Skan targets Linux. Phase 1 uses Linux `epoll` as its I/O backend. Phase 3 uses 
 | Phase 6 — OS Fingerprinting Architecture | **COMPLETE** |
 | Phase 7 — Adaptive Timing + Scan Engine | **COMPLETE** |
 | Phase 8 — Output + Result Serialization | **COMPLETE** |
+| Phase 10 — Real Network Scan Integration | **COMPLETE** |
 
-Phase 3 is deliberately scoped to explicitly supplied targets. Its default transport is a deterministic recording transport for offline tests and safe CLI exercises. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect only for supplied IPv4 targets, and keeps SYN network transmission capability-gated. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 6 is complete for this synthetic/injected scope. No public Internet target is used by the test suite.
+Phase 3 is deliberately scoped to explicitly supplied targets. Its default transport remains a deterministic recording transport for offline tests and safe CLI exercises, while Phase 10 adds an explicit Linux transport option that requires an interface. Phase 4 retains that pipeline boundary, adds real nonblocking TCP Connect for supplied IPv4 targets, and now supports capability-gated Linux SYN transmission only through `--transport linux --interface <name>`; no raw mode is selected implicitly. Phase 5 consumes only OPEN TCP results, performs bounded service probes through the same pipeline boundary and Phase 1 reactor, and uses a small project-owned database. Phase 6 adds a capability-honest OS fingerprinting architecture with injected packet-model probes and a reduced project-owned runtime database; live raw-packet OS fingerprinting remains unavailable. Phase 10 adds real ICMP/TCP/ARP discovery adapters under the same explicit interface boundary. No public Internet target is used by the test suite.
 
 ## Phase 3 Host Discovery
 
@@ -56,9 +57,9 @@ The scheduler supports concurrent ICMP Echo, TCP, and ARP probe strategies with 
 
 | Probe | Submission and evidence | Current transport status |
 | --- | --- | --- |
-| ICMP Echo | Reuses Phase 2 `ICMP` Echo Request serialization. Matches Echo Replies by target address, identifier, and sequence. | Offline recording transport only |
-| TCP | Reuses Phase 2 `TCP` serialization for an explicit configured port. Classifies matching SYN/ACK or RST responses as positive reachability evidence. | Offline recording transport only |
-| ARP | Uses a minimal discovery-local 28-byte ARP representation for IPv4 Ethernet request/reply construction and parsing. | Offline representation only; interface transmission is not implemented |
+| ICMP Echo | Reuses Phase 2 `ICMP` Echo Request serialization. Matches Echo Replies by target address, identifier, and sequence. | Offline by default; explicit Phase 10 Linux adapter |
+| TCP | Reuses Phase 2 `TCP` serialization for an explicit configured port. Classifies matching SYN/ACK or RST responses as positive reachability evidence. | Offline by default; explicit Phase 10 Linux adapter |
+| ARP | Uses a minimal discovery-local 28-byte ARP representation for IPv4 Ethernet request/reply construction and parsing. | Offline by default; explicit Phase 10 Linux adapter on selected Ethernet interfaces |
 
 The default TCP discovery port is **80**, centralized in `kDefaultTcpDiscoveryPort`. The default timeout is **1000 ms**, and the default outstanding-work limit is **64**. These are discovery-policy defaults, not a port-scanning range; Phase 3 never enumerates ports.
 
@@ -235,6 +236,35 @@ Normal output lists interface name, index, IPv4/prefix values, state, capture ca
 
 Linux AF_PACKET support is Linux-specific and normally requires the privileges permitted by the host's network policy. The controlled integration test uses only the local loopback interface and reports `SKIPPED` when the environment lacks the required capability. Phase 9 does not implement stealth or decoy scanning, source spoofing, evasion, IDS/IPS bypass, fragmentation attacks, credential handling, exploitation, persistence, Internet-wide scanning, or public-target traffic.
 
+## Phase 10 Real Network Scan Integration
+
+Phase 10 connects the existing Phase 4 scheduler to the Phase 9 Linux transport and capture layers without rewriting probe construction, response classification, adaptive timing, or Phase 8 serialization. `LinuxNetworkScanTransport` implements the existing `portscan::PortScanTransport` callback contract and owns the lifecycle of an explicit-interface Linux transport, capture, bounded `PacketReceiver`, and correlation entries. The adapter wraps the Phase 2 TCP SYN segment in an Ethernet/IPv4 frame, recalculating the transport checksum through the existing `packet::Packet` composition path; it does not duplicate TCP serialization.
+
+The capture descriptor is registered with the existing Phase 1 `IOEngine`. A capture callback performs one bounded nonblocking receive, applies the Phase 9 TCP filter, validates target/source addresses, ports, and SYN sequence/acknowledgment correlation, and forwards only a matching `PortResponse` to `PortScanScheduler`. Unrelated packets do not complete probes and do not update adaptive timing. Scheduler timers continue to provide timeout, retry, backoff, and result completion semantics.
+
+`LinuxDiscoveryTransport` provides the analogous explicit-interface path for Phase 3 ICMP Echo, TCP, and dedicated ARP submissions. It feeds existing `DiscoveryResponse` values back through `Discovery::receive()`, preserving `UP` only for matching real responses and `UNKNOWN` for timeout. ARP requests use the existing `discovery::ArpMessage` model and broadcast Ethernet destination; IP packet destinations require a known local neighbor entry unless the selected interface is loopback. The existing service detector remains on its normal nonblocking TCP stream transport because service probes are stream exchanges, not raw packet scans. The OS detector remains capability-honest and reports unavailable/empty evidence when a supported live probe transport is not available; no OS result is inferred from the host platform.
+
+Transport selection is explicit:
+
+```sh
+# Existing real Connect path; no raw interface is needed.
+./bin/skan scan 127.0.0.1 --method connect --tcp-ports 80
+
+# Deterministic offline path; never opens a network descriptor.
+./bin/skan scan 127.0.0.1 --transport offline --method syn --tcp-ports 80
+
+# Real raw-packet SYN path; requires explicit interface and host capability.
+./bin/skan scan 127.0.0.1 --transport linux --interface lo \
+  --method syn --tcp-ports 80
+
+# Real ICMP/TCP/ARP discovery path; requires explicit interface.
+./bin/skan discover 127.0.0.1 --transport linux --interface lo --icmp
+```
+
+SYN raw-packet mode without `--transport` and `--interface` fails before scanning. Linux mode never silently falls back to Connect, and Connect mode never silently changes to AF_PACKET. `PermissionDenied`, `InterfaceNotFound`, `NotSupported`, and system failures are printed as diagnostics rather than converted into `OPEN`, `UP`, service identities, or OS matches.
+
+The Phase 10 implementation uses only the one existing reactor, bounded outstanding work, deterministic RAII descriptor ownership, explicit callback detachment, and local controlled test targets. It does not add thread-per-host, thread-per-packet, blocking receive loops, public-target defaults, host-range expansion, source spoofing, evasion, exploitation, credentials, persistence, or authorization behavior.
+
 ## Phase 2 Packet Layer
 
 The packet layer remains below discovery and is responsible for protocol representation, validation, deterministic serialization, checksums, and lightweight parsing. Discovery does not duplicate ICMP or TCP packet construction. Packet elements continue to serialize into caller-provided `std::span<std::uint8_t>` buffers and provide owned-vector convenience forms.
@@ -270,13 +300,13 @@ make debug
 
 ## Tests
 
-Compile and execute all Phase 0 through Phase 9 tests with:
+Compile and execute all Phase 0 through Phase 10 tests with:
 
 ```sh
 make test
 ```
 
-The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Phase 9 adds deterministic interface, offline transport/capture, packet receiver, filtering, correlation, Linux lifecycle, and controlled loopback capability tests. Existing Phase 0–8 tests remain active.
+The suite includes deterministic unit tests for discovery and port-selection parsing; TCP Connect and TCP SYN probe classification; Phase 2 TCP packet reuse; service database parsing; prefix, substring, and regex matching; bounded service scheduling; partial responses; malformed, oversized, duplicate, and late responses; invalid-target handling; timeouts; retries; multiple targets; and stress-sized synthetic scans. Phase 6 adds owned OS database parser tests, typed observation and weighted matcher tests, packet-backed probe correlation tests, bounded multi-host scheduler tests, and injected detector integration tests. Controlled local integration tests exercise real loopback TCP Connect and real SSH/HTTP banner detection without using public targets. Phase 9 adds deterministic interface, offline transport/capture, packet receiver, filtering, correlation, Linux lifecycle, and controlled loopback capability tests. Phase 10 adds Linux adapter lifecycle, explicit transport selection, real discovery adapter, and capability-dependent raw-scan tests. Existing Phase 0–9 tests remain active.
 
 Sanitizer validation can be run with:
 
@@ -326,7 +356,7 @@ Phase 6 adds a capability-honest OS detection command:
 
 The default live OS transport is unavailable in this build, so both forms report `UNAVAILABLE` with empty matches and zero confidence; no OS identity is inferred without injected response evidence.
 
-Phase 8 adds deterministic output selection for `scan`, and Phase 9 adds infrastructure interface inspection:
+Phase 8 adds deterministic output selection for `scan`, Phase 9 adds infrastructure interface inspection, and Phase 10 adds explicit real/offline transport selection:
 
 ```sh
 ./bin/skan scan 127.0.0.1 --tcp-ports 22,80 --output normal
@@ -338,13 +368,13 @@ Phase 8 adds deterministic output selection for `scan`, and Phase 9 adds infrast
 
 The default is `normal`. `-o` and `--output-file` explicitly replace the selected file; serialized results remain separate from stderr diagnostics. Invalid output formats fail before scanning.
 
-The `interfaces` command does not scan or transmit; it reports the interfaces visible to the current Linux environment. Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, UDP option, alternate TCP flag option, or full-port-range default.
+The `interfaces` command does not scan or transmit; it reports the interfaces visible to the current Linux environment. `scan --method connect` retains normal TCP sockets without requiring an interface. `scan --method syn` requires explicit `--transport offline` or `--transport linux --interface <name>`, while `discover --transport linux` also requires an explicit interface. Unknown or incomplete arguments print a clear error and return a non-zero status. There is no hidden target-selection path, implicit public-target default, UDP option, alternate TCP flag option, or full-port-range default.
 
 ## Network and safety boundary
 
-Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. Phase 9 adds explicit-interface Linux `AF_PACKET` byte transport and bounded capture as reusable infrastructure; these classes do not choose scan strategies, implement SYN scanning, spoofing, ARP attack behavior, host-range expansion, public-target defaults, UDP scanning, alternate TCP flag scanning, evasion, live operating-system fingerprinting, Lua scripting, or dashboard functionality. Phase 6 provides packet-model-backed synthetic/injected OS evidence collection and deterministic matching only; it does not claim a live OS fingerprint. Phase 9's transport transmits only bytes supplied by higher layers and reports unavailable capabilities rather than fabricating success.
+Phase 4 implements IPv4 TCP Connect transport through nonblocking stream sockets, and Phase 5 adds TCP banner/probe service detection on OPEN results. Phase 9 adds explicit-interface Linux `AF_PACKET` byte transport and bounded capture as reusable infrastructure. Phase 10 connects that infrastructure to the existing TCP SYN and discovery scheduler seams without moving scan strategy into the transport. These classes do not implement spoofing, ARP attack behavior, host-range expansion, public-target defaults, UDP scanning, alternate TCP flag scanning, evasion, live operating-system fingerprinting, Lua scripting, or dashboard functionality. Phase 6 provides packet-model-backed synthetic/injected OS evidence collection and deterministic matching only; it does not claim a live OS fingerprint. Linux mode reports unavailable capabilities rather than fabricating success.
 
-The Phase 3 integration remains offline. Phase 4 and Phase 5 integration use only `127.0.0.1` and deliberately created local listening sockets; Phase 5 additionally verifies controlled SSH and HTTP banner responses. Phase 9's controlled Linux integration uses only the local `lo` interface and does not send traffic; capability-dependent capture tests skip cleanly when raw-socket privileges are unavailable. No public Internet targets were scanned.
+The default Phase 3 integration remains offline. Phase 4 and Phase 5 integration use only `127.0.0.1` and deliberately created local listening sockets; Phase 5 additionally verifies controlled SSH and HTTP banner responses. Phase 10 raw-packet integration uses only explicitly selected local interfaces and controlled local targets; capability-dependent tests skip cleanly when raw-socket privileges are unavailable. No public Internet targets were scanned.
 
 ## License
 

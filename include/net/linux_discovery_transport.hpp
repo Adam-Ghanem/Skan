@@ -1,0 +1,64 @@
+#ifndef SKAN_NET_LINUX_DISCOVERY_TRANSPORT_HPP
+#define SKAN_NET_LINUX_DISCOVERY_TRANSPORT_HPP
+
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "discovery/discovery_probe.hpp"
+#include "io/io_engine.hpp"
+#include "net/capture.hpp"
+#include "net/linux_capture.hpp"
+#include "net/network_scan_transport.hpp"
+#include "net/linux_transport.hpp"
+#include "net/packet_receiver.hpp"
+
+namespace skan::net {
+
+class LinuxDiscoveryTransport final : public discovery::DiscoveryTransport {
+public:
+    LinuxDiscoveryTransport(io::IOEngine &io_engine, std::string interface_name);
+    ~LinuxDiscoveryTransport() override;
+
+    LinuxDiscoveryTransport(const LinuxDiscoveryTransport &) = delete;
+    LinuxDiscoveryTransport &operator=(const LinuxDiscoveryTransport &) = delete;
+
+    NetworkScanResult open();
+    void close() noexcept;
+    bool is_open() const noexcept;
+
+    void set_response_handler(std::function<void(const discovery::DiscoveryResponse &)> handler);
+    core::StatusCode submit(const discovery::ProbeSubmission &submission) override;
+
+    int transport_file_descriptor() const noexcept;
+    int capture_file_descriptor() const noexcept;
+
+private:
+    struct Pending final {
+        discovery::ProbeSubmission submission;
+    };
+
+    void on_capture_event(io::Event &event) noexcept;
+    void dispatch_observation(const PacketObservation &observation) noexcept;
+    std::optional<std::vector<std::uint8_t>> compose_frame(
+        const discovery::ProbeSubmission &submission) const;
+
+    io::IOEngine &io_engine_;
+    std::string interface_name_;
+    LinuxTransport transport_;
+    LinuxCapture capture_;
+    PacketReceiver receiver_;
+    std::unordered_map<discovery::ProbeId, Pending> pending_;
+    std::function<void(const discovery::DiscoveryResponse &)> response_handler_;
+    std::uint32_t source_ipv4_{0U};
+    std::array<std::uint8_t, 6U> local_mac_{};
+    bool open_{false};
+};
+
+} // namespace skan::net
+
+#endif // SKAN_NET_LINUX_DISCOVERY_TRANSPORT_HPP

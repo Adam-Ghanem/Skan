@@ -31,7 +31,10 @@ public:
     static std::uint32_t sequence_for(PortProbeId id) noexcept;
 };
 
-/** Returns false because this build intentionally has no raw-packet transport. */
+/**
+ * Legacy implicit-capability query. Explicit raw-packet capability is runtime-gated by
+ * net::LinuxNetworkScanTransport after the caller selects a transport and interface.
+ */
 bool tcp_syn_network_capability_available() noexcept;
 
 } // namespace skan::portscan

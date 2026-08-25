@@ -41,9 +41,11 @@ CPP_SOURCES := \
 		 src/net/packet_filter.cpp \
 		 src/net/linux_transport.cpp \
 		 src/net/linux_capture.cpp \
-		 src/net/unique_fd.cpp \
-		src/packet/packet_element.cpp \
-	src/packet/packet.cpp \
+	src/net/unique_fd.cpp \
+	src/net/network_scan_transport.cpp \
+			 src/net/linux_discovery_transport.cpp \
+						src/packet/packet_element.cpp \
+		src/packet/packet.cpp \
 	src/packet/ethernet.cpp \
 	src/packet/ipv4.cpp \
 	src/packet/tcp.cpp \
@@ -102,7 +104,8 @@ NET_OBJECTS := $(BUILD_DIR)/net/interface.o $(BUILD_DIR)/net/interface_types.o \
 	$(BUILD_DIR)/net/capture.o $(BUILD_DIR)/net/capture_types.o \
 	$(BUILD_DIR)/net/packet_receiver.o $(BUILD_DIR)/net/packet_filter.o \
 	$(BUILD_DIR)/net/linux_transport.o $(BUILD_DIR)/net/linux_capture.o \
-	$(BUILD_DIR)/net/unique_fd.o
+	$(BUILD_DIR)/net/unique_fd.o $(BUILD_DIR)/net/network_scan_transport.o \
+		$(BUILD_DIR)/net/linux_discovery_transport.o
 
 PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packet.o \
 	$(BUILD_DIR)/packet/ethernet.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/tcp.o \
@@ -176,7 +179,9 @@ TEST_SOURCES := \
 			tests/unit/net/test_packet_receiver.cpp \
 			tests/unit/net/test_packet_filter.cpp \
 			tests/unit/net/test_linux_transport.cpp \
-			tests/integration/net/test_linux_loopback.cpp
+		tests/unit/net/test_network_scan_transport.cpp \
+		tests/unit/net/test_linux_discovery_transport.cpp \
+				tests/integration/net/test_linux_loopback.cpp
 
 TEST_OBJECTS := $(TEST_SOURCES:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINARIES := \
@@ -236,6 +241,8 @@ TEST_BINARIES := \
 			$(BUILD_DIR)/test_packet_receiver \
 			$(BUILD_DIR)/test_packet_filter \
 			$(BUILD_DIR)/test_linux_transport \
+			$(BUILD_DIR)/test_network_scan_transport \
+			$(BUILD_DIR)/test_linux_discovery_transport \
 			$(BUILD_DIR)/test_linux_loopback
 
 .PHONY: all debug test clean
@@ -406,7 +413,7 @@ $(BUILD_DIR)/test_output_manager: $(BUILD_DIR)/tests/unit/output/test_output_man
 $(BUILD_DIR)/test_output_integration: $(BUILD_DIR)/tests/integration/output/test_output_integration.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-NET_TEST_OBJECTS := $(NET_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
+NET_TEST_OBJECTS := $(NET_OBJECTS) $(PACKET_OBJECTS) $(DISCOVERY_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
 $(BUILD_DIR)/test_interface_types: $(BUILD_DIR)/tests/unit/net/test_interface_types.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
@@ -423,6 +430,12 @@ $(BUILD_DIR)/test_packet_filter: $(BUILD_DIR)/tests/unit/net/test_packet_filter.
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_linux_transport: $(BUILD_DIR)/tests/unit/net/test_linux_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_network_scan_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_linux_discovery_transport: $(BUILD_DIR)/tests/unit/net/test_linux_discovery_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_linux_loopback: $(BUILD_DIR)/tests/integration/net/test_linux_loopback.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
@@ -509,6 +522,8 @@ test: $(TEST_BINARIES)
 			./$(BUILD_DIR)/test_packet_receiver
 			./$(BUILD_DIR)/test_packet_filter
 			./$(BUILD_DIR)/test_linux_transport
+			./$(BUILD_DIR)/test_network_scan_transport
+			./$(BUILD_DIR)/test_linux_discovery_transport
 			./$(BUILD_DIR)/test_linux_loopback
 
 clean:
