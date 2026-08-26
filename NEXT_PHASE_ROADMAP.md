@@ -97,3 +97,10 @@ The remaining raw validation requirement is environmental: AF_PACKET permission 
 Phase 24 completes the source-level live-path hardening currently possible in the restricted environment. Linux TCP SYN frame composition now calculates final IPv4/IPv6 TCP pseudo-header checksums from the selected source and target. Phase 23’s typed discovery/SYN unreachable correlation, automatic interface selection, bounded NDP state, output parity, and capability-honest errors remain in the single existing pipeline.
 
 Local TCP Connect and offline/injected paths are testable here. AF_PACKET-dependent capture and injection remain unavailable with the exact diagnostic `Operation not permitted`; controlled private-lab validation is therefore required before claiming `TESTED_LIVE` for raw SYN, UDP, ARP, NDP, ICMP/ICMPv6, service-over-raw, or raw OS paths. Future phases must preserve explicit target responsibility, one reactor, bounded resources, no fallback, and no prohibited automation or evasion.
+
+
+## Phase 25 Status
+
+Phase 25 extends Skan’s existing live boundary to explicit remote target specifications and explicit `connect|offline|linux` transport selection. Deterministic source/interface selection, family-correct SYN construction and checksum handling, strict correlation, bounded ARP/NDP prerequisites, typed failure semantics, and canonical reporting remain in the existing architecture.
+
+Local IPv4/IPv6 Connect validation is available in this environment. Raw remote SYN, UDP, ICMP/ICMPv6, ARP, NDP, service-over-raw, and OS-over-raw validation remains capability-dependent because AF_PACKET returns `Operation not permitted`. The next acceptance environment must be an explicitly authorized private lab or operator-owned network; no public-target automation, fallback, evasion, spoofing, exploitation, credentials, persistence, threads, polling, sleeps, or shell execution may be added.

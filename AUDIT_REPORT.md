@@ -371,3 +371,23 @@ Phase 24 closes a transmit-integrity gap in the existing Linux TCP SYN adapter: 
 | Security | Packet bounds, strict parsing, checksum validation, exact correlation, duplicate/late isolation, bounded service input, and escaped output remain enforced. |
 
 All validation was restricted to offline, loopback, controlled-local, or documentation-address fixtures. No arbitrary public target was contacted. The remaining raw validation requirement is environmental and requires an explicitly authorized private lab with AF_PACKET permission and suitable IPv4/IPv6 topology.
+
+
+## Phase 25 Audit Record — Production Live Remote Network Scanning
+
+The Phase 24 baseline was audited before changes. It was clean and synchronized at `816c1796b02e2dd06cc64bc5e23540dde85ae00e`, retained one `IOEngine` epoll reactor and the established staged pipeline, and contained no artificial authorization layer, mandatory loopback policy, private-range allowlist, hidden fallback, prohibited thread/poll/sleep/system APIs, or duplicate scanner architecture.
+
+Phase 25 adds explicit `--transport connect` CLI compatibility and updates usage text so Connect, offline, and Linux raw modes are named distinctly. The Linux SYN frame path retains deterministic source-port/sequence identity, strict correlation, selected source/interface handling, ARP/NDP prerequisites, and final IPv4/IPv6 TCP pseudo-header checksum construction. The change does not move work out of the existing reactor or schedulers.
+
+| Capability | Status in this environment |
+| --- | --- |
+| IPv4/IPv6 literals, CIDR, ranges, hostnames, mixed targets | Implemented through the existing bounded Target Engine. |
+| Explicit Connect transport | Implemented; local IPv4 and IPv6 Connect scans exercised successfully. |
+| Offline transport | Implemented and regression-tested through existing injected/recording fixtures. |
+| Linux raw SYN/UDP | Implemented and capability-gated; AF_PACKET unavailable with `Operation not permitted`. |
+| ICMP/ICMPv6, ARP, NDP discovery | Existing strict typed paths remain implemented; raw live exchange not exercised in this sandbox. |
+| Service and TLS detection | Existing bounded project-owned probes and identification-only TLS handling remain active; raw remote validation requires a privileged lab. |
+| OS detection | Existing family-safe project-owned matcher and raw adapter remain active; raw evidence path was not live-exercised here. |
+| Output and diagnostics | Canonical normal/JSON/XML/grepable output and stderr diagnostics remain deterministic and capability-honest. |
+
+No public or arbitrary external target was contacted. The remaining remote validation work requires explicitly authorized operator-owned IPv4/IPv6 infrastructure, suitable routes and neighbors, and AF_PACKET capture/injection permission. No raw live success is claimed without that environment.

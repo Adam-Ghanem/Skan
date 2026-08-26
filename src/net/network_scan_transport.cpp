@@ -28,6 +28,15 @@ namespace {
 constexpr std::uint16_t kEtherTypeIpv4 = 0x0800U;
 constexpr std::uint8_t kTcpProtocol = 6U;
 
+std::uint32_t route_word_to_host(unsigned long value) noexcept
+{
+    const std::uint32_t wire = static_cast<std::uint32_t>(value);
+    return ((wire & 0x000000FFU) << 24U) |
+           ((wire & 0x0000FF00U) << 8U) |
+           ((wire & 0x00FF0000U) >> 8U) |
+           ((wire & 0xFF000000U) >> 24U);
+}
+
 NetworkScanStatus map_transport_status(TransportStatus status) noexcept
 {
     switch (status) {
@@ -174,6 +183,62 @@ std::optional<std::array<std::uint8_t, 6U>> neighbor_mac_for(
         return parse_mac(hardware_address);
     }
     return std::nullopt;
+}
+
+std::optional<std::uint32_t> ipv4_next_hop_for(std::string_view interface_name, std::uint32_t target_ipv4)
+{
+    std::ifstream routes("/proc/net/route");
+    if (!routes.is_open()) {
+        return std::nullopt;
+    }
+
+    std::string line;
+    (void)std::getline(routes, line);
+    std::optional<std::uint32_t> best_hop;
+    unsigned int best_prefix = 0U;
+    while (std::getline(routes, line)) {
+        std::istringstream fields(line);
+        std::string device;
+        std::string destination_text;
+        std::string gateway_text;
+        std::string flags_text;
+        std::string ref_count;
+        std::string use_count;
+        std::string metric;
+        std::string mask_text;
+        if (!(fields >> device >> destination_text >> gateway_text >> flags_text >> ref_count >> use_count >> metric >>
+              mask_text) ||
+            device != interface_name) {
+            continue;
+        }
+
+        unsigned long destination = 0UL;
+        unsigned long gateway = 0UL;
+        unsigned long mask = 0UL;
+        unsigned long flags = 0UL;
+        const auto parse_hex = [](const std::string &text, unsigned long &value) noexcept {
+            const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value, 16);
+            return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
+        };
+        if (!parse_hex(destination_text, destination) || !parse_hex(gateway_text, gateway) ||
+            !parse_hex(mask_text, mask) || !parse_hex(flags_text, flags) || destination > 0xFFFFFFFFUL ||
+            gateway > 0xFFFFFFFFUL || mask > 0xFFFFFFFFUL || flags == 0UL) {
+            continue;
+        }
+
+        const std::uint32_t route_destination = route_word_to_host(destination);
+        const std::uint32_t route_mask = route_word_to_host(mask);
+        if ((target_ipv4 & route_mask) != (route_destination & route_mask)) {
+            continue;
+        }
+        const unsigned int prefix = static_cast<unsigned int>(__builtin_popcount(route_mask));
+        if (!best_hop.has_value() || prefix > best_prefix) {
+            const std::uint32_t route_gateway = route_word_to_host(gateway);
+            best_hop = route_gateway == 0U ? target_ipv4 : route_gateway;
+            best_prefix = prefix;
+        }
+    }
+    return best_hop;
 }
 
 std::string ipv4_text(std::uint32_t address)
@@ -365,8 +430,7 @@ core::StatusCode LinuxNetworkScanTransport::submit(
         session_.last_preflight_family = target_preflight.family;
         session_.last_system_error = target_preflight.system_error;
         session_.last_error = target_preflight.message;
-        return target_preflight.category == PreflightCategory::NoRoute ? core::StatusCode::PermissionDenied
-                                                                        : core::StatusCode::PermissionDenied;
+        return core::StatusCode::PermissionDenied;
     }
     portscan::PortSubmission effective = submission;
     effective.target_ip = target_ip;
@@ -556,7 +620,7 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
         const core::IpAddress observed_destination = core::IpAddress::from_ipv6(observation.ipv6->destination_address());
         std::optional<portscan::PortProbeId> matched_id;
         for (const auto &[id, pending] : pending_) {
-            if (!pending.submission.target_ip.is_ipv6() || pending.submission.source_ip.is_ipv6() == false ||
+            if (!pending.submission.target_ip.is_ipv6() || !pending.submission.source_ip.is_ipv6() ||
                 pending.submission.target_ip.bytes != observed_source.bytes ||
                 pending.submission.source_ip.bytes != observed_destination.bytes ||
                 pending.submission.source_port != tcp.destination_port() ||
@@ -648,6 +712,7 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
     response.kind = portscan::PortResponseKind::Packet;
     response.bytes = std::move(bytes);
     response.received_at = observation.received_at;
+    response.source_ip.scope = pending->second.submission.target_ip.scope;
     portscan::PortResponseCallback callback = pending->second.callback;
     correlation_.remove(pending->second.correlation_key);
     pending_.erase(pending);
@@ -730,7 +795,11 @@ std::optional<std::array<std::uint8_t, 6U>> LinuxNetworkScanTransport::destinati
     if (config_.interface_name == "lo") {
         return std::array<std::uint8_t, 6U>{};
     }
-    return neighbor_mac_for(config_.interface_name, target_ipv4);
+    const auto next_hop = ipv4_next_hop_for(config_.interface_name, target_ipv4);
+    if (!next_hop.has_value()) {
+        return std::nullopt;
+    }
+    return neighbor_mac_for(config_.interface_name, *next_hop);
 }
 
 std::optional<std::array<std::uint8_t, 6U>> LinuxNetworkScanTransport::destination_mac(

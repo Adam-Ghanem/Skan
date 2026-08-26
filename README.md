@@ -733,3 +733,12 @@ Phase 24 hardens the already-existing live path rather than adding a new scanner
 The Phase 23 baseline contains no artificial authorization gate, mandatory loopback restriction, private-range allowlist, or hidden target policy. Operator-supplied targets remain subject to the existing syntax, resource, route, family, and capability checks. TCP Connect loopback validation is available in this environment for IPv4 and conditionally IPv6; raw Linux SYN, UDP, ARP, NDP, ICMP/ICMPv6, capture, service-over-raw, and raw OS exchanges remain capability-dependent because AF_PACKET returns `Operation not permitted` in the sandbox. No live raw success is claimed.
 
 The Phase 24 validation record separates implemented, offline-tested, loopback-tested, capability-dependent, and unavailable behavior. No public or arbitrary external target was contacted.
+
+
+## Phase 25 Status — Production Live Remote Network Scanning
+
+Phase 25 extends the existing scanner toward explicitly selected remote IPv4 and IPv6 targets without adding a second pipeline, scheduler, reactor, packet framework, or output model. The CLI now accepts `--transport connect`, `--transport offline`, and `--transport linux` explicitly; Connect remains the normal nonblocking socket path, offline remains the recording/injected path, and Linux remains capability-gated raw packet mode. No transport is selected implicitly as a substitute for another.
+
+The Linux SYN path uses the selected source address, deterministic source port and sequence identity, family-correct Ethernet/IP/TCP frame construction, IPv4 and IPv6 pseudo-header checksums, exact response correlation, and typed ICMP unreachable handling. Existing deterministic automatic interface derivation and authoritative `--interface` selection remain active. ARP and bounded NDP behavior remain strict and capability-dependent for remote Ethernet paths.
+
+Remote target specifications remain bounded through the existing Target Engine and include IPv4/IPv6 literals, CIDR, ranges, hostnames, and mixed target sets. In this environment real loopback Connect validation passes for IPv4 and IPv6. Raw remote IPv4/IPv6, UDP, discovery, ARP, NDP, service-over-raw, and OS-over-raw exchange is implemented but not live-validated because AF_PACKET returns `Operation not permitted`. No public target was contacted and no unsupported capability is represented as live success.

@@ -57,7 +57,7 @@ void print_help()
               << "  --udp                  Run the explicit bounded UDP scan mode\n"
               << "  --udp-ports <spec>     UDP ports: single, list, or range\n"
               << "  --method <connect|syn> TCP Connect or capability-gated SYN (not with --udp)\n"
-              << "  --transport <mode>     offline or explicit Linux raw-packet transport\n"
+              << "  --transport <mode>     connect, offline, or explicit Linux raw-packet transport\n"
               << "  --max-outstanding <n>  Bound concurrent TCP probes\n"
               << "  --udp-max-outstanding <n> Bound concurrent UDP probes (default 64)\n"
               << "  --udp-timeout-ms <ms>  Bound UDP response timeout (default 1500)\n"
@@ -925,8 +925,8 @@ int run_scan(int argc, char **argv)
             adaptive_timing = true;
         } else if (argument == "--transport" && index + 1 < argc) {
             transport_mode = argv[++index];
-            if (transport_mode != "offline" && transport_mode != "linux") {
-                std::cerr << "Error: transport must be offline or linux.\n";
+            if (transport_mode != "connect" && transport_mode != "offline" && transport_mode != "linux") {
+                std::cerr << "Error: transport must be connect, offline, or linux.\n";
                 return EXIT_FAILURE;
             }
         } else if ((argument == "--max-targets" || argument == "--max-hostname-results") && index + 1 < argc) {
@@ -1007,7 +1007,9 @@ int run_scan(int argc, char **argv)
                      config.timing_profile.max_parallelism);
     }
     config.adaptive_timing = adaptive_timing;
-    if (transport_mode == "offline") {
+    if (transport_mode == "connect") {
+        config.transport = skan::orchestrator::ScanTransport::Connect;
+    } else if (transport_mode == "offline") {
         config.transport = skan::orchestrator::ScanTransport::Offline;
     } else if (transport_mode == "linux") {
         config.transport = skan::orchestrator::ScanTransport::Linux;

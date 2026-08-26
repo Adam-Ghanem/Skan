@@ -164,3 +164,23 @@ The previously recorded 1,000- and 10,000-target measurements remain the applica
 Phase 24 uses the existing offline benchmark driver and does not create a second measurement harness. The benchmark covers target expansion, packet parsing, correlation, timers, schedulers, orchestration, and canonical output. The new SYN checksum path is exercised by packet-level and integration tests; raw-network timing is not reported because AF_PACKET is unavailable in the sandbox.
 
 The fresh 1,000- and 10,000-target offline measurements recorded for Phase 23 remain valid for this source line’s algorithmic-scaling baseline. They must not be interpreted as private-network or online-server throughput. Loopback Connect measurements are functional validation measurements, while privileged raw IPv4/IPv6, ARP/NDP, ICMP, UDP, service, and OS timing require a separate authorized lab run.
+
+
+## Phase 25 Benchmark Record
+
+Phase 25 continues to use the existing deterministic offline benchmark driver. The benchmark covers bounded target expansion, packet parsing, correlation, timers, schedulers, orchestration, and canonical output; it does not contact remote targets. The explicit Connect CLI mode is validated functionally on local sockets, while raw remote timing is not reported because the sandbox cannot open AF_PACKET.
+
+The existing 1,000- and 10,000-target measurements remain offline algorithmic-scaling baselines. They must not be described as remote-network throughput. Any future private-network or controlled-online run must be recorded separately with interface, family, transport, target scope, packet/probe counts, retries, timeouts, correlation operations, stage times, and peak RSS.
+
+
+Fresh Phase 25 runs completed after a clean non-instrumented rebuild. Representative final rows are recorded below; all values are machine-specific offline measurements.
+
+| Row | 1,000 targets p50 / p95 ms | 10,000 targets p50 / p95 ms | 10,000 operations/s | 10,000 RSS KiB |
+| --- | ---: | ---: | ---: | ---: |
+| mixed-orchestrator | 1,164.371 / 1,167.689 | 11,833.076 / 11,881.181 | 845.089 | 244,740 |
+| JSON serialization | 0.601 / 0.656 | 5.401 / 5.546 | 1,851,455 | 244,740 |
+| XML serialization | 0.263 / 0.287 | 2.676 / 2.752 | 3,737,351 | 244,740 |
+| grepable serialization | 0.101 / 0.106 | 1.201 / 1.220 | 8,324,807 | 244,740 |
+| normal serialization | 0.100 / 0.129 | 1.013 / 1.078 | 9,870,528 | 244,740 |
+
+These rows are offline-only and exclude AF_PACKET transmission/capture. No remote or public target was contacted.

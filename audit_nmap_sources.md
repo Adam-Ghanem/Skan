@@ -123,3 +123,20 @@ Phase 24 hardens Skan’s existing explicit Linux SYN path by recalculating TCP 
 | Nmap breadth, NSE, CPE, evasion, spoofing, exploitation | Not implemented and intentionally outside scope. |
 
 No Nmap code, probe database, OS database, or scripts were copied. Any future comparison must use the same operator-owned target, ports, interface, transport, and family, and must be recorded separately from offline or loopback measurements.
+
+
+## Phase 25 capability comparison
+
+Phase 25 adds explicit `connect|offline|linux` transport selection for remote target workflows while preserving Skan’s independently implemented bounded packet, scheduler, correlation, service, OS, metrics, and output subsystems. The Linux SYN path retains deterministic source/interface selection, final IPv4/IPv6 pseudo-header checksums, strict response correlation, and typed unreachable evidence.
+
+| Nmap capability area | Phase 25 Skan status |
+| --- | --- |
+| Remote target specifications | Bounded IPv4/IPv6 literals, CIDR, ranges, hostnames, and mixed target sets are supported by Skan’s Target Engine. |
+| TCP Connect | Explicit Connect transport is now named by `--transport connect`; local IPv4/IPv6 behavior is exercised through the existing nonblocking path. |
+| TCP SYN and UDP | Explicit Linux raw adapters remain available when interface, route, source, neighbor, capture, and injection capability exists; raw remote exchange was not validated in this sandbox. |
+| Discovery/ARP/NDP | Existing bounded, strictly correlated typed paths remain in place; remote Ethernet validation requires an authorized capable lab. |
+| Service/TLS and OS | Existing bounded project-owned implementations remain; no authentication, credential collection, certificate exploitation, copied fingerprint data, or fabricated identity was added. |
+| Timing/output | Existing adaptive timing, bounded schedulers, canonical outputs, and metrics remain; offline measurements are not represented as live remote performance. |
+| Nmap breadth, NSE, CPE, evasion, spoofing, exploitation | Not implemented and intentionally outside scope. |
+
+No Nmap code, probe database, OS database, NSE script, or CPE database was copied. A direct controlled Nmap comparison was not performed because raw AF_PACKET capability was unavailable and no public target was contacted.

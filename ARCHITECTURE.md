@@ -160,7 +160,7 @@ PortResult (target, TCP port, state, probe, reason, optional RTT)
 
 `TcpConnectTransport` opens `AF_INET` or `AF_INET6` stream sockets with `SOCK_CLOEXEC`, sets them nonblocking, handles immediate `connect()` completion and `EINPROGRESS`, and registers a borrowed `io::Event` for writable/error/hangup readiness. Completion reads `SO_ERROR`; success is `OPEN`, `ECONNREFUSED` is `CLOSED`, other socket errors are `UNKNOWN`, and the scheduler deadline produces `FILTERED`. Every terminal path removes the event, cancels the shared timer, closes the descriptor exactly once, and discards the callback.
 
-`TcpSynProbe` reuses `packet::TCP` to construct an offline SYN header. It accepts only a response with matching source/destination ports; SYN/ACK requires acknowledgment equal to the SYN sequence plus one and produces `OPEN`, while a correlated RST produces `CLOSED`. Malformed or unrelated packets do not complete pending work. `tcp_syn_network_capability_available()` is false in this build because no raw-packet transport is implemented; a future transport must be injected explicitly and capability-checked rather than silently falling back to fabricated network evidence.
+`TcpSynProbe` reuses `packet::TCP` to construct an offline SYN header. It accepts only a response with matching source/destination ports; SYN/ACK requires acknowledgment equal to the SYN sequence plus one and produces `OPEN`, while a correlated RST produces `CLOSED`. Malformed or unrelated packets do not complete pending work. The legacy parameterless `tcp_syn_network_capability_available()` query remains false because raw capability is runtime- and interface-dependent; the implemented Linux raw transport is selected explicitly and capability-checked rather than silently falling back to fabricated network evidence.
 
 Port selection accepts single values, comma-separated lists, and inclusive ranges. Values outside `1..65535`, malformed tokens, and descending ranges are rejected. The default is the small deterministic set `{22, 80, 443}`; no implicit full-port enumeration exists.
 
@@ -768,3 +768,12 @@ Phase 24 preserves the established CLI → Target Engine → Scan Orchestrator �
 The live SYN adapter now performs final TCP pseudo-header checksum construction using the selected typed source and target addresses for both IPv4 and IPv6 frames. This closes a transmit-integrity gap without moving checksum ownership out of the existing packet layer or changing correlation ownership. Discovery and SYN ICMP unreachable evidence continues through typed response boundaries and the existing schedulers.
 
 Phase 24 validation is capability-aware. Connect/service paths can be exercised on local sockets; raw capture/injection paths require Linux AF_PACKET permission, valid route/source/family facts, MTU, link state, and neighbor information. When any prerequisite is unavailable, the existing typed diagnostic is returned and no fallback is selected.
+
+
+## Phase 25 architecture update
+
+Phase 25 preserves the existing CLI → Target Engine → Scan Orchestrator → Discovery → Port Scan → Service Detection → OS Detection → Output pipeline and single epoll-based `io::IOEngine`. Remote target expansion, raw interface selection, source selection, packet construction, response correlation, retries, timers, metrics, cancellation, shutdown, service detection, OS matching, and serialization continue to use the existing subsystems.
+
+The CLI now exposes explicit `connect`, `offline`, and `linux` transport names. `connect` routes to the existing nonblocking TCP transport, `offline` routes to the existing recording/injected transport, and `linux` routes to the existing AF_PACKET capture/injection adapters. This is an explicit mode distinction, not fallback behavior.
+
+For raw SYN transmission, final TCP pseudo-header checksums are calculated during frame composition from the selected source and destination addresses. Remote Ethernet delivery still requires the existing interface, route, MTU, capture, injection, and neighbor prerequisites. ARP and IPv6 NDP remain bounded, strictly correlated, and capability-gated; unavailable prerequisites terminate the selected raw path with typed diagnostics.
