@@ -673,6 +673,7 @@ std::optional<std::vector<std::uint8_t>> LinuxNetworkScanTransport::compose_fram
         return std::nullopt;
     }
     packet::Packet packet;
+    std::optional<packet::TCP> wire_tcp;
     if (target_ip.is_ipv4() && submission.source_ip.is_ipv4()) {
         const std::uint32_t target_ipv4 = (static_cast<std::uint32_t>(target_ip.bytes[0]) << 24U) |
                                           (static_cast<std::uint32_t>(target_ip.bytes[1]) << 16U) |
@@ -688,6 +689,13 @@ std::optional<std::vector<std::uint8_t>> LinuxNetworkScanTransport::compose_fram
         ipv4.set_destination_address(target_ipv4);
         packet.set_ethernet(packet::Ethernet(*destination, local_mac_, kEtherTypeIpv4));
         packet.set_ipv4(ipv4);
+        std::vector<std::uint8_t> tcp_bytes(tcp->serialized_size(), 0U);
+        if (tcp->serialize_with_checksum(
+                std::span<std::uint8_t>{tcp_bytes}, source_ipv4, target_ipv4,
+                std::span<const std::uint8_t>{tcp->payload()}) != core::StatusCode::Ok) {
+            return std::nullopt;
+        }
+        wire_tcp = packet::TCP::parse(std::span<const std::uint8_t>{tcp_bytes});
     } else if (target_ip.is_ipv6() && submission.source_ip.is_ipv6()) {
         packet::IPv6 ipv6;
         ipv6.set_next_header(kTcpProtocol);
@@ -695,10 +703,20 @@ std::optional<std::vector<std::uint8_t>> LinuxNetworkScanTransport::compose_fram
         ipv6.set_destination_address(target_ip.bytes);
         packet.set_ethernet(packet::Ethernet(*destination, local_mac_, 0x86DDU));
         packet.set_ipv6(ipv6);
+        std::vector<std::uint8_t> tcp_bytes(tcp->serialized_size(), 0U);
+        if (tcp->serialize_with_checksum(
+                std::span<std::uint8_t>{tcp_bytes}, submission.source_ip.bytes, target_ip.bytes,
+                std::span<const std::uint8_t>{tcp->payload()}) != core::StatusCode::Ok) {
+            return std::nullopt;
+        }
+        wire_tcp = packet::TCP::parse(std::span<const std::uint8_t>{tcp_bytes});
     } else {
         return std::nullopt;
     }
-    packet.set_tcp(*tcp);
+    if (!wire_tcp.has_value()) {
+        return std::nullopt;
+    }
+    packet.set_tcp(*wire_tcp);
     std::vector<std::uint8_t> frame = packet.serialize();
     return frame.empty() ? std::nullopt : std::optional<std::vector<std::uint8_t>>{std::move(frame)};
 }

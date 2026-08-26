@@ -759,3 +759,12 @@ Phase 23 keeps the existing Target Engine → Scan Orchestrator → Discovery �
 Discovery host aggregation and canonical serializers preserve explicit `UNREACHABLE` state alongside UP, DOWN, and UNKNOWN. TCP SYN uses the same typed `PortResponse` contract as Connect and UDP, while `-p` and bounded `-p-` selection reuse the existing strict port parser. No authorization gate, loopback-only production restriction, hidden allowlist, or public-target automation was introduced.
 
 Non-loopback IPv6 Ethernet destination resolution remains capability-dependent on the existing interface and neighbor mechanisms. The restricted sandbox cannot open AF_PACKET, so raw packet exchange is not represented as validated success.
+
+
+## Phase 24 architecture update
+
+Phase 24 preserves the established CLI → Target Engine → Scan Orchestrator → Discovery → Port Scan → Service Detection → OS Detection → Output pipeline and one `io::IOEngine` epoll reactor. No second scheduler, polling loop, worker thread, duplicate packet framework, or duplicate output model was introduced.
+
+The live SYN adapter now performs final TCP pseudo-header checksum construction using the selected typed source and target addresses for both IPv4 and IPv6 frames. This closes a transmit-integrity gap without moving checksum ownership out of the existing packet layer or changing correlation ownership. Discovery and SYN ICMP unreachable evidence continues through typed response boundaries and the existing schedulers.
+
+Phase 24 validation is capability-aware. Connect/service paths can be exercised on local sockets; raw capture/injection paths require Linux AF_PACKET permission, valid route/source/family facts, MTU, link state, and neighbor information. When any prerequisite is unavailable, the existing typed diagnostic is returned and no fallback is selected.

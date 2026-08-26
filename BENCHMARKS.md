@@ -157,3 +157,10 @@ The IPv6 and mixed orchestration figures include bounded offline OS probes for e
 Phase 23 keeps the existing deterministic offline benchmark driver and does not introduce a second performance harness. Typed unreachable paths, quoted IPv4/IPv6 correlation, host-state aggregation, and full-range port selection are covered by functional tests; AF_PACKET timing remains excluded when the environment cannot open the raw capability. All workload generation remains offline, loopback-only, controlled-local, or documentation-address scoped.
 
 The previously recorded 1,000- and 10,000-target measurements remain the applicable final measurements for this source line. They are not public-network throughput claims and should be compared only with runs using the same binary, compiler, limits, and sandbox conditions.
+
+
+## Phase 24 Benchmark Record
+
+Phase 24 uses the existing offline benchmark driver and does not create a second measurement harness. The benchmark covers target expansion, packet parsing, correlation, timers, schedulers, orchestration, and canonical output. The new SYN checksum path is exercised by packet-level and integration tests; raw-network timing is not reported because AF_PACKET is unavailable in the sandbox.
+
+The fresh 1,000- and 10,000-target offline measurements recorded for Phase 23 remain valid for this source line’s algorithmic-scaling baseline. They must not be interpreted as private-network or online-server throughput. Loopback Connect measurements are functional validation measurements, while privileged raw IPv4/IPv6, ARP/NDP, ICMP, UDP, service, and OS timing require a separate authorized lab run.

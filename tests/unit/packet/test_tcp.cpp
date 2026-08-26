@@ -93,6 +93,16 @@ int main()
         0x53U, 0xCBU, 0x00U, 0x00U};
     assert(std::equal(checksummed_syn.begin(), checksummed_syn.end(), expected_checksummed_syn.begin()));
 
+    const std::array<std::uint8_t, 16U> source6{
+        0x20U, 0x01U, 0x0dU, 0xb8U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 1U};
+    const std::array<std::uint8_t, 16U> destination6{
+        0x20U, 0x01U, 0x0dU, 0xb8U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 2U};
+    std::vector<std::uint8_t> checksummed_syn6(syn.serialized_size(), 0U);
+    assert(syn.serialize_with_checksum(
+               std::span<std::uint8_t>{checksummed_syn6}, source6, destination6) == skan::core::StatusCode::Ok);
+    assert(skan::packet::checksum::ipv6_pseudo_header(
+               source6, destination6, 6U, std::span<const std::uint8_t>{checksummed_syn6}) == 0U);
+
     TCP invalid;
     invalid.set_options(std::vector<TcpOption>(20U, TcpOption{TcpOptionKind::Mss, 1U, 0U, 0U}));
     assert(!invalid.validate());

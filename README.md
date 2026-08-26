@@ -724,3 +724,12 @@ Phase 22 validation covers these changes with unit, integration, offline, and co
 Phase 23 extends the same production pipeline with typed discovery `UNREACHABLE` evidence, exact quoted IPv4/IPv6 ICMP unreachable correlation for live TCP SYN and discovery probes, canonical host-unreachable output counts, and strict `-p`/`-p-` TCP selection compatibility. The implementation retains one epoll reactor, existing timers, schedulers, packet models, capture path, correlation tables, adaptive timing, and `ScanReport` output model.
 
 The repository contains no authorization gate, mandatory loopback policy, private-range rejection, or hidden target allowlist. User-supplied syntactically valid IPv4/IPv6 targets continue through the existing target and capability checks. Raw Linux behavior remains capability-honest: the current sandbox reports AF_PACKET `Operation not permitted`, so raw exchange is not claimed as live-validated and no transport fallback is used.
+
+
+## Phase 24 Status
+
+Phase 24 hardens the already-existing live path rather than adding a new scanner architecture. Linux TCP SYN frame composition now recalculates the TCP pseudo-header checksum from the selected IPv4 or IPv6 source and destination addresses before transmission. The existing typed discovery and SYN response paths retain exact quoted-packet correlation, explicit unreachable evidence, deterministic source/interface selection, bounded timers, and canonical output.
+
+The Phase 23 baseline contains no artificial authorization gate, mandatory loopback restriction, private-range allowlist, or hidden target policy. Operator-supplied targets remain subject to the existing syntax, resource, route, family, and capability checks. TCP Connect loopback validation is available in this environment for IPv4 and conditionally IPv6; raw Linux SYN, UDP, ARP, NDP, ICMP/ICMPv6, capture, service-over-raw, and raw OS exchanges remain capability-dependent because AF_PACKET returns `Operation not permitted` in the sandbox. No live raw success is claimed.
+
+The Phase 24 validation record separates implemented, offline-tested, loopback-tested, capability-dependent, and unavailable behavior. No public or arbitrary external target was contacted.

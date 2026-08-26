@@ -90,3 +90,10 @@ The remaining validation requirement is environmental: run the existing capabili
 Phase 23 extends the production live-scanning boundary in the existing architecture. Typed discovery `UNREACHABLE` evidence, exact quoted IPv4/IPv6 ICMP unreachable correlation for TCP SYN and discovery, canonical host-unreachable output, and strict `-p`/`-p-` selection are implemented and covered by tests.
 
 The remaining raw validation requirement is environmental: AF_PACKET permission and an explicitly authorized loopback/private lab are needed to exercise live packet exchange. The current sandbox returns `Operation not permitted`, so no raw live success is claimed. Future work must preserve explicit targets, capability-honest failure, one reactor, bounded resources, no fallback, no threads or shell execution, and no evasion or exploitation.
+
+
+## Phase 24 Status
+
+Phase 24 completes the source-level live-path hardening currently possible in the restricted environment. Linux TCP SYN frame composition now calculates final IPv4/IPv6 TCP pseudo-header checksums from the selected source and target. Phase 23’s typed discovery/SYN unreachable correlation, automatic interface selection, bounded NDP state, output parity, and capability-honest errors remain in the single existing pipeline.
+
+Local TCP Connect and offline/injected paths are testable here. AF_PACKET-dependent capture and injection remain unavailable with the exact diagnostic `Operation not permitted`; controlled private-lab validation is therefore required before claiming `TESTED_LIVE` for raw SYN, UDP, ARP, NDP, ICMP/ICMPv6, service-over-raw, or raw OS paths. Future phases must preserve explicit target responsibility, one reactor, bounded resources, no fallback, and no prohibited automation or evasion.

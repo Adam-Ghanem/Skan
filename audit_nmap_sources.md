@@ -108,3 +108,18 @@ Phase 23 adds typed discovery `UNREACHABLE` evidence and exact quoted IPv4/IPv6 
 | Evasion, decoys, spoofing, exploitation, credential handling | Intentionally not implemented. |
 
 No Nmap source code, probe database, OS database, or scripts were copied. Validation remains offline, loopback-only, controlled-local, or documentation-address scoped; the sandbox’s AF_PACKET denial is reported as `Operation not permitted` rather than hidden behind fallback.
+
+
+## Phase 24 capability comparison
+
+Phase 24 hardens Skan’s existing explicit Linux SYN path by recalculating TCP pseudo-header checksums against the selected IPv4/IPv6 source and destination during frame composition. This improves transmit correctness but does not imply Nmap compatibility or equivalent raw-network breadth.
+
+| Nmap capability area | Phase 24 Skan status |
+| --- | --- |
+| TCP Connect | Real loopback validation remains available through Skan’s existing nonblocking socket path. |
+| TCP SYN/UDP/raw discovery | Existing explicit capability-gated adapters remain implemented; raw live comparison was not performed because AF_PACKET returns `Operation not permitted`. |
+| IPv4/IPv6 | Typed offline and local Connect paths are covered; raw family validation remains dependent on interface, route, source, neighbor, capture, and injection capabilities. |
+| Service/TLS and OS detection | Existing bounded project-owned implementations remain; no certificate exploitation, credentials, copied fingerprint data, or fabricated identity was added. |
+| Nmap breadth, NSE, CPE, evasion, spoofing, exploitation | Not implemented and intentionally outside scope. |
+
+No Nmap code, probe database, OS database, or scripts were copied. Any future comparison must use the same operator-owned target, ports, interface, transport, and family, and must be recorded separately from offline or loopback measurements.

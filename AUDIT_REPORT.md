@@ -352,3 +352,22 @@ Phase 23 confirms that the Phase 22 baseline contains no artificial authorizatio
 The implementation adds typed discovery `UNREACHABLE` evidence, exact quoted IPv4/IPv6 ICMP unreachable correlation for TCP SYN and discovery probes, canonical host-unreachable summary fields, and strict `-p`/`-p-` TCP selection compatibility. The existing single epoll reactor, timers, schedulers, packet parsers, correlation tables, bounded service/TLS identification, OS matcher, metrics, and output model remain the only production execution path.
 
 Validation is restricted to offline, loopback, controlled-local, and documentation-address fixtures. The complete regression suite passes. AF_PACKET-dependent tests remain capability-gated and report the exact sandbox diagnostic `Operation not permitted`; no live raw exchange is claimed. No public target was contacted, and no threads, polling/sleep loops, shell execution, credentials, persistence, evasion, spoofing, exploitation, copied Nmap code, or copied Nmap data were introduced.
+
+
+## Phase 24 Audit Record — Production Live Validation & Capability Completion
+
+The Phase 23 baseline was audited before modification. It is synchronized with `origin/main`, preserves one epoll-based IOEngine and the established pipeline, and contains no `AuthorizationGate`, mandatory loopback restriction, private-range allowlist, hidden authorization mechanism, prohibited production thread/poll/sleep/system API, duplicate reactor, or duplicate pipeline.
+
+Phase 24 closes a transmit-integrity gap in the existing Linux TCP SYN adapter: final TCP checksums are now calculated against the selected IPv4 or IPv6 pseudo-header addresses during frame composition. Existing Phase 23 typed unreachable evidence, quoted packet correlation, deterministic source/interface selection, bounded scheduling, service/TLS identification, OS matching, metrics, cancellation, shutdown, and canonical output remain in place.
+
+| Area | Phase 24 evidence and status |
+| --- | --- |
+| IPv4 Connect | Loopback open/closed validation passed through real nonblocking sockets; unit tests cover timeout, unreachable, local-source, and cancellation semantics. |
+| IPv6 Connect | Existing local `::1` integration path is exercised when the host IPv6 stack provides it; no external IPv6 target was used. |
+| Raw SYN/UDP/discovery/ARP/NDP/ICMP/OS | Implemented and capability-gated; sandbox AF_PACKET access returns `Operation not permitted`, so no raw live success is claimed. |
+| Service/TLS | Existing bounded project-owned probes and identification-only TLS parsing remain active; no authentication, certificate exploitation, MITM, or credential collection was added. |
+| Source/interface selection | Deterministic target-family, route/source, operational-state, capability, and explicit-interface rules remain active. |
+| Timing/lifecycle | Existing one-shot timers, adaptive timing, bounded concurrency, cancellation, descriptor teardown, correlation cleanup, and canonical partial-report behavior remain active and regression-tested. |
+| Security | Packet bounds, strict parsing, checksum validation, exact correlation, duplicate/late isolation, bounded service input, and escaped output remain enforced. |
+
+All validation was restricted to offline, loopback, controlled-local, or documentation-address fixtures. No arbitrary public target was contacted. The remaining raw validation requirement is environmental and requires an explicitly authorized private lab with AF_PACKET permission and suitable IPv4/IPv6 topology.
