@@ -53,7 +53,7 @@ void print_help()
               << "  --arp                  Select ARP discovery\n"
               << "  --tcp-port <port>      Set the explicit TCP discovery port\n"
               << "  --timeout-ms <ms>      Set the asynchronous probe timeout\n"
-              << "  --tcp-ports <spec>     TCP ports: single, list, or range\n"
+              << "  -p, --tcp-ports <spec> TCP ports: single, list, range, or -p- for 1-65535\n"
               << "  --udp                  Run the explicit bounded UDP scan mode\n"
               << "  --udp-ports <spec>     UDP ports: single, list, or range\n"
               << "  --method <connect|syn> TCP Connect or capability-gated SYN (not with --udp)\n"
@@ -827,9 +827,20 @@ int run_scan(int argc, char **argv)
             }
             config.udp_enabled = true;
             config.port_scan_enabled = false;
-        } else if (argument == "--tcp-ports" && index + 1 < argc) {
+        } else if ((argument == "--tcp-ports" || argument == "-p") && index + 1 < argc) {
             const skan::portscan::PortSelection selection =
                 skan::portscan::parse_tcp_ports(argv[++index]);
+            if (selection.status != skan::core::StatusCode::Ok) {
+                std::cerr << "Error: invalid TCP port selection.\n";
+                return EXIT_FAILURE;
+            }
+            config.ports.clear();
+            for (const skan::portscan::Port &port : selection.ports) {
+                config.ports.push_back(port.number);
+            }
+            explicit_ports = true;
+        } else if (argument == "-p-") {
+            const skan::portscan::PortSelection selection = skan::portscan::parse_tcp_ports("1-65535");
             if (selection.status != skan::core::StatusCode::Ok) {
                 std::cerr << "Error: invalid TCP port selection.\n";
                 return EXIT_FAILURE;

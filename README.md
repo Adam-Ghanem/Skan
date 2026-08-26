@@ -717,3 +717,10 @@ Phase 22 validation covers these changes with unit, integration, offline, and co
 | --- | --- |
 | Phase 22 — production live-interface selection, ARP identity hardening, structured unreachable/error semantics, and capability-honest raw OS failure | Complete; committed and pushed after final verification |
 | Phase 22 — restricted-sandbox raw capability | Unavailable: AF_PACKET returns `Operation not permitted` |
+
+
+## Phase 23 Status Override
+
+Phase 23 extends the same production pipeline with typed discovery `UNREACHABLE` evidence, exact quoted IPv4/IPv6 ICMP unreachable correlation for live TCP SYN and discovery probes, canonical host-unreachable output counts, and strict `-p`/`-p-` TCP selection compatibility. The implementation retains one epoll reactor, existing timers, schedulers, packet models, capture path, correlation tables, adaptive timing, and `ScanReport` output model.
+
+The repository contains no authorization gate, mandatory loopback policy, private-range rejection, or hidden target allowlist. User-supplied syntactically valid IPv4/IPv6 targets continue through the existing target and capability checks. Raw Linux behavior remains capability-honest: the current sandbox reports AF_PACKET `Operation not permitted`, so raw exchange is not claimed as live-validated and no transport fallback is used.

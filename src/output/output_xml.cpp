@@ -360,6 +360,7 @@ OutputStatus XmlOutputWriter::write(
     xml.element(2U, "hosts-up", std::to_string(summary.hosts_up));
     xml.element(2U, "hosts-down", std::to_string(summary.hosts_down));
     xml.element(2U, "hosts-unknown", std::to_string(summary.hosts_unknown));
+    xml.element(2U, "hosts-unreachable", std::to_string(summary.hosts_unreachable));
     xml.element(2U, "ports-scanned", std::to_string(summary.ports_scanned));
     xml.element(2U, "open-ports", std::to_string(summary.open_ports));
     xml.element(2U, "closed-ports", std::to_string(summary.closed_ports));

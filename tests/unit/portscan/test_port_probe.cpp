@@ -119,6 +119,11 @@ int main()
     assert(state == PortState::Closed);
     assert(reason == ScanReason::Rst);
 
+    PortResponse syn_unreachable{7U, "127.0.0.1", PortResponseKind::Unreachable, 0, {}, PortScanClock::now()};
+    assert(syn_probe.assess(syn_unreachable, syn_submission, state, reason) == skan::core::StatusCode::Ok);
+    assert(state == PortState::Unreachable);
+    assert(reason == ScanReason::NetworkUnreachable);
+
     PortResponse malformed{7U, "127.0.0.1", PortResponseKind::Packet, 0, {1U}, PortScanClock::now()};
     assert(syn_probe.assess(malformed, syn_submission, state, reason) == skan::core::StatusCode::ParseError);
     PortResponse unrelated{7U, "127.0.0.2", PortResponseKind::Packet, 0,

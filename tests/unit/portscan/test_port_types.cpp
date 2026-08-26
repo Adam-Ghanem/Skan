@@ -29,6 +29,11 @@ int main()
     assert(parse_tcp_ports("10-").status == skan::core::StatusCode::InvalidArgument);
     assert(parse_tcp_ports("-10").status == skan::core::StatusCode::InvalidArgument);
     assert(parse_tcp_ports("1-2-3").status == skan::core::StatusCode::InvalidArgument);
+    const PortSelection all_ports = parse_tcp_ports("1-65535");
+    assert(all_ports.status == skan::core::StatusCode::Ok);
+    assert(all_ports.ports.size() == 65535U);
+    assert(all_ports.ports.front().number == 1U);
+    assert(all_ports.ports.back().number == 65535U);
     assert(parse_tcp_ports("1,,2").status == skan::core::StatusCode::InvalidArgument);
     assert(parse_tcp_ports("abc").status == skan::core::StatusCode::InvalidArgument);
 

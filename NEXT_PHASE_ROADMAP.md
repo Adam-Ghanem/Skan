@@ -83,3 +83,10 @@ The remaining work is environmental rather than silently deferred in code: AF_PA
 Phase 22 implements deterministic raw-interface selection from target family, source, and route evidence; explicit interface remains supported and mixed-family targets require one compatible interface. The Linux ARP adapter now patches and validates real interface source identity, TCP Connect reports routed-unreachable and local-source failures distinctly, raw UDP retains structured preflight/injection diagnostics, and raw OS capability failures are terminal and non-fallback.
 
 The remaining validation requirement is environmental: run the existing capability-gated raw SYN, ARP, NDP, UDP, ICMP/ICMPv6, service, and OS integration tests on an explicitly authorized loopback/private lab interface with AF_PACKET permission. In the current sandbox AF_PACKET returns `Operation not permitted`, so no raw exchange is claimed as live success. No public-target traffic, evasion, spoofing, exploitation, credential handling, or persistence may be introduced in the next phase.
+
+
+## Phase 23 Status
+
+Phase 23 extends the production live-scanning boundary in the existing architecture. Typed discovery `UNREACHABLE` evidence, exact quoted IPv4/IPv6 ICMP unreachable correlation for TCP SYN and discovery, canonical host-unreachable output, and strict `-p`/`-p-` selection are implemented and covered by tests.
+
+The remaining raw validation requirement is environmental: AF_PACKET permission and an explicitly authorized loopback/private lab are needed to exercise live packet exchange. The current sandbox returns `Operation not permitted`, so no raw live success is claimed. Future work must preserve explicit targets, capability-honest failure, one reactor, bounded resources, no fallback, no threads or shell execution, and no evasion or exploitation.

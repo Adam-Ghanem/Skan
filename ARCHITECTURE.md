@@ -750,3 +750,12 @@ Phase 22 extends the existing interface module rather than adding a parallel cap
 The Linux discovery adapter now rewrites the offline-oriented ARP request with the actual selected interface MAC and IPv4 source before Ethernet transmission. ARP replies are admitted only when Ethernet and ARP identities agree with the pending target and selected local identity. IPv6 continues to use NDP only, with scoped link-local validation and the existing bounded discovery-local cache/retry path.
 
 Phase 22 also preserves structured failure semantics through the existing transport/session boundary. TCP Connect distinguishes timeout, routed-unreachable, and unavailable-local-source errors. Raw UDP records family-aware preflight and injection diagnostics. Linux raw OS setup is a terminal capability failure when AF_PACKET or another required prerequisite is unavailable; it does not return a fabricated identity or silently substitute another transport. The single epoll reactor, one-shot timers, packet parser, correlation ownership, and canonical output model remain unchanged.
+
+
+## Phase 23 architecture update
+
+Phase 23 keeps the existing Target Engine → Scan Orchestrator → Discovery → Port Scan → Service Detection → OS Detection → Output flow and one epoll-based `IOEngine`. Raw SYN and discovery ICMP errors now carry exact quoted IPv4/IPv6 probe identity through the existing response seams, allowing the schedulers to finalize `UNREACHABLE` evidence without a second reactor, worker pool, or fallback transport.
+
+Discovery host aggregation and canonical serializers preserve explicit `UNREACHABLE` state alongside UP, DOWN, and UNKNOWN. TCP SYN uses the same typed `PortResponse` contract as Connect and UDP, while `-p` and bounded `-p-` selection reuse the existing strict port parser. No authorization gate, loopback-only production restriction, hidden allowlist, or public-target automation was introduced.
+
+Non-loopback IPv6 Ethernet destination resolution remains capability-dependent on the existing interface and neighbor mechanisms. The restricted sandbox cannot open AF_PACKET, so raw packet exchange is not represented as validated success.

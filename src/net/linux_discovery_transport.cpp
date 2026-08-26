@@ -429,6 +429,92 @@ void LinuxDiscoveryTransport::dispatch_observation(const PacketObservation &obse
     std::vector<std::uint8_t> response_bytes;
     std::string source_address;
     core::IpAddress source_ip;
+    const auto complete_unreachable = [this, &observation](discovery::ProbeId id) noexcept {
+        const auto pending = pending_.find(id);
+        if (pending == pending_.end()) {
+            return;
+        }
+        discovery::DiscoveryResponse response;
+        response.probe_id = id;
+        response.source_address = pending->second.submission.target;
+        response.source_ip = pending->second.submission.target_ip;
+        response.kind = discovery::DiscoveryResponseKind::Unreachable;
+        response.received_at = observation.received_at;
+        pending_.erase(pending);
+        response_handler_(response);
+    };
+
+    if (observation.valid() && observation.ipv6.has_value() && observation.icmpv6.has_value() &&
+        observation.icmpv6->type() == packet::Icmpv6Type::DestinationUnreachable) {
+        const std::span<const std::uint8_t> quoted_bytes{observation.icmpv6->payload()};
+        const auto quoted_ip = packet::IPv6::parse(quoted_bytes);
+        if (quoted_ip.has_value() && quoted_bytes.size() >= quoted_ip->serialized_size()) {
+            const std::span<const std::uint8_t> transport_bytes =
+                quoted_bytes.subspan(quoted_ip->serialized_size());
+            for (const auto &[id, pending] : pending_) {
+                if (pending.submission.target_ip.bytes != quoted_ip->destination_address() ||
+                    pending.submission.source_ip.bytes != quoted_ip->source_address() ||
+                    observation.ipv6->destination_address() != pending.submission.source_ip.bytes) {
+                    continue;
+                }
+                if (pending.submission.type == discovery::ProbeType::Tcp &&
+                    quoted_ip->next_header() == kIpProtocolTcp) {
+                    const auto tcp = packet::TCP::parse(transport_bytes);
+                    if (tcp.has_value() && tcp->source_port() == pending.submission.source_port &&
+                        tcp->destination_port() == pending.submission.port &&
+                        tcp->sequence_number() == pending.submission.sequence_number) {
+                        complete_unreachable(id);
+                        return;
+                    }
+                } else if (pending.submission.type == discovery::ProbeType::IcmpEcho &&
+                           quoted_ip->next_header() == 58U) {
+                    const auto icmp = packet::ICMPv6::parse(transport_bytes);
+                    if (icmp.has_value() && icmp->type() == packet::Icmpv6Type::EchoRequest &&
+                        icmp->identifier() == pending.submission.correlation_identifier &&
+                        icmp->sequence() == pending.submission.correlation_sequence) {
+                        complete_unreachable(id);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    if (observation.valid() && observation.ipv4.has_value() && observation.icmp.has_value() &&
+        observation.ipv4->destination_address() == source_ipv4_ &&
+        observation.icmp->type() == packet::IcmpType::DestinationUnreachable) {
+        const std::span<const std::uint8_t> quoted_bytes{observation.icmp->payload()};
+        const auto quoted_ip = packet::IPv4::parse(quoted_bytes);
+        if (quoted_ip.has_value() && quoted_bytes.size() >= quoted_ip->serialized_size()) {
+            const std::span<const std::uint8_t> transport_bytes =
+                quoted_bytes.subspan(quoted_ip->serialized_size());
+            for (const auto &[id, pending] : pending_) {
+                if (pending.submission.target_ipv4 != quoted_ip->destination_address() ||
+                    pending.submission.source_ipv4 != quoted_ip->source_address()) {
+                    continue;
+                }
+                if (pending.submission.type == discovery::ProbeType::Tcp &&
+                    quoted_ip->protocol() == kIpProtocolTcp) {
+                    const auto tcp = packet::TCP::parse(transport_bytes);
+                    if (tcp.has_value() && tcp->source_port() == pending.submission.source_port &&
+                        tcp->destination_port() == pending.submission.port &&
+                        tcp->sequence_number() == pending.submission.sequence_number) {
+                        complete_unreachable(id);
+                        return;
+                    }
+                } else if (pending.submission.type == discovery::ProbeType::IcmpEcho &&
+                           quoted_ip->protocol() == kIpProtocolIcmp) {
+                    const auto icmp = packet::ICMP::parse(transport_bytes);
+                    if (icmp.has_value() && icmp->type() == packet::IcmpType::EchoRequest &&
+                        icmp->identifier() == pending.submission.correlation_identifier &&
+                        icmp->sequence() == pending.submission.correlation_sequence) {
+                        complete_unreachable(id);
+                        return;
+                    }
+                }
+            }
+        }
+    }
 
     if (observation.valid() && observation.ipv6.has_value() &&
         (observation.icmpv6.has_value() || observation.tcp.has_value())) {

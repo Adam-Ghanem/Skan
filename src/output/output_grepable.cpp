@@ -158,6 +158,7 @@ OutputStatus GrepableOutputWriter::write(
            << " hosts_up=" << summary.hosts_up
            << " hosts_down=" << summary.hosts_down
            << " hosts_unknown=" << summary.hosts_unknown
+           << " hosts_unreachable=" << summary.hosts_unreachable
            << " ports_scanned=" << summary.ports_scanned
            << " open_ports=" << summary.open_ports
            << " closed_ports=" << summary.closed_ports

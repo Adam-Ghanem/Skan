@@ -83,7 +83,18 @@ core::StatusCode TcpSynProbe::assess(
     PortState &state,
     ScanReason &reason) const
 {
-    if (response.id != submission.id || response.kind != PortResponseKind::Packet) {
+    if (response.id != submission.id) {
+        return core::StatusCode::NotFound;
+    }
+    if (response.kind == PortResponseKind::Unreachable) {
+        if (response.source_ip.valid() && submission.target_ip.valid() && response.source_ip != submission.target_ip) {
+            return core::StatusCode::NotFound;
+        }
+        state = PortState::Unreachable;
+        reason = ScanReason::NetworkUnreachable;
+        return core::StatusCode::Ok;
+    }
+    if (response.kind != PortResponseKind::Packet) {
         return core::StatusCode::NotFound;
     }
     if (response.source_ip.valid()) {

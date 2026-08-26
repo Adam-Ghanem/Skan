@@ -373,12 +373,20 @@ core::StatusCode LinuxNetworkScanTransport::submit(
     const auto selected_source = source_address_for(target_ip);
     if (!selected_source.has_value()) {
         ++session_.failed;
+        session_.last_preflight_category = PreflightCategory::NoSourceAddress;
+        session_.last_preflight_family = target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6;
+        session_.last_system_error = 0;
+        session_.last_error = "no compatible source address for target family";
         return core::StatusCode::PermissionDenied;
     }
     effective.source_ip = *selected_source;
     const auto frame = compose_frame(effective);
     if (!frame.has_value()) {
         ++session_.failed;
+        session_.last_preflight_category = PreflightCategory::CapabilityUnavailable;
+        session_.last_preflight_family = target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6;
+        session_.last_system_error = 0;
+        session_.last_error = "unable to construct a family-correct Ethernet/IP/TCP frame";
         return core::StatusCode::PermissionDenied;
     }
     const std::uint32_t target_ipv4 = target_ip.is_ipv4()
@@ -471,6 +479,77 @@ void LinuxNetworkScanTransport::on_capture_event(io::Event &event) noexcept
 
 void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &observation) noexcept
 {
+    const auto complete_unreachable = [this, &observation](portscan::PortProbeId id) noexcept {
+        const auto pending = pending_.find(id);
+        if (pending == pending_.end()) {
+            return;
+        }
+        portscan::PortResponse response;
+        response.id = id;
+        response.source_address = pending->second.submission.target;
+        response.source_ip = pending->second.submission.target_ip;
+        response.kind = portscan::PortResponseKind::Unreachable;
+        response.received_at = observation.received_at;
+        portscan::PortResponseCallback callback = pending->second.callback;
+        correlation_.remove(pending->second.correlation_key);
+        pending_.erase(pending);
+        ++session_.completed;
+        callback(response);
+    };
+
+    if (observation.valid() && observation.ipv6.has_value() && observation.icmpv6.has_value() &&
+        observation.icmpv6->type() == packet::Icmpv6Type::DestinationUnreachable) {
+        const std::span<const std::uint8_t> quoted_bytes{observation.icmpv6->payload()};
+        const auto quoted_ip = packet::IPv6::parse(quoted_bytes);
+        if (quoted_ip.has_value() && quoted_ip->next_header() == kTcpProtocol &&
+            quoted_bytes.size() >= quoted_ip->serialized_size()) {
+            const auto quoted_tcp = packet::TCP::parse(quoted_bytes.subspan(quoted_ip->serialized_size()));
+            if (quoted_tcp.has_value()) {
+                const core::IpAddress quoted_source = core::IpAddress::from_ipv6(quoted_ip->source_address());
+                const core::IpAddress quoted_destination = core::IpAddress::from_ipv6(quoted_ip->destination_address());
+                for (const auto &[id, pending] : pending_) {
+                    if (pending.submission.probe != portscan::ScanProbeType::TcpSyn ||
+                        pending.submission.source_ip.bytes != quoted_source.bytes ||
+                        pending.submission.target_ip.bytes != quoted_destination.bytes ||
+                        quoted_tcp->source_port() != pending.submission.source_port ||
+                        quoted_tcp->destination_port() != pending.submission.port.number ||
+                        quoted_tcp->sequence_number() != pending.submission.sequence_number) {
+                        continue;
+                    }
+                    complete_unreachable(id);
+                    return;
+                }
+            }
+        }
+    }
+
+    if (observation.valid() && observation.ipv4.has_value() && observation.icmp.has_value() &&
+        observation.ipv4->destination_address() == source_ipv4_ &&
+        observation.icmp->type() == packet::IcmpType::DestinationUnreachable) {
+        const std::span<const std::uint8_t> quoted_bytes{observation.icmp->payload()};
+        const auto quoted_ip = packet::IPv4::parse(quoted_bytes);
+        if (quoted_ip.has_value() && quoted_ip->protocol() == kTcpProtocol &&
+            quoted_bytes.size() >= quoted_ip->serialized_size()) {
+            const auto quoted_tcp = packet::TCP::parse(quoted_bytes.subspan(quoted_ip->serialized_size()));
+            if (quoted_tcp.has_value()) {
+                const core::IpAddress quoted_source = core::IpAddress::from_ipv4(quoted_ip->source_address());
+                const core::IpAddress quoted_destination = core::IpAddress::from_ipv4(quoted_ip->destination_address());
+                for (const auto &[id, pending] : pending_) {
+                    if (pending.submission.probe != portscan::ScanProbeType::TcpSyn ||
+                        pending.submission.source_ip.bytes != quoted_source.bytes ||
+                        pending.submission.target_ip.bytes != quoted_destination.bytes ||
+                        quoted_tcp->source_port() != pending.submission.source_port ||
+                        quoted_tcp->destination_port() != pending.submission.port.number ||
+                        quoted_tcp->sequence_number() != pending.submission.sequence_number) {
+                        continue;
+                    }
+                    complete_unreachable(id);
+                    return;
+                }
+            }
+        }
+    }
+
     if (observation.valid() && observation.ipv6.has_value() && observation.tcp.has_value()) {
         const packet::TCP &tcp = *observation.tcp;
         const core::IpAddress observed_source = core::IpAddress::from_ipv6(observation.ipv6->source_address());

@@ -211,6 +211,28 @@ core::StatusCode DiscoveryScheduler::receive(const DiscoveryResponse &response)
     }
 
     PendingProbe &pending = pending_it->second;
+    if (response.kind == DiscoveryResponseKind::Unreachable) {
+        const DiscoveryTimePoint received_at = response.received_at == DiscoveryTimePoint{}
+            ? DiscoveryClock::now() : response.received_at;
+        const std::chrono::duration<double, std::milli> elapsed = received_at - pending.sent_at;
+        const double rtt_ms = std::max(0.0, elapsed.count());
+        append_result(DiscoveryResult{
+            pending.submission.target,
+            HostState::Unreachable,
+            pending.type,
+            false,
+            rtt_ms,
+            received_at,
+            DiscoveryReason::Unreachable});
+        (void)io_engine_.cancel(pending.timer_id);
+        completed_probe_ids_.insert(pending.id);
+        pending_.erase(pending_it);
+        pump();
+        if (complete()) {
+            io_engine_.stop();
+        }
+        return core::StatusCode::Ok;
+    }
     const ResponseDisposition disposition = pending.probe->assess(response, pending.submission);
     if (disposition == ResponseDisposition::Malformed) {
         append_result(DiscoveryResult{
@@ -344,13 +366,18 @@ HostState DiscoveryScheduler::host_state(const std::string &address) const noexc
         return HostState::Unknown;
     }
     bool has_down = false;
+    bool has_unreachable = false;
     for (const DiscoveryResult &result : evidence_it->second) {
         if (result.state == HostState::Up) {
             return HostState::Up;
         }
         has_down = has_down || result.state == HostState::Down;
+        has_unreachable = has_unreachable || result.state == HostState::Unreachable;
     }
-    return has_down ? HostState::Down : HostState::Unknown;
+    if (has_down) {
+        return HostState::Down;
+    }
+    return has_unreachable ? HostState::Unreachable : HostState::Unknown;
 }
 
 std::vector<DiscoveryResult> DiscoveryScheduler::results() const

@@ -13,6 +13,7 @@ discovery::HostState discovery_state_for(
     std::span<const discovery::DiscoveryResult> results)
 {
     bool saw_down = false;
+    bool saw_unreachable = false;
     for (const discovery::DiscoveryResult &result : results) {
         if (result.target != address) {
             continue;
@@ -21,8 +22,12 @@ discovery::HostState discovery_state_for(
             return discovery::HostState::Up;
         }
         saw_down = saw_down || result.state == discovery::HostState::Down;
+        saw_unreachable = saw_unreachable || result.state == discovery::HostState::Unreachable;
     }
-    return saw_down ? discovery::HostState::Down : discovery::HostState::Unknown;
+    if (saw_down) {
+        return discovery::HostState::Down;
+    }
+    return saw_unreachable ? discovery::HostState::Unreachable : discovery::HostState::Unknown;
 }
 
 core::AddressFamily family_for(std::string_view address, const core::IpAddress &typed_address = {}) noexcept

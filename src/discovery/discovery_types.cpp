@@ -13,6 +13,8 @@ const char *host_state_name(HostState state) noexcept
         return "UP";
     case HostState::Down:
         return "DOWN";
+    case HostState::Unreachable:
+        return "UNREACHABLE";
     default:
         return "UNKNOWN";
     }
@@ -65,6 +67,8 @@ const char *discovery_reason_name(DiscoveryReason reason) noexcept
         return "LATE_RESPONSE";
     case DiscoveryReason::InternalError:
         return "INTERNAL_ERROR";
+    case DiscoveryReason::Unreachable:
+        return "UNREACHABLE";
     default:
         return "UNKNOWN";
     }

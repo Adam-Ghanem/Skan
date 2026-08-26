@@ -92,3 +92,19 @@ Phase 22 improves operational correctness at the explicit live-transport boundar
 | NSE, broad databases, evasion, spoofing, exploitation | Intentionally not implemented. |
 
 No Nmap source code, probe database, OS database, or scripts were copied. All validation remains offline, loopback-only, or private/documentation-address scoped, and no public target was contacted.
+
+
+## Phase 23 capability comparison
+
+Phase 23 adds typed discovery `UNREACHABLE` evidence and exact quoted IPv4/IPv6 ICMP unreachable correlation for TCP SYN and discovery probes within Skan’s existing schedulers and report model. It also adds canonical host-unreachable counts and strict `-p`/`-p-` selection compatibility. These changes improve semantic correctness but do not establish Nmap compatibility or feature parity.
+
+| Nmap capability area | Phase 23 Skan status |
+| --- | --- |
+| Target input and authorization | Explicit user-supplied targets are accepted through bounded Skan parsing; no artificial authorization gate or hidden public-target workflow exists. |
+| TCP SYN unreachable classification | Implemented through exact quoted IPv4/IPv6 ICMP correlation and the existing typed `PortResponse` path; raw live validation remains capability-dependent. |
+| Discovery unreachable classification | Implemented through typed response evidence, scheduler aggregation, and canonical output state. |
+| Port-selection compatibility | `-p`, comma/range syntax, and bounded `-p-` full-range expansion are supported through the existing parser. |
+| Broad probe/database/NSE/CPE breadth | Not implemented and not claimed. |
+| Evasion, decoys, spoofing, exploitation, credential handling | Intentionally not implemented. |
+
+No Nmap source code, probe database, OS database, or scripts were copied. Validation remains offline, loopback-only, controlled-local, or documentation-address scoped; the sandbox’s AF_PACKET denial is reported as `Operation not permitted` rather than hidden behind fallback.

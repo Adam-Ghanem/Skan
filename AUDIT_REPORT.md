@@ -343,3 +343,12 @@ Phase 22 adds deterministic target-aware raw-interface selection, allowing omitt
 The Linux ARP path now uses the selected interface MAC and source IPv4 address, and validates Ethernet and ARP identities before accepting replies. TCP Connect preserves routed-unreachable and local-source-address failures as explicit states and reasons. Raw UDP records target preflight and injection diagnostics in the shared session. Raw OS capability failures now terminate the live stage with a structured nonzero error rather than returning success with an unavailable identity.
 
 Unit, integration, offline, and controlled-loopback checks passed for the changed paths. The sandbox still denies AF_PACKET with `Operation not permitted`, so raw SYN, ARP, NDP, raw UDP, ICMP/ICMPv6, and raw OS exchange remain capability-dependent and are not claimed as live-validated. No public target traffic was used. The remaining gap is privileged private-lab execution, not a hidden fallback or fabricated result.
+
+
+## Phase 23 Audit Record
+
+Phase 23 confirms that the Phase 22 baseline contains no artificial authorization gate, mandatory loopback policy, private-range allowlist, hidden target fallback, or public-target automation. User-supplied syntactically valid IPv4/IPv6 targets continue through the existing target expansion, resource bounds, interface capability checks, and explicit transport selection.
+
+The implementation adds typed discovery `UNREACHABLE` evidence, exact quoted IPv4/IPv6 ICMP unreachable correlation for TCP SYN and discovery probes, canonical host-unreachable summary fields, and strict `-p`/`-p-` TCP selection compatibility. The existing single epoll reactor, timers, schedulers, packet parsers, correlation tables, bounded service/TLS identification, OS matcher, metrics, and output model remain the only production execution path.
+
+Validation is restricted to offline, loopback, controlled-local, and documentation-address fixtures. The complete regression suite passes. AF_PACKET-dependent tests remain capability-gated and report the exact sandbox diagnostic `Operation not permitted`; no live raw exchange is claimed. No public target was contacted, and no threads, polling/sleep loops, shell execution, credentials, persistence, evasion, spoofing, exploitation, copied Nmap code, or copied Nmap data were introduced.

@@ -27,7 +27,15 @@ int main()
     assert(summary.unreachable_ports == 1U);
     assert(summary.services_detected == 1U);
     assert(summary.os_matches == 2U);
+    assert(summary.hosts_unreachable == 0U);
     assert(skan::output::validate_report(report) == skan::output::OutputStatus::Ok);
+
+    skan::output::ScanReport unreachable_report;
+    skan::output::HostResult unreachable_host;
+    unreachable_host.address = "192.0.2.30";
+    unreachable_host.state = skan::discovery::HostState::Unreachable;
+    unreachable_report.hosts.push_back(std::move(unreachable_host));
+    assert(skan::output::calculate_summary(unreachable_report).hosts_unreachable == 1U);
 
     skan::output::ScanReport invalid = report;
     invalid.hosts.front().address.clear();

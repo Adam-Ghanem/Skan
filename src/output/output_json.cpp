@@ -514,6 +514,8 @@ OutputStatus JsonOutputWriter::write(
     json.integer(summary.hosts_down);
     json.key("hosts_unknown", summary_first, 2U);
     json.integer(summary.hosts_unknown);
+    json.key("hosts_unreachable", summary_first, 2U);
+    json.integer(summary.hosts_unreachable);
     json.key("ports_scanned", summary_first, 2U);
     json.integer(summary.ports_scanned);
     json.key("open_ports", summary_first, 2U);

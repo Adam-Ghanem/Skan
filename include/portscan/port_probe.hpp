@@ -22,7 +22,8 @@ enum class PortResponseKind {
     Connected = 0,
     ConnectionRefused,
     SocketError,
-    Packet
+    Packet,
+    Unreachable
 };
 
 struct PortSubmission final {

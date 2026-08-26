@@ -68,6 +68,9 @@ ScanSummary calculate_summary(const ScanReport &report) noexcept
         case discovery::HostState::Unknown:
             ++summary.hosts_unknown;
             break;
+        case discovery::HostState::Unreachable:
+            ++summary.hosts_unreachable;
+            break;
         }
         summary.ports_scanned += host.ports.size();
         for (const portscan::PortResult &port : host.ports) {

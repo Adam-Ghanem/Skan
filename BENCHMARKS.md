@@ -150,3 +150,10 @@ The Phase 22 implementation adds target-aware interface selection and explicit t
 | mixed-orchestrator | 1,308.567 / 1,327.278 | 13,143.931 / 13,185.891 | 761 | 244,608 |
 
 The IPv6 and mixed orchestration figures include bounded offline OS probes for each target and are not live-network throughput claims. AF_PACKET-dependent measurements are intentionally absent because the sandbox reports `Operation not permitted`.
+
+
+## Phase 23 Benchmark Record
+
+Phase 23 keeps the existing deterministic offline benchmark driver and does not introduce a second performance harness. Typed unreachable paths, quoted IPv4/IPv6 correlation, host-state aggregation, and full-range port selection are covered by functional tests; AF_PACKET timing remains excluded when the environment cannot open the raw capability. All workload generation remains offline, loopback-only, controlled-local, or documentation-address scoped.
+
+The previously recorded 1,000- and 10,000-target measurements remain the applicable final measurements for this source line. They are not public-network throughput claims and should be compared only with runs using the same binary, compiler, limits, and sandbox conditions.

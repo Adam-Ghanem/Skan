@@ -58,6 +58,7 @@ struct ScanSummary final {
     std::size_t hosts_up{0U};
     std::size_t hosts_down{0U};
     std::size_t hosts_unknown{0U};
+    std::size_t hosts_unreachable{0U};
     std::size_t ports_scanned{0U};
     std::size_t open_ports{0U};
     std::size_t closed_ports{0U};

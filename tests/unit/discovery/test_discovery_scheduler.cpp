@@ -90,6 +90,26 @@ int main()
     assert(timeout_scheduler.late_response_count() == 1U);
     assert(timeout_scheduler.host_state("127.0.0.1") == HostState::Unknown);
 
+    RecordingTransport unreachable_transport;
+    skan::io::IOEngine unreachable_io;
+    DiscoveryConfig unreachable_config;
+    unreachable_config.probes = {ProbeType::Tcp};
+    unreachable_config.timeout = std::chrono::milliseconds{20};
+    unreachable_config.max_outstanding = 2U;
+    DiscoveryScheduler unreachable_scheduler(unreachable_io, unreachable_config, unreachable_transport);
+    assert(unreachable_scheduler.submit(target) == skan::core::StatusCode::Ok);
+    const ProbeSubmission unreachable_submission = unreachable_transport.submissions().front();
+    assert(unreachable_scheduler.receive(DiscoveryResponse{
+               unreachable_submission.id,
+               unreachable_submission.target,
+               {},
+               DiscoveryClock::now(),
+               unreachable_submission.target_ip,
+               DiscoveryResponseKind::Unreachable}) == skan::core::StatusCode::Ok);
+    assert(unreachable_scheduler.complete());
+    assert(unreachable_scheduler.host_state("127.0.0.1") == HostState::Unreachable);
+    assert(unreachable_scheduler.results().back().reason == DiscoveryReason::Unreachable);
+
     RecordingTransport invalid_transport;
     skan::io::IOEngine invalid_io;
     DiscoveryScheduler invalid_scheduler(invalid_io, timeout_config, invalid_transport);

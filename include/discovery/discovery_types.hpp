@@ -19,7 +19,8 @@ inline constexpr std::size_t kDefaultMaxOutstanding = 64U;
 enum class HostState {
     Unknown = 0,
     Up,
-    Down
+    Down,
+    Unreachable
 };
 
 enum class ProbeType {
@@ -43,7 +44,8 @@ enum class DiscoveryReason {
     UnexpectedResponse,
     DuplicateResponse,
     LateResponse,
-    InternalError
+    InternalError,
+    Unreachable
 };
 
 using ProbeId = std::uint64_t;
@@ -67,12 +69,18 @@ struct DiscoveryConfig final {
     std::size_t max_outstanding{kDefaultMaxOutstanding};
 };
 
+enum class DiscoveryResponseKind {
+    Positive = 0,
+    Unreachable
+};
+
 struct DiscoveryResponse final {
     ProbeId probe_id{0U};
     std::string source_address;
     std::vector<std::uint8_t> bytes;
     DiscoveryTimePoint received_at{};
     core::IpAddress source_ip{};
+    DiscoveryResponseKind kind{DiscoveryResponseKind::Positive};
 };
 
 const char *host_state_name(HostState state) noexcept;

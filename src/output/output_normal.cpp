@@ -142,6 +142,7 @@ OutputStatus NormalOutputWriter::write(
            << " up=" << summary.hosts_up
            << " down=" << summary.hosts_down
            << " unknown=" << summary.hosts_unknown
+           << " unreachable_hosts=" << summary.hosts_unreachable
            << " ports=" << summary.ports_scanned
            << " open=" << summary.open_ports
            << " closed=" << summary.closed_ports
