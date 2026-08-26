@@ -23,6 +23,22 @@
 namespace skan::net {
 namespace {
 
+NetworkScanResult udp_preflight_failure(const TransportPreflightResult &preflight)
+{
+    const NetworkScanStatus status = preflight.category == PreflightCategory::InvalidInterface
+                                         ? NetworkScanStatus::InterfaceNotFound
+                                         : preflight.category == PreflightCategory::NoRoute
+                                               ? NetworkScanStatus::RoutingUnavailable
+                                               : preflight.category == PreflightCategory::UnsupportedFamily ||
+                                                         preflight.category == PreflightCategory::MtuUnavailable
+                                                     ? NetworkScanStatus::NotSupported
+                                                     : NetworkScanStatus::PermissionDenied;
+    NetworkScanResult result{status, preflight.system_error, preflight.message};
+    result.category = preflight.category;
+    result.family = preflight.family;
+    return result;
+}
+
 constexpr std::uint8_t kUdpProtocol = 17U;
 constexpr std::uint8_t kIcmpProtocol = 1U;
 
@@ -154,7 +170,18 @@ NetworkScanResult LinuxUDPScanTransport::open()
         return {status, interface_result.system_error, interface_result.message};
     }
     if (interface_result.interface.ipv4_addresses.empty() && interface_result.interface.ipv6_addresses.empty()) {
-        return {NetworkScanStatus::NotSupported, 0, "selected interface has no IPv4 or IPv6 address"};
+        TransportPreflightResult preflight;
+        preflight.category = PreflightCategory::NoSourceAddress;
+        preflight.message = "selected interface has no IPv4 or IPv6 source address";
+        return udp_preflight_failure(preflight);
+    }
+    const core::AddressFamily startup_family = !interface_result.interface.ipv4_addresses.empty()
+                                                   ? core::AddressFamily::IPv4
+                                                   : core::AddressFamily::IPv6;
+    const TransportPreflightResult startup_preflight = preflight_interface(
+        config_.interface_name, startup_family, false, true);
+    if (!startup_preflight.success()) {
+        return udp_preflight_failure(startup_preflight);
     }
     const auto mac = local_mac_for(config_.interface_name);
     if (!mac.has_value()) {
@@ -247,6 +274,13 @@ core::StatusCode LinuxUDPScanTransport::submit(const portscan::UDPSubmission &su
     if (!target_ip.valid() || submission.source_port == 0U) {
         ++session_.failed;
         return core::StatusCode::InvalidArgument;
+    }
+    const TransportPreflightResult target_preflight = preflight_interface(
+        config_.interface_name, target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6, true, true);
+    if (!target_preflight.success()) {
+        ++session_.failed;
+        return target_preflight.category == PreflightCategory::NoRoute ? core::StatusCode::PermissionDenied
+                                                                        : core::StatusCode::PermissionDenied;
     }
     portscan::UDPSubmission effective = submission;
     effective.destination_ip = target_ip;

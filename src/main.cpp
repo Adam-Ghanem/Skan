@@ -251,10 +251,14 @@ int run_discover(int argc, char **argv)
     skan::net::LinuxDiscoveryTransport *linux_transport_ptr = nullptr;
     if (transport_mode == "linux") {
         linux_transport = std::make_unique<skan::net::LinuxDiscoveryTransport>(io_engine, interface_name);
+        linux_transport->set_preflight_family(parsed_target_address->is_ipv4() ? skan::core::AddressFamily::IPv4
+                                                                               : skan::core::AddressFamily::IPv6);
         const skan::net::NetworkScanResult network_status = linux_transport->open();
         if (!network_status.success()) {
             std::cerr << "Error: unable to open Linux discovery transport: "
-                      << skan::net::network_scan_status_name(network_status.status);
+                      << skan::net::network_scan_status_name(network_status.status)
+                      << " category=" << skan::net::preflight_category_name(network_status.category)
+                      << " family=" << skan::core::address_family_name(network_status.family);
             if (!network_status.message.empty()) {
                 std::cerr << " (" << network_status.message << ')';
             }
@@ -418,6 +422,7 @@ void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &inter
         std::cout << "{\"name\":\"" << json_escape(interface.name)
                   << "\",\"index\":" << interface.index
                   << ",\"up\":" << (interface.is_up ? "true" : "false")
+                  << ",\"mtu\":" << interface.mtu
                   << ",\"addresses\":[";
         for (std::size_t address_index = 0U; address_index < interface.ipv4_addresses.size(); ++address_index) {
             const skan::net::InterfaceAddress &address = interface.ipv4_addresses[address_index];
@@ -447,12 +452,18 @@ void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &inter
         write_capability_json(interface.af_inet);
         std::cout << ",\"route\":";
         write_capability_json(interface.ipv4_route);
+        std::cout << ",\"default_route\":";
+        write_capability_json(interface.ipv4_default_route);
         std::cout << ",\"source\":";
         write_capability_json(interface.ipv4_source);
         std::cout << ",\"raw_capture\":";
         write_capability_json(interface.raw_ipv4_capture);
         std::cout << ",\"raw_injection\":";
         write_capability_json(interface.raw_ipv4_injection);
+        std::cout << ",\"ethernet_capture\":";
+        write_capability_json(interface.ethernet_ipv4_capture);
+        std::cout << ",\"ethernet_injection\":";
+        write_capability_json(interface.ethernet_ipv4_injection);
         std::cout << ",\"tcp_syn\":";
         write_capability_json(interface.tcp_syn_ipv4);
         std::cout << ",\"udp\":";
@@ -463,6 +474,8 @@ void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &inter
         write_capability_json(interface.af_inet6);
         std::cout << ",\"route\":";
         write_capability_json(interface.ipv6_route);
+        std::cout << ",\"default_route\":";
+        write_capability_json(interface.ipv6_default_route);
         std::cout << ",\"global_source\":";
         write_capability_json(interface.global_ipv6_source);
         std::cout << ",\"link_local_source\":";
@@ -471,6 +484,10 @@ void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &inter
         write_capability_json(interface.raw_ipv6_capture);
         std::cout << ",\"raw_injection\":";
         write_capability_json(interface.raw_ipv6_injection);
+        std::cout << ",\"ethernet_capture\":";
+        write_capability_json(interface.ethernet_ipv6_capture);
+        std::cout << ",\"ethernet_injection\":";
+        write_capability_json(interface.ethernet_ipv6_injection);
         std::cout << ",\"icmpv6\":";
         write_capability_json(interface.icmpv6);
         std::cout << ",\"tcp_syn\":";
@@ -489,7 +506,8 @@ void write_interfaces_normal(const std::vector<skan::net::NetworkInterface> &int
     for (const skan::net::NetworkInterface &interface : interfaces) {
         std::cout << "Interface\n"
                   << "Name: " << interface.name << '\n'
-                  << "Index: " << interface.index << '\n';
+                  << "Index: " << interface.index << '\n'
+                  << "MTU: " << interface.mtu << '\n';
         if (interface.ipv4_addresses.empty()) {
             std::cout << "IPv4: none\n";
         } else {
@@ -528,18 +546,24 @@ void write_interfaces_normal(const std::vector<skan::net::NetworkInterface> &int
                   << "CAP_NET_RAW: " << (interface.has_cap_net_raw ? "available" : "unavailable") << '\n';
         write_capability_normal("IPv4 AF_INET", interface.af_inet);
         write_capability_normal("IPv4 route", interface.ipv4_route);
+        write_capability_normal("IPv4 default route", interface.ipv4_default_route);
         write_capability_normal("IPv4 source", interface.ipv4_source);
         write_capability_normal("IPv4 raw capture", interface.raw_ipv4_capture);
         write_capability_normal("IPv4 raw injection", interface.raw_ipv4_injection);
+        write_capability_normal("IPv4 Ethernet capture", interface.ethernet_ipv4_capture);
+        write_capability_normal("IPv4 Ethernet injection", interface.ethernet_ipv4_injection);
         write_capability_normal("IPv4 TCP SYN", interface.tcp_syn_ipv4);
         write_capability_normal("IPv4 UDP", interface.udp_raw_ipv4);
         write_capability_normal("IPv4 ICMP", interface.icmp_ipv4);
         write_capability_normal("IPv6 AF_INET6", interface.af_inet6);
         write_capability_normal("IPv6 route", interface.ipv6_route);
+        write_capability_normal("IPv6 default route", interface.ipv6_default_route);
         write_capability_normal("IPv6 global source", interface.global_ipv6_source);
         write_capability_normal("IPv6 link-local source", interface.link_local_ipv6_source);
         write_capability_normal("IPv6 raw capture", interface.raw_ipv6_capture);
         write_capability_normal("IPv6 raw injection", interface.raw_ipv6_injection);
+        write_capability_normal("IPv6 Ethernet capture", interface.ethernet_ipv6_capture);
+        write_capability_normal("IPv6 Ethernet injection", interface.ethernet_ipv6_injection);
         write_capability_normal("IPv6 ICMPv6", interface.icmpv6);
         write_capability_normal("IPv6 TCP SYN", interface.tcp_syn_ipv6);
         write_capability_normal("IPv6 UDP", interface.udp_ipv6);

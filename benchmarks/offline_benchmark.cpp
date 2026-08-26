@@ -725,8 +725,8 @@ void benchmark_timer_cancellation(std::size_t count)
 void benchmark_service_matching(std::size_t count, skan::portscan::Protocol protocol, const char *name)
 {
     const auto database = skan::detect::ServiceProbeDatabase::built_in();
-    const auto indices = database.ordered_probe_indices({protocol == skan::portscan::Protocol::Udp ? 53U : 80U,
-                                                          protocol}, 1U);
+    const auto indices = database.ordered_probe_indices(
+        {static_cast<std::uint16_t>(protocol == skan::portscan::Protocol::Udp ? 53U : 80U), protocol}, 1U);
     if (indices.empty()) {
         return;
     }

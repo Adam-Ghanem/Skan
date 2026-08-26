@@ -9,6 +9,7 @@
 #include <linux/if_packet.h>
 #include <map>
 #include <net/if.h>
+#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sstream>
@@ -143,6 +144,28 @@ bool has_ipv4_route(std::string_view interface_name)
     return false;
 }
 
+bool has_ipv4_default_route(std::string_view interface_name)
+{
+    std::ifstream routes("/proc/net/route");
+    if (!routes.is_open()) {
+        return false;
+    }
+    std::string line;
+    (void)std::getline(routes, line);
+    while (std::getline(routes, line)) {
+        std::istringstream fields(line);
+        std::string device;
+        std::string destination;
+        std::string gateway;
+        std::string flags;
+        if (fields >> device >> destination >> gateway >> flags && device == interface_name && destination == "00000000" &&
+            flags != "0") {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool has_ipv6_route(std::string_view interface_name)
 {
     std::ifstream routes("/proc/net/ipv6_route");
@@ -168,6 +191,51 @@ bool has_ipv6_route(std::string_view interface_name)
         }
     }
     return false;
+}
+
+bool has_ipv6_default_route(std::string_view interface_name)
+{
+    std::ifstream routes("/proc/net/ipv6_route");
+    if (!routes.is_open()) {
+        return false;
+    }
+    std::string line;
+    while (std::getline(routes, line)) {
+        std::istringstream fields(line);
+        std::string destination;
+        std::string destination_prefix;
+        std::string source;
+        std::string source_prefix;
+        std::string next_hop;
+        std::string metric;
+        std::string reference;
+        std::string use;
+        std::string flags;
+        std::string device;
+        if (fields >> destination >> destination_prefix >> source >> source_prefix >> next_hop >> metric >> reference >> use >> flags >> device &&
+            device == interface_name && destination == std::string(32U, '0') && destination_prefix == "00000000") {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::uint32_t interface_mtu(std::string_view interface_name) noexcept
+{
+    if (interface_name.empty() || interface_name.size() >= IFNAMSIZ) {
+        return 0U;
+    }
+    const int descriptor = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (descriptor < 0) {
+        return 0U;
+    }
+    ifreq request{};
+    std::memcpy(request.ifr_name, interface_name.data(), interface_name.size());
+    request.ifr_name[interface_name.size()] = '\0';
+    const bool success = ::ioctl(descriptor, SIOCGIFMTU, &request) == 0;
+    const int value = request.ifr_mtu;
+    (void)::close(descriptor);
+    return success && value > 0 ? static_cast<std::uint32_t>(value) : 0U;
 }
 
 InterfaceCapabilities probe_capabilities(std::uint32_t index) noexcept
@@ -212,6 +280,94 @@ InterfaceCapabilities probe_capabilities(std::uint32_t index) noexcept
 
 } // namespace
 
+TransportPreflightResult preflight_interface(
+    std::string_view name,
+    core::AddressFamily family,
+    bool require_route,
+    bool require_injection) noexcept
+{
+    TransportPreflightResult result;
+    result.family = family;
+    if (name.empty()) {
+        result.category = PreflightCategory::InvalidInterface;
+        result.message = "explicit interface name is required";
+        return result;
+    }
+    if (family != core::AddressFamily::IPv4 && family != core::AddressFamily::IPv6) {
+        result.category = PreflightCategory::UnsupportedFamily;
+        result.message = "IPv4 or IPv6 family is required";
+        return result;
+    }
+    const InterfaceResult interface_result = find_interface_result(name);
+    if (!interface_result.success()) {
+        result.category = interface_result.status == InterfaceStatus::InterfaceNotFound
+                              ? PreflightCategory::InvalidInterface
+                              : PreflightCategory::CapabilityUnavailable;
+        result.system_error = interface_result.system_error;
+        result.message = interface_result.message.empty() ? interface_status_name(interface_result.status)
+                                                            : interface_result.message;
+        return result;
+    }
+    const NetworkInterface &interface = interface_result.interface;
+    if (!interface.is_up) {
+        result.category = PreflightCategory::InterfaceDown;
+        result.message = "selected interface is not operational";
+        return result;
+    }
+    const CapabilityFact &source = family == core::AddressFamily::IPv4
+                                       ? interface.ipv4_source
+                                       : (interface.global_ipv6_source.state == CapabilityState::Available
+                                              ? interface.global_ipv6_source
+                                              : (interface.link_local_ipv6_source.state == CapabilityState::Available
+                                                     ? interface.link_local_ipv6_source
+                                                     : (!interface.ipv6_addresses.empty()
+                                                            ? CapabilityFact{CapabilityState::Available,
+                                                                              interface.name,
+                                                                              core::AddressFamily::IPv6,
+                                                                              "an IPv6 source address is assigned",
+                                                                              0}
+                                                            : interface.af_inet6)));
+    if (source.state != CapabilityState::Available) {
+        result.category = PreflightCategory::NoSourceAddress;
+        result.system_error = source.diagnostic;
+        result.message = source.reason;
+        return result;
+    }
+    const CapabilityFact &route = family == core::AddressFamily::IPv4 ? interface.ipv4_route : interface.ipv6_route;
+    if (require_route && route.state != CapabilityState::Available) {
+        result.category = PreflightCategory::NoRoute;
+        result.system_error = route.diagnostic;
+        result.message = route.reason;
+        return result;
+    }
+    if (interface.mtu == 0U) {
+        result.category = PreflightCategory::MtuUnavailable;
+        result.message = "interface MTU is unavailable";
+        return result;
+    }
+    const CapabilityFact &capture = family == core::AddressFamily::IPv4 ? interface.ethernet_ipv4_capture
+                                                                         : interface.ethernet_ipv6_capture;
+    if (capture.state != CapabilityState::Available) {
+        result.category = PreflightCategory::CaptureUnavailable;
+        result.system_error = capture.diagnostic;
+        result.message = capture.reason;
+        return result;
+    }
+    if (require_injection) {
+        const CapabilityFact &injection = family == core::AddressFamily::IPv4 ? interface.ethernet_ipv4_injection
+                                                                                : interface.ethernet_ipv6_injection;
+        if (injection.state == CapabilityState::Unavailable) {
+            result.category = PreflightCategory::InjectionUnavailable;
+            result.system_error = injection.diagnostic;
+            result.message = injection.reason;
+            return result;
+        }
+    }
+    result.category = PreflightCategory::Ready;
+    result.message = "selected interface and family preflight passed without transmitting traffic";
+    return result;
+}
+
 InterfaceEnumerationResult enumerate_interfaces_result()
 {
     InterfaceEnumerationResult result;
@@ -252,7 +408,10 @@ InterfaceEnumerationResult enumerate_interfaces_result()
             interface.ipv6_addresses.begin(), interface.ipv6_addresses.end(),
             [](const InterfaceIPv6Address &address) { return address.address.is_ipv6_link_local(); });
         const bool ipv4_route = has_ipv4_address && has_ipv4_route(interface.name);
+        const bool ipv4_default_route = has_ipv4_address && has_ipv4_default_route(interface.name);
         const bool ipv6_route = has_ipv6_address && has_ipv6_route(interface.name);
+        const bool ipv6_default_route = has_ipv6_address && has_ipv6_default_route(interface.name);
+        interface.mtu = interface_mtu(interface.name);
         const std::string raw_reason = capabilities.raw_packet
                                            ? "AF_PACKET socket and interface bind succeeded"
                                            : std::strerror(capabilities.raw_diagnostic);
@@ -276,6 +435,10 @@ InterfaceEnumerationResult enumerate_interfaces_result()
             ipv4_route ? CapabilityState::Available : CapabilityState::Unavailable,
             interface, core::AddressFamily::IPv4,
             ipv4_route ? "IPv4 route entry is present" : (has_ipv4_address ? "no IPv4 route entry" : "no IPv4 source address"));
+        interface.ipv4_default_route = capability(
+            ipv4_default_route ? CapabilityState::Available : CapabilityState::Unknown,
+            interface, core::AddressFamily::IPv4,
+            ipv4_default_route ? "IPv4 default route entry is present" : "no IPv4 default route was determinable safely");
         interface.ipv4_source = capability(
             has_ipv4_address ? CapabilityState::Available : CapabilityState::Unavailable,
             interface, core::AddressFamily::IPv4,
@@ -289,6 +452,8 @@ InterfaceEnumerationResult enumerate_interfaces_result()
             capabilities.raw_packet ? "AF_PACKET bind succeeded; packet injection was not exercised safely"
                                      : "AF_PACKET bind is unavailable",
             capabilities.raw_diagnostic);
+        interface.ethernet_ipv4_capture = interface.raw_ipv4_capture;
+        interface.ethernet_ipv4_injection = interface.raw_ipv4_injection;
         const bool ipv4_probe_prerequisites = capabilities.raw_packet && capabilities.af_inet && has_ipv4_address;
         interface.tcp_syn_ipv4 = capability(
             ipv4_probe_prerequisites ? CapabilityState::Unknown : CapabilityState::Unavailable,
@@ -310,6 +475,10 @@ InterfaceEnumerationResult enumerate_interfaces_result()
             ipv6_route ? CapabilityState::Available : CapabilityState::Unavailable,
             interface, core::AddressFamily::IPv6,
             ipv6_route ? "IPv6 route entry is present" : (has_ipv6_address ? "no IPv6 route entry" : "no IPv6 address"));
+        interface.ipv6_default_route = capability(
+            ipv6_default_route ? CapabilityState::Available : CapabilityState::Unknown,
+            interface, core::AddressFamily::IPv6,
+            ipv6_default_route ? "IPv6 default route entry is present" : "no IPv6 default route was determinable safely");
         interface.global_ipv6_source = capability(
             has_global_ipv6 ? CapabilityState::Available : CapabilityState::Unavailable,
             interface, core::AddressFamily::IPv6,
@@ -334,6 +503,8 @@ InterfaceEnumerationResult enumerate_interfaces_result()
                 ? "AF_PACKET bind succeeded; IPv6 packet injection was not exercised safely"
                 : "AF_PACKET bind, AF_INET6, or IPv6 address prerequisite is unavailable",
             capabilities.raw_diagnostic);
+        interface.ethernet_ipv6_capture = interface.raw_ipv6_capture;
+        interface.ethernet_ipv6_injection = interface.raw_ipv6_injection;
         interface.icmpv6 = interface.raw_ipv6_capture;
         const bool ipv6_probe_prerequisites = capabilities.raw_packet && capabilities.af_inet6 && has_ipv6_address && ipv6_route;
         interface.tcp_syn_ipv6 = capability(

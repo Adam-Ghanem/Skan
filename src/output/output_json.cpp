@@ -112,6 +112,8 @@ void write_timing_metrics(JsonWriter &json, const scanengine::ScanMetrics &metri
     json.integer(metrics.targets_total);
     json.key("targets_completed", first, depth + 1U);
     json.integer(metrics.targets_completed);
+    json.key("targets_failed", first, depth + 1U);
+    json.integer(metrics.targets_failed);
     json.key("probes_submitted", first, depth + 1U);
     json.integer(metrics.probes_submitted);
     json.key("probes_completed", first, depth + 1U);
@@ -120,6 +122,10 @@ void write_timing_metrics(JsonWriter &json, const scanengine::ScanMetrics &metri
     json.integer(metrics.probes_timed_out);
     json.key("probes_failed", first, depth + 1U);
     json.integer(metrics.probes_failed);
+    json.key("probes_cancelled", first, depth + 1U);
+    json.integer(metrics.probes_cancelled);
+    json.key("probes_retried", first, depth + 1U);
+    json.integer(metrics.probes_retried);
     json.key("retries", first, depth + 1U);
     json.integer(metrics.retries);
     json.key("bytes_sent", first, depth + 1U);
@@ -166,6 +172,18 @@ void write_timing_metrics(JsonWriter &json, const scanengine::ScanMetrics &metri
         json.key("maximum_rtt_ms", first, depth + 1U);
         json.number(*metrics.maximum_rtt_ms);
     }
+    if (metrics.srtt_ms.has_value()) {
+        json.key("srtt_ms", first, depth + 1U);
+        json.number(*metrics.srtt_ms);
+    }
+    if (metrics.rttvar_ms.has_value()) {
+        json.key("rttvar_ms", first, depth + 1U);
+        json.number(*metrics.rttvar_ms);
+    }
+    if (metrics.rto_ms.has_value()) {
+        json.key("rto_ms", first, depth + 1U);
+        json.number(*metrics.rto_ms);
+    }
     if (metrics.rtt_samples > 0U) {
         json.key("average_rtt_ms", first, depth + 1U);
         json.number(metrics.average_rtt_ms);
@@ -176,6 +194,8 @@ void write_timing_metrics(JsonWriter &json, const scanengine::ScanMetrics &metri
     json.integer(metrics.timeout_count);
     json.key("retry_count", first, depth + 1U);
     json.integer(metrics.retry_count);
+    json.key("timeout_backoffs", first, depth + 1U);
+    json.integer(metrics.timeout_backoffs);
     json.key("estimated_drop_rate", first, depth + 1U);
     json.number(metrics.estimated_drop_rate);
     json.key("elapsed_ms", first, depth + 1U);

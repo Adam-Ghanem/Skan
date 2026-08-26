@@ -326,3 +326,11 @@ Phase 20 adds low-overhead ScanMetrics lifecycle, retry, byte, parser/correlatio
 Validation uses offline fixtures, loopback, and private documentation addresses only. The complete regression suite, 10k-host output path, service UDP/TLS identification, correlation stress, benchmark smoke, and strict-warning build passed. AF_PACKET-dependent raw paths remain capability-gated; this sandbox returns `Operation not permitted`, so raw SYN, raw UDP, raw OS, and Linux discovery are not claimed as live-validated and no fallback is used.
 
 The service and OS corpora remain small Skan-owned datasets. TLS identifies bounded record headers/alerts and does not negotiate or audit certificates. Nmap breadth, NSE, broad fingerprints, CPE/device classification, and evasion modes remain out of scope. No Nmap source or database data was copied.
+
+## Phase 21 Audit Record — Live-Network Hardening
+
+The Phase 0–20 repository was audited before editing. No TODO/FIXME/HACK markers or prohibited production API matches were found in `src/` or `include/`. The existing single-reactor ownership, RAII descriptor lifecycle, typed packet parsers, deterministic target ordering, bounded schedulers, deadline-indexed correlation, and canonical output model were retained.
+
+Implemented changes include a reusable interface preflight contract; MTU and default-route evidence; Ethernet capture/injection facts; family-aware startup and submit checks in Linux TCP SYN, UDP, discovery, and OS transports; accurate IPv6 discovery family diagnostics; saturating Phase 21 metrics; and semantic output additions across normal, JSON, XML, and grepable serializers. No capability probe transmits traffic. No fallback is selected when Linux capability is absent.
+
+Offline validation passed for parser, scheduler, service, TLS-identification, OS-matching, metrics, output, correlation, benchmark, and CLI paths. Local Connect and loopback-safe tests run where the kernel permits them. AF_PACKET-dependent tests are `SKIPPED/UNAVAILABLE` in this sandbox because the kernel returns `Operation not permitted`; this is not claimed as live raw validation. Non-loopback IPv6 neighbor resolution, raw SYN/UDP/OS injection, and privileged ICMP/ICMPv6/NDP exchange remain capability-dependent and are reported explicitly.

@@ -57,3 +57,22 @@ Phase 20 closes several practical gaps without attempting equivalence. Skan now 
 | Evasion, decoys, spoofing, exploitation | Intentionally not implemented. |
 
 No Nmap code, probe corpus, OS database, or NSE script was copied. Phase 20 validation remains restricted to offline fixtures, loopback, and private documentation addresses.
+
+## Phase 21 capability status update
+
+| Nmap capability area | Phase 21 Skan status |
+| --- | --- |
+| Host discovery | Implemented through the existing bounded discovery scheduler; offline/injected validation passed; Linux raw capture is capability-dependent. |
+| TCP Connect | Implemented and exercised only on controlled local/loopback paths. |
+| TCP SYN | Implemented through the explicit Linux adapter and offline packet path; raw live validation is unavailable when AF_PACKET returns `Operation not permitted`. |
+| UDP | Implemented through bounded offline and explicit Linux raw adapters with family-aware correlation; privileged live validation is unavailable in the sandbox. |
+| Service detection | Implemented for a small project-owned bounded TCP/UDP corpus, including identification-only TLS record handling; not Nmap database breadth. |
+| OS detection | Implemented for bounded project-owned evidence and explicit raw transport; no identity is fabricated when live evidence is unavailable. |
+| IPv4/IPv6 | Typed family-safe offline/Connect paths are implemented; raw IPv6 remains interface, route, source, and neighbor capability-dependent. |
+| Timing | Shared bounded timing, RTT, retransmission, and metrics paths are implemented within the existing reactor. |
+| Output | Normal, JSON, XML, and grepable output share one canonical report model and deterministic ordering. |
+| Scripting/NSE | Not implemented. |
+| Fingerprint corpus/CPE | Small project-owned corpus only; not equivalent to Nmap’s breadth or CPE ecosystem. |
+| Evasion/decoys/spoofing/exploitation | Intentionally not implemented. |
+
+Phase 21 does not clone Nmap, import its code or databases, or claim compatibility or equivalence. The comparison is a capability-gap record only. No public-target traffic was used.

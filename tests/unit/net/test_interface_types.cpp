@@ -31,6 +31,16 @@ int main()
     first.raw_ipv6_capture = {skan::net::CapabilityState::Unavailable, first.name, skan::core::AddressFamily::IPv6,
                               "Operation not permitted", 1};
     assert(skan::net::capability_state_name(skan::net::CapabilityState::Available) == std::string{"AVAILABLE"});
+    assert(skan::net::preflight_category_name(skan::net::PreflightCategory::NoRoute) ==
+           std::string{"NO_ROUTE"});
+    const skan::net::TransportPreflightResult invalid_preflight = skan::net::preflight_interface(
+        "", skan::core::AddressFamily::IPv4, true, true);
+    assert(!invalid_preflight.success());
+    assert(invalid_preflight.category == skan::net::PreflightCategory::InvalidInterface);
+    const skan::net::TransportPreflightResult unsupported_preflight = skan::net::preflight_interface(
+        "lo", skan::core::AddressFamily::Unknown, false, false);
+    assert(!unsupported_preflight.success());
+    assert(unsupported_preflight.category == skan::net::PreflightCategory::UnsupportedFamily);
     assert(first.ipv6_route.state == skan::net::CapabilityState::Available);
     assert(first.ipv6_route.family == skan::core::AddressFamily::IPv6);
     assert(first.ipv6_route.interface_name == "zeta0");
@@ -52,6 +62,8 @@ int main()
 
     const skan::net::InterfaceEnumerationResult enumeration = skan::net::enumerate_interfaces_result();
     assert(enumeration.status == skan::net::InterfaceStatus::Success);
+    assert(std::all_of(enumeration.interfaces.begin(), enumeration.interfaces.end(),
+                       [](const auto &item) { return item.mtu >= 0U; }));
     assert(std::is_sorted(enumeration.interfaces.begin(), enumeration.interfaces.end(),
                           [](const auto &left, const auto &right) { return left.name < right.name; }));
     return 0;

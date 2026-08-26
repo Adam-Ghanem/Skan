@@ -52,6 +52,22 @@ NetworkScanStatus map_transport_status(TransportStatus status) noexcept
     return NetworkScanStatus::SystemError;
 }
 
+NetworkScanResult preflight_failure(const TransportPreflightResult &preflight)
+{
+    const NetworkScanStatus status = preflight.category == PreflightCategory::InvalidInterface
+                                         ? NetworkScanStatus::InterfaceNotFound
+                                         : preflight.category == PreflightCategory::NoRoute
+                                               ? NetworkScanStatus::RoutingUnavailable
+                                               : preflight.category == PreflightCategory::UnsupportedFamily ||
+                                                         preflight.category == PreflightCategory::MtuUnavailable
+                                                     ? NetworkScanStatus::NotSupported
+                                                     : NetworkScanStatus::PermissionDenied;
+    NetworkScanResult result{status, preflight.system_error, preflight.message};
+    result.category = preflight.category;
+    result.family = preflight.family;
+    return result;
+}
+
 core::StatusCode map_network_status(NetworkScanStatus status) noexcept
 {
     switch (status) {
@@ -227,7 +243,18 @@ NetworkScanResult LinuxNetworkScanTransport::open()
                 interface_result.message};
     }
     if (interface_result.interface.ipv4_addresses.empty() && interface_result.interface.ipv6_addresses.empty()) {
-        return {NetworkScanStatus::NotSupported, 0, "selected interface has no IPv4 or IPv6 address"};
+        TransportPreflightResult preflight;
+        preflight.category = PreflightCategory::NoSourceAddress;
+        preflight.message = "selected interface has no IPv4 or IPv6 source address";
+        return preflight_failure(preflight);
+    }
+    const core::AddressFamily startup_family = !interface_result.interface.ipv4_addresses.empty()
+                                                   ? core::AddressFamily::IPv4
+                                                   : core::AddressFamily::IPv6;
+    const TransportPreflightResult startup_preflight = preflight_interface(
+        config_.interface_name, startup_family, false, true);
+    if (!startup_preflight.success()) {
+        return preflight_failure(startup_preflight);
     }
     const auto mac = local_mac_for(config_.interface_name);
     if (!mac.has_value()) {
@@ -280,6 +307,10 @@ NetworkScanResult LinuxNetworkScanTransport::open()
     session_.active = true;
     session_.transport_status = TransportStatus::Success;
     session_.capture_status = CaptureStatus::Success;
+    session_.last_preflight_category = PreflightCategory::Ready;
+    session_.last_preflight_family = startup_family;
+    session_.last_system_error = 0;
+    session_.last_error.clear();
     return {NetworkScanStatus::Success, 0, {}};
 }
 
@@ -326,6 +357,17 @@ core::StatusCode LinuxNetworkScanTransport::submit(
         ++session_.failed;
         return core::StatusCode::InvalidArgument;
     }
+    const TransportPreflightResult target_preflight = preflight_interface(
+        config_.interface_name, target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6, true, true);
+    if (!target_preflight.success()) {
+        ++session_.failed;
+        session_.last_preflight_category = target_preflight.category;
+        session_.last_preflight_family = target_preflight.family;
+        session_.last_system_error = target_preflight.system_error;
+        session_.last_error = target_preflight.message;
+        return target_preflight.category == PreflightCategory::NoRoute ? core::StatusCode::PermissionDenied
+                                                                        : core::StatusCode::PermissionDenied;
+    }
     portscan::PortSubmission effective = submission;
     effective.target_ip = target_ip;
     const auto selected_source = source_address_for(target_ip);
@@ -371,6 +413,12 @@ core::StatusCode LinuxNetworkScanTransport::submit(
         pending_.erase(submission.id);
         ++session_.failed;
         session_.transport_status = send_result.status;
+        session_.last_preflight_category = send_result.status == TransportStatus::PermissionDenied
+                                                ? PreflightCategory::InjectionUnavailable
+                                                : PreflightCategory::Ready;
+        session_.last_preflight_family = target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6;
+        session_.last_system_error = send_result.system_error;
+        session_.last_error = send_result.message;
         return map_network_status(map_transport_status(send_result.status));
     }
     ++session_.submitted;

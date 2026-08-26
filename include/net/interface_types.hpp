@@ -31,6 +31,21 @@ enum class CapabilityState : std::uint8_t {
 
 const char *capability_state_name(CapabilityState state) noexcept;
 
+enum class PreflightCategory : std::uint8_t {
+    Ready = 0,
+    InvalidInterface,
+    InterfaceDown,
+    NoSourceAddress,
+    NoRoute,
+    CapabilityUnavailable,
+    CaptureUnavailable,
+    InjectionUnavailable,
+    UnsupportedFamily,
+    MtuUnavailable
+};
+
+const char *preflight_category_name(PreflightCategory category) noexcept;
+
 struct CapabilityFact final {
     CapabilityState state{CapabilityState::Unknown};
     std::string interface_name;
@@ -66,21 +81,28 @@ struct NetworkInterface final {
     bool supports_af_inet6{false};
     bool supports_ipv6_route{false};
     bool has_cap_net_raw{false};
+    std::uint32_t mtu{0U};
 
     CapabilityFact af_inet;
     CapabilityFact ipv4_route;
+    CapabilityFact ipv4_default_route;
     CapabilityFact ipv4_source;
     CapabilityFact raw_ipv4_capture;
     CapabilityFact raw_ipv4_injection;
+    CapabilityFact ethernet_ipv4_capture;
+    CapabilityFact ethernet_ipv4_injection;
     CapabilityFact tcp_syn_ipv4;
     CapabilityFact udp_raw_ipv4;
     CapabilityFact icmp_ipv4;
     CapabilityFact af_inet6;
     CapabilityFact ipv6_route;
+    CapabilityFact ipv6_default_route;
     CapabilityFact global_ipv6_source;
     CapabilityFact link_local_ipv6_source;
     CapabilityFact raw_ipv6_capture;
     CapabilityFact raw_ipv6_injection;
+    CapabilityFact ethernet_ipv6_capture;
+    CapabilityFact ethernet_ipv6_injection;
     CapabilityFact icmpv6;
     CapabilityFact tcp_syn_ipv6;
     CapabilityFact udp_ipv6;

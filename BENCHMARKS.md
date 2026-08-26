@@ -104,3 +104,30 @@ These measurements confirm that the expanded IPv6 and mixed orchestration rows e
 The offline benchmark now includes hostname resolution using `localhost` with bounded limits; IPv4/IPv6/mixed target expansion; IPv4/IPv6 packet receivers; TCP, UDP, ICMP, ICMPv6, and NDP parser rows; correlation insert, lookup, and deadline cleanup; timer scheduling and cancellation; IPv4 and IPv6 OS matching and scheduling; TCP and UDP service matching; full IPv4/IPv6/mixed orchestration; and normal, JSON, XML, and grepable serialization. All fixtures are offline or loopback-safe and no public network target is contacted.
 
 The correlation stress unit test inserts and cleans 100,000 typed entries. The output integration test serializes a deterministic mixed-family 10,000-host report through JSON and XML. Results are reported as CSV with median and p95 wall time, operations per second, peak resident set size, and operation count. The unusually larger full IPv6/mixed orchestration rows reflect bounded offline OS scheduling for every target and are not presented as network throughput.
+
+## Phase 21 benchmark record
+
+The Phase 21 benchmark uses the existing deterministic offline driver and does not transmit traffic. Each CSV row records `name,count,p50_ms,p95_ms,throughput_ops_per_s,rss_kib,operations`; the RSS column is the process high-water measurement exposed by the benchmark environment, not a claim about a privileged live scan. The workload includes IPv4/IPv6/mixed target expansion, hostname resolution, packet receiver/parser paths, NDP parsing, IPv4/IPv6 OS parsing and matching, UDP scheduling, service matching/scheduling, correlation insert/lookup/cleanup, timer scheduling/cancellation, full IPv4/IPv6/mixed orchestration, and large output paths.
+
+Measured 10,000-target highlights:
+
+| Row | p50 ms | p95 ms | Throughput ops/s | RSS KiB |
+| --- | ---: | ---: | ---: | ---: |
+| target-expansion | 2.071 | 2.854 | 4,828,265.827 | 7,020 |
+| ipv6-target-expansion | 2.629 | 2.844 | 3,804,412.129 | 7,340 |
+| mixed-target-expansion | 3.792 | 4.000 | 2,637,081.426 | 11,420 |
+| hostname-resolution | 159.704 | 168.189 | 125,231.332 | 11,420 |
+| ipv4-receiver-parser | 0.694 | 0.732 | 14,411,423.070 | 11,420 |
+| ipv6-receiver-parser | 0.774 | 1.814 | 12,928,047.658 | 11,420 |
+| correlation-insert | 1.367 | 1.427 | 7,313,223.918 | 94,024 |
+| correlation-lookup | 3.739 | 3.752 | 2,674,504.033 | 94,024 |
+| correlation-cleanup | 1.659 | 1.669 | 6,028,850.461 | 94,024 |
+| timer-scheduling | 0.924 | 0.936 | 10,823,963.389 | 94,024 |
+| timer-cancellation | 1.058 | 1.078 | 9,449,143.293 | 94,024 |
+| service-scheduler | 46.341 | 50.028 | 215,789.806 | 92,416 |
+| ipv4-os-matcher | 9.660 | 10.893 | 3,105,459.221 | 92,416 |
+| full-ipv4-orchestrator | 69.071 | 69.998 | 144,777.603 | 94,024 |
+| full-ipv6-orchestrator | 11,782.951 | 11,902.645 | 848.684 | 244,732 |
+| mixed-orchestrator | 11,732.302 | 11,759.842 | 852.348 | 244,732 |
+
+The IPv6 and mixed orchestration rows are intentionally much slower because the offline fixture schedules bounded OS probes for every host. These are Phase 21 measurements, not claims of improvement over Phase 20; a comparable baseline must use the same binary, host limits, compiler, and sandbox conditions.

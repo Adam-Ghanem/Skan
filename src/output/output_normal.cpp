@@ -68,6 +68,14 @@ OutputStatus NormalOutputWriter::write(
                         output << " version=" << detail::grep_escape(service->version);
                     }
                     output << " confidence=" << std::setprecision(15) << service->confidence;
+                    output << " method=" << detect::detection_method_name(service->method)
+                           << " error=" << detect::detection_error_name(service->error);
+                    if (!service->probe_name.empty()) {
+                        output << " probe=" << detail::grep_escape(service->probe_name);
+                    }
+                    if (service->rtt_ms.has_value()) {
+                        output << " rtt_ms=" << std::setprecision(15) << *service->rtt_ms;
+                    }
                 }
             }
             output << '\n';
@@ -98,7 +106,9 @@ OutputStatus NormalOutputWriter::write(
                                     output << "    " << detail::grep_escape(match->fingerprint_name)
                        << " id=" << detail::grep_escape(match->fingerprint_id)
                        << " confidence=" << std::setprecision(15) << match->confidence
-                       << " class=" << db::match_category_name(match->category) << '\n';
+                       << " class=" << db::match_category_name(match->category)
+                       << " vendor=" << detail::grep_escape(match->vendor)
+                       << " family=" << detail::grep_escape(match->family) << '\n';
             }
         }
         for (const std::string &warning : host->warnings) {
@@ -109,6 +119,25 @@ OutputStatus NormalOutputWriter::write(
         }
     }
     const ScanSummary summary = calculate_summary(report);
+    if (report.timing_metrics.has_value()) {
+        const scanengine::ScanMetrics &metrics = *report.timing_metrics;
+        output << "Metrics: targets_total=" << metrics.targets_total
+               << " targets_completed=" << metrics.targets_completed
+               << " targets_failed=" << metrics.targets_failed
+               << " probes_submitted=" << metrics.probes_submitted
+               << " probes_completed=" << metrics.probes_completed
+               << " probes_timed_out=" << metrics.probes_timed_out
+               << " probes_cancelled=" << metrics.probes_cancelled
+               << " probes_retried=" << metrics.probes_retried
+               << " duplicate_responses=" << metrics.duplicate_responses
+               << " late_responses=" << metrics.late_responses
+               << " malformed_responses=" << metrics.malformed_responses
+               << " bytes_sent=" << metrics.bytes_sent
+               << " bytes_received=" << metrics.bytes_received
+               << " active_probes=" << metrics.active_probes
+               << " peak_active_probes=" << metrics.peak_active_probes
+               << " timeout_backoffs=" << metrics.timeout_backoffs << '\n';
+    }
     output << "Summary: hosts=" << summary.hosts
            << " up=" << summary.hosts_up
            << " down=" << summary.hosts_down

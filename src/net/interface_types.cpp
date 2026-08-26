@@ -15,6 +15,33 @@ const char *capability_state_name(CapabilityState state) noexcept
     return "UNKNOWN";
 }
 
+const char *preflight_category_name(PreflightCategory category) noexcept
+{
+    switch (category) {
+    case PreflightCategory::Ready:
+        return "READY";
+    case PreflightCategory::InvalidInterface:
+        return "INVALID_INTERFACE";
+    case PreflightCategory::InterfaceDown:
+        return "INTERFACE_DOWN";
+    case PreflightCategory::NoSourceAddress:
+        return "NO_SOURCE_ADDRESS";
+    case PreflightCategory::NoRoute:
+        return "NO_ROUTE";
+    case PreflightCategory::CapabilityUnavailable:
+        return "CAPABILITY_UNAVAILABLE";
+    case PreflightCategory::CaptureUnavailable:
+        return "CAPTURE_UNAVAILABLE";
+    case PreflightCategory::InjectionUnavailable:
+        return "INJECTION_UNAVAILABLE";
+    case PreflightCategory::UnsupportedFamily:
+        return "UNSUPPORTED_FAMILY";
+    case PreflightCategory::MtuUnavailable:
+        return "MTU_UNAVAILABLE";
+    }
+    return "CAPABILITY_UNAVAILABLE";
+}
+
 const char *interface_status_name(InterfaceStatus status) noexcept
 {
     switch (status) {

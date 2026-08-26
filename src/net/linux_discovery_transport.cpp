@@ -163,6 +163,21 @@ NetworkScanResult LinuxDiscoveryTransport::open()
                 found.system_error,
                 found.message};
     }
+    const core::AddressFamily startup_family = preflight_family_.value_or(
+        interface_ipv4(found.interface) != 0U ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6);
+    const TransportPreflightResult startup_preflight = preflight_interface(
+        interface_name_, startup_family, false, true);
+    if (!startup_preflight.success()) {
+        const NetworkScanStatus status = startup_preflight.category == PreflightCategory::InvalidInterface
+                                             ? NetworkScanStatus::InterfaceNotFound
+                                             : startup_preflight.category == PreflightCategory::UnsupportedFamily
+                                                   ? NetworkScanStatus::NotSupported
+                                                   : NetworkScanStatus::PermissionDenied;
+        NetworkScanResult result{status, startup_preflight.system_error, startup_preflight.message};
+        result.category = startup_preflight.category;
+        result.family = startup_preflight.family;
+        return result;
+    }
     const auto mac = local_mac_for(interface_name_);
     if (!mac.has_value()) {
         return {NetworkScanStatus::NotSupported, errno, "selected interface MAC address is unavailable"};
@@ -234,6 +249,15 @@ bool LinuxDiscoveryTransport::is_open() const noexcept
     return open_ && receiver_.is_open() && transport_.is_open();
 }
 
+void LinuxDiscoveryTransport::set_preflight_family(core::AddressFamily family) noexcept
+{
+    if (family == core::AddressFamily::IPv4 || family == core::AddressFamily::IPv6) {
+        preflight_family_ = family;
+    } else {
+        preflight_family_.reset();
+    }
+}
+
 void LinuxDiscoveryTransport::set_response_handler(
     std::function<void(const discovery::DiscoveryResponse &)> handler)
 {
@@ -257,6 +281,11 @@ core::StatusCode LinuxDiscoveryTransport::submit(const discovery::ProbeSubmissio
                                           : parsed_target.value_or(core::IpAddress{});
     if (!target_ip.valid()) {
         return core::StatusCode::InvalidArgument;
+    }
+    const TransportPreflightResult target_preflight = preflight_interface(
+        interface_name_, target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6, true, true);
+    if (!target_preflight.success()) {
+        return core::StatusCode::PermissionDenied;
     }
     discovery::ProbeSubmission effective = submission;
     effective.target_ip = target_ip;

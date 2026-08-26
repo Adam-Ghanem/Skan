@@ -9,6 +9,22 @@
 
 namespace skan::net {
 
+struct TransportPreflightResult final {
+    PreflightCategory category{PreflightCategory::Ready};
+    core::AddressFamily family{core::AddressFamily::Unknown};
+    int system_error{0};
+    std::string message;
+
+    bool success() const noexcept { return category == PreflightCategory::Ready; }
+};
+
+/** Validate an explicit interface and family before a raw Linux operation. */
+TransportPreflightResult preflight_interface(
+    std::string_view name,
+    core::AddressFamily family,
+    bool require_route,
+    bool require_injection) noexcept;
+
 /** Enumerate usable Linux interfaces in deterministic name order. */
 InterfaceEnumerationResult enumerate_interfaces_result();
 

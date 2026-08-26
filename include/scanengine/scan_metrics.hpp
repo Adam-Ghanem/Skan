@@ -17,10 +17,13 @@ struct ScanMetrics final {
     std::size_t total_queued{0U};
     std::size_t targets_total{0U};
     std::size_t targets_completed{0U};
+    std::size_t targets_failed{0U};
     std::size_t probes_submitted{0U};
     std::size_t probes_completed{0U};
     std::size_t probes_timed_out{0U};
     std::size_t probes_failed{0U};
+    std::size_t probes_cancelled{0U};
+    std::size_t probes_retried{0U};
     std::size_t retries{0U};
     std::size_t bytes_sent{0U};
     std::size_t bytes_received{0U};
@@ -41,10 +44,14 @@ struct ScanMetrics final {
     std::optional<double> current_rtt_ms;
     std::optional<double> minimum_rtt_ms;
     std::optional<double> maximum_rtt_ms;
+    std::optional<double> srtt_ms;
+    std::optional<double> rttvar_ms;
+    std::optional<double> rto_ms;
     double average_rtt_ms{0.0};
     std::size_t rtt_samples{0U};
     std::size_t timeout_count{0U};
     std::size_t retry_count{0U};
+    std::size_t timeout_backoffs{0U};
     double estimated_drop_rate{0.0};
     ScanTimePoint started_at{};
     ScanTimePoint completed_at{};
@@ -58,6 +65,9 @@ struct ScanMetrics final {
     void record_timeout(std::size_t active) noexcept;
     void record_failure(std::size_t active) noexcept;
     void record_retry() noexcept;
+    void record_cancellation() noexcept;
+    void record_target_failure() noexcept;
+    void record_timeout_backoff() noexcept;
     std::chrono::milliseconds elapsed() const noexcept;
 };
 

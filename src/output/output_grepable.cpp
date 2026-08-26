@@ -29,6 +29,25 @@ OutputStatus GrepableOutputWriter::write(
         output << " duration_ms=" << std::setprecision(15) << *report.duration_ms;
     }
     output << '\n';
+    if (report.timing_metrics.has_value()) {
+        const scanengine::ScanMetrics &metrics = *report.timing_metrics;
+        output << "Metrics: targets_total=" << metrics.targets_total
+               << " targets_completed=" << metrics.targets_completed
+               << " targets_failed=" << metrics.targets_failed
+               << " probes_submitted=" << metrics.probes_submitted
+               << " probes_completed=" << metrics.probes_completed
+               << " probes_timed_out=" << metrics.probes_timed_out
+               << " probes_cancelled=" << metrics.probes_cancelled
+               << " probes_retried=" << metrics.probes_retried
+               << " duplicate_responses=" << metrics.duplicate_responses
+               << " late_responses=" << metrics.late_responses
+               << " malformed_responses=" << metrics.malformed_responses
+               << " bytes_sent=" << metrics.bytes_sent
+               << " bytes_received=" << metrics.bytes_received
+               << " active_probes=" << metrics.active_probes
+               << " peak_active_probes=" << metrics.peak_active_probes
+               << " timeout_backoffs=" << metrics.timeout_backoffs << '\n';
+    }
     for (const HostResult *host : detail::ordered_hosts(report)) {
         output << "Host: address=\"" << detail::grep_escape(host->address)
                << "\" family=" << core::address_family_name(host->family)
@@ -80,7 +99,14 @@ OutputStatus GrepableOutputWriter::write(
                 }
                 output << " confidence=" << std::setprecision(15) << service->confidence
                        << " method=" << detect::detection_method_name(service->method)
-                       << " error=" << detect::detection_error_name(service->error) << '\n';
+                       << " error=" << detect::detection_error_name(service->error);
+                if (!service->probe_name.empty()) {
+                    output << " probe=\"" << detail::grep_escape(service->probe_name) << '"';
+                }
+                if (service->rtt_ms.has_value()) {
+                    output << " rtt_ms=" << std::setprecision(15) << *service->rtt_ms;
+                }
+                output << '\n';
             }
         }
         if (host->os_detection.has_value()) {
@@ -95,13 +121,28 @@ OutputStatus GrepableOutputWriter::write(
                    << " timeouts=" << detection.probes_timed_out
                    << " tcp_evidence=" << detection.observed.tcp_observations.size()
                    << " icmp_evidence=" << detection.observed.icmp_observations.size()
-                   << " udp_evidence=" << detection.observed.udp_observations.size() << '\n';
+                   << " udp_evidence=" << detection.observed.udp_observations.size();
+            if (!detection.fingerprint_id.empty()) {
+                output << " fingerprint_id=\"" << detail::grep_escape(detection.fingerprint_id) << '"';
+            }
+            if (detection.rtt_ms.has_value()) {
+                output << " rtt_ms=" << std::setprecision(15) << *detection.rtt_ms;
+            }
+            output << '\n';
         }
         for (const osdetect::OSMatchResult *match : detail::ordered_os_matches(*host)) {
             output << "OS: address=\"" << detail::grep_escape(host->address)
                    << "\" name=\"" << detail::grep_escape(match->fingerprint_name)
+                   << "\" id=\"" << detail::grep_escape(match->fingerprint_id)
                    << "\" confidence=" << std::setprecision(15) << match->confidence
-                   << " class=" << db::match_category_name(match->category) << '\n';
+                   << " class=" << db::match_category_name(match->category);
+            if (!match->vendor.empty()) {
+                output << " vendor=\"" << detail::grep_escape(match->vendor) << '"';
+            }
+            if (!match->family.empty()) {
+                output << " family=\"" << detail::grep_escape(match->family) << '"';
+            }
+            output << '\n';
         }
         for (const std::string &warning : host->warnings) {
             output << "Warning: address=\"" << detail::grep_escape(host->address)

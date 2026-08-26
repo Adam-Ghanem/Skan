@@ -4,6 +4,16 @@
 #include <limits>
 
 namespace skan::scanengine {
+namespace {
+
+void saturating_increment(std::size_t &value) noexcept
+{
+    if (value < std::numeric_limits<std::size_t>::max()) {
+        ++value;
+    }
+}
+
+} // namespace
 
 void ScanMetrics::record_rtt(std::chrono::milliseconds sample) noexcept
 {
@@ -16,6 +26,15 @@ void ScanMetrics::record_rtt(std::chrono::milliseconds sample) noexcept
         average_rtt_ms += (value - average_rtt_ms) / denominator;
         ++rtt_samples;
     }
+    if (!srtt_ms.has_value()) {
+        srtt_ms = value;
+        rttvar_ms = value / 2.0;
+    } else {
+        const double deviation = std::abs(*srtt_ms - value);
+        rttvar_ms = (0.75 * *rttvar_ms) + (0.25 * deviation);
+        srtt_ms = (0.875 * *srtt_ms) + (0.125 * value);
+    }
+    rto_ms = *srtt_ms + (4.0 * *rttvar_ms);
 }
 
 void ScanMetrics::set_parallelism(std::size_t current, std::size_t observed) noexcept
@@ -28,37 +47,54 @@ void ScanMetrics::set_parallelism(std::size_t current, std::size_t observed) noe
 
 void ScanMetrics::record_submission(std::size_t active) noexcept
 {
-    ++probes_submitted;
-    ++total_submitted;
+    saturating_increment(probes_submitted);
+    saturating_increment(total_submitted);
     set_parallelism(active, std::max(active, peak_active_probes));
 }
 
 void ScanMetrics::record_completion(std::size_t active) noexcept
 {
-    ++probes_completed;
-    ++completed;
+    saturating_increment(probes_completed);
+    saturating_increment(completed);
     set_parallelism(active, std::max(active, peak_active_probes));
 }
 
 void ScanMetrics::record_timeout(std::size_t active) noexcept
 {
-    ++probes_timed_out;
-    ++timed_out;
-    ++timeout_count;
+    saturating_increment(probes_timed_out);
+    saturating_increment(timed_out);
+    saturating_increment(timeout_count);
     set_parallelism(active, std::max(active, peak_active_probes));
 }
 
 void ScanMetrics::record_failure(std::size_t active) noexcept
 {
-    ++probes_failed;
-    ++failed;
+    saturating_increment(probes_failed);
+    saturating_increment(failed);
     set_parallelism(active, std::max(active, peak_active_probes));
 }
 
 void ScanMetrics::record_retry() noexcept
 {
-    ++retries;
-    ++retry_count;
+    saturating_increment(retries);
+    saturating_increment(retry_count);
+    saturating_increment(probes_retried);
+}
+
+void ScanMetrics::record_cancellation() noexcept
+{
+    saturating_increment(cancelled);
+    saturating_increment(probes_cancelled);
+}
+
+void ScanMetrics::record_target_failure() noexcept
+{
+    saturating_increment(targets_failed);
+}
+
+void ScanMetrics::record_timeout_backoff() noexcept
+{
+    saturating_increment(timeout_backoffs);
 }
 
 std::chrono::milliseconds ScanMetrics::elapsed() const noexcept

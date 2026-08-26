@@ -31,6 +31,7 @@ public:
     NetworkScanResult open();
     void close() noexcept;
     bool is_open() const noexcept;
+    void set_preflight_family(core::AddressFamily family) noexcept;
 
     void set_response_handler(std::function<void(const discovery::DiscoveryResponse &)> handler);
     core::StatusCode submit(const discovery::ProbeSubmission &submission) override;
@@ -70,6 +71,7 @@ private:
     std::uint32_t source_ipv4_{0U};
     std::optional<core::IpAddress> source_ipv6_;
     std::array<std::uint8_t, 6U> local_mac_{};
+    std::optional<core::AddressFamily> preflight_family_;
     bool open_{false};
 };
 

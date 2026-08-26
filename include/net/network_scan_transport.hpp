@@ -52,12 +52,18 @@ struct ScanSession final {
     bool active{false};
     TransportStatus transport_status{TransportStatus::Closed};
     CaptureStatus capture_status{CaptureStatus::Closed};
+    PreflightCategory last_preflight_category{PreflightCategory::Ready};
+    core::AddressFamily last_preflight_family{core::AddressFamily::Unknown};
+    int last_system_error{0};
+    std::string last_error;
 };
 
 struct NetworkScanResult final {
     NetworkScanStatus status{NetworkScanStatus::Success};
     int system_error{0};
     std::string message;
+    PreflightCategory category{PreflightCategory::Ready};
+    core::AddressFamily family{core::AddressFamily::Unknown};
 
     bool success() const noexcept { return status == NetworkScanStatus::Success; }
 };

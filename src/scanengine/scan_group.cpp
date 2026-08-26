@@ -111,10 +111,12 @@ bool ScanGroup::requeue_for_retry(ScanWorkItem item) noexcept
         queue_.push_back(iterator->first);
     } catch (const std::bad_alloc &) {
         iterator->second.state = ScanWorkState::Failed;
-        ++metrics_.failed;
+        metrics_.record_failure(outstanding_metric(metrics_));
+        metrics_.record_target_failure();
         return false;
     }
     metrics_.record_retry();
+    metrics_.record_timeout_backoff();
     return true;
 }
 
@@ -126,7 +128,7 @@ bool ScanGroup::cancel(ScanWorkId id) noexcept
         return false;
     }
     iterator->second.state = ScanWorkState::Cancelled;
-    ++metrics_.cancelled;
+    metrics_.record_cancellation();
     return true;
 }
 
@@ -135,7 +137,7 @@ void ScanGroup::cancel_all() noexcept
     for (auto &entry : items_) {
         if (entry.second.state == ScanWorkState::Queued || entry.second.state == ScanWorkState::Submitted) {
             entry.second.state = ScanWorkState::Cancelled;
-            ++metrics_.cancelled;
+            metrics_.record_cancellation();
         }
     }
     queue_.clear();
@@ -185,6 +187,7 @@ bool ScanGroup::mark_failed(ScanWorkId id) noexcept
     }
     iterator->second.state = ScanWorkState::Failed;
     metrics_.record_failure(outstanding_metric(metrics_));
+    metrics_.record_target_failure();
     return true;
 }
 

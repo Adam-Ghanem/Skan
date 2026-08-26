@@ -85,10 +85,13 @@ void write_metrics(XmlWriter &xml, const scanengine::ScanMetrics &metrics, std::
     xml.element(depth + 1U, "total-queued", std::to_string(metrics.total_queued));
     xml.element(depth + 1U, "targets-total", std::to_string(metrics.targets_total));
     xml.element(depth + 1U, "targets-completed", std::to_string(metrics.targets_completed));
+    xml.element(depth + 1U, "targets-failed", std::to_string(metrics.targets_failed));
     xml.element(depth + 1U, "probes-submitted", std::to_string(metrics.probes_submitted));
     xml.element(depth + 1U, "probes-completed", std::to_string(metrics.probes_completed));
     xml.element(depth + 1U, "probes-timed-out", std::to_string(metrics.probes_timed_out));
     xml.element(depth + 1U, "probes-failed", std::to_string(metrics.probes_failed));
+    xml.element(depth + 1U, "probes-cancelled", std::to_string(metrics.probes_cancelled));
+    xml.element(depth + 1U, "probes-retried", std::to_string(metrics.probes_retried));
     xml.element(depth + 1U, "retries", std::to_string(metrics.retries));
     xml.element(depth + 1U, "bytes-sent", std::to_string(metrics.bytes_sent));
     xml.element(depth + 1U, "bytes-received", std::to_string(metrics.bytes_received));
@@ -116,12 +119,22 @@ void write_metrics(XmlWriter &xml, const scanengine::ScanMetrics &metrics, std::
     if (metrics.maximum_rtt_ms.has_value()) {
         xml.element(depth + 1U, "maximum-rtt-ms", detail::number(*metrics.maximum_rtt_ms));
     }
+    if (metrics.srtt_ms.has_value()) {
+        xml.element(depth + 1U, "srtt-ms", detail::number(*metrics.srtt_ms));
+    }
+    if (metrics.rttvar_ms.has_value()) {
+        xml.element(depth + 1U, "rttvar-ms", detail::number(*metrics.rttvar_ms));
+    }
+    if (metrics.rto_ms.has_value()) {
+        xml.element(depth + 1U, "rto-ms", detail::number(*metrics.rto_ms));
+    }
     if (metrics.rtt_samples > 0U) {
         xml.element(depth + 1U, "average-rtt-ms", detail::number(metrics.average_rtt_ms));
     }
     xml.element(depth + 1U, "rtt-samples", std::to_string(metrics.rtt_samples));
     xml.element(depth + 1U, "timeout-count", std::to_string(metrics.timeout_count));
     xml.element(depth + 1U, "retry-count", std::to_string(metrics.retry_count));
+    xml.element(depth + 1U, "timeout-backoffs", std::to_string(metrics.timeout_backoffs));
     xml.element(depth + 1U, "estimated-drop-rate", detail::number(metrics.estimated_drop_rate));
     xml.element(depth + 1U, "elapsed-ms", detail::number(static_cast<double>(metrics.elapsed().count())));
     for (std::size_t index = 0U; index < metrics.stage_duration_ms.size(); ++index) {
@@ -223,7 +236,21 @@ void write_os_match(XmlWriter &xml, const osdetect::OSMatchResult &match, std::s
     if (!match.device_type.empty()) {
         attributes += attribute("device-type", match.device_type);
     }
-    xml.self_closing(depth, "match", attributes);
+    if (match.matched_fields.empty() && match.mismatched_fields.empty() && match.unavailable_fields.empty()) {
+        xml.self_closing(depth, "match", attributes);
+        return;
+    }
+    xml.open(depth, "match" + attributes);
+    for (const std::string &field : match.matched_fields) {
+        xml.element(depth + 1U, "matched-field", field);
+    }
+    for (const std::string &field : match.mismatched_fields) {
+        xml.element(depth + 1U, "mismatched-field", field);
+    }
+    for (const std::string &field : match.unavailable_fields) {
+        xml.element(depth + 1U, "unavailable-field", field);
+    }
+    xml.close(depth, "match");
 }
 
 void write_string_elements(XmlWriter &xml, const std::vector<std::string> &values, std::size_t depth,

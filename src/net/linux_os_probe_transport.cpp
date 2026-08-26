@@ -233,7 +233,28 @@ NetworkScanResult LinuxOSProbeTransport::open()
         return {status, interface_result.system_error, interface_result.message};
     }
     if (interface_result.interface.ipv4_addresses.empty() && interface_result.interface.ipv6_addresses.empty()) {
-        return {NetworkScanStatus::NotSupported, 0, "selected interface has no IPv4 or IPv6 address"};
+        TransportPreflightResult preflight;
+        preflight.category = PreflightCategory::NoSourceAddress;
+        preflight.message = "selected interface has no IPv4 or IPv6 source address";
+        NetworkScanResult result{NetworkScanStatus::NotSupported, 0, preflight.message};
+        result.category = preflight.category;
+        return result;
+    }
+    const core::AddressFamily startup_family = !interface_result.interface.ipv4_addresses.empty()
+                                                   ? core::AddressFamily::IPv4
+                                                   : core::AddressFamily::IPv6;
+    const TransportPreflightResult startup_preflight = preflight_interface(
+        config_.interface_name, startup_family, false, true);
+    if (!startup_preflight.success()) {
+        const NetworkScanStatus status = startup_preflight.category == PreflightCategory::InvalidInterface
+                                             ? NetworkScanStatus::InterfaceNotFound
+                                             : startup_preflight.category == PreflightCategory::UnsupportedFamily
+                                                   ? NetworkScanStatus::NotSupported
+                                                   : NetworkScanStatus::PermissionDenied;
+        NetworkScanResult result{status, startup_preflight.system_error, startup_preflight.message};
+        result.category = startup_preflight.category;
+        result.family = startup_preflight.family;
+        return result;
     }
     const auto mac = local_mac_for(config_.interface_name);
     if (!mac.has_value()) {
@@ -332,6 +353,12 @@ core::StatusCode LinuxOSProbeTransport::submit(osdetect::OSProbeSubmission submi
     if (!target_ip.valid()) {
         ++session_.failed;
         return core::StatusCode::InvalidArgument;
+    }
+    const TransportPreflightResult target_preflight = preflight_interface(
+        config_.interface_name, target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6, true, true);
+    if (!target_preflight.success()) {
+        ++session_.failed;
+        return core::StatusCode::PermissionDenied;
     }
     osdetect::OSProbeSubmission effective = std::move(submission);
     effective.target_ip = target_ip;
