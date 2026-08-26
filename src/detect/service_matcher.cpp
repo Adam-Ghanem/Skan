@@ -36,6 +36,23 @@ std::string expand_template(
     return output;
 }
 
+std::size_t rule_priority(const ServiceMatchRule &rule) noexcept
+{
+    if (rule.type == ServiceMatchType::Exact) {
+        return 4U;
+    }
+    if (rule.type == ServiceMatchType::Prefix) {
+        return 3U;
+    }
+    if (rule.type == ServiceMatchType::Substring) {
+        return 2U;
+    }
+    // Anchored capture rules carry structured protocol/version evidence.
+    return rule.pattern.find('(') != std::string::npos && !rule.pattern.empty() && rule.pattern.front() == '^'
+               ? 4U
+               : 1U;
+}
+
 bool rule_matches(
     const ServiceMatchRule &rule,
     std::string_view response,
@@ -43,6 +60,8 @@ bool rule_matches(
     std::string &owned_response)
 {
     switch (rule.type) {
+    case ServiceMatchType::Exact:
+        return response == rule.pattern;
     case ServiceMatchType::Prefix:
         return response.size() >= rule.pattern.size() && response.substr(0U, rule.pattern.size()) == rule.pattern;
     case ServiceMatchType::Substring:
@@ -86,12 +105,15 @@ ServiceMatchResult ServiceMatcher::match(
         candidate.version = expand_template(rule.version, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
         candidate.extra = expand_template(rule.extra, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
         candidate.confidence = rule.confidence;
+        candidate.priority = rule_priority(rule);
         candidate.specificity = rule.specificity;
         candidate.rule_index = index;
-        const bool better = !best.matched || candidate.confidence > best.confidence ||
-                            (candidate.confidence == best.confidence && candidate.specificity > best.specificity) ||
-                            (candidate.confidence == best.confidence && candidate.specificity == best.specificity &&
-                             candidate.rule_index < best.rule_index);
+        const bool better = !best.matched || candidate.priority > best.priority ||
+                            (candidate.priority == best.priority && candidate.confidence > best.confidence) ||
+                            (candidate.priority == best.priority && candidate.confidence == best.confidence &&
+                             candidate.specificity > best.specificity) ||
+                            (candidate.priority == best.priority && candidate.confidence == best.confidence &&
+                             candidate.specificity == best.specificity && candidate.rule_index < best.rule_index);
         if (better) {
             best = std::move(candidate);
         }

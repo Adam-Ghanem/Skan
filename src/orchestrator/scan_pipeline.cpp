@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <sys/types.h>
 #include <unistd.h>
@@ -29,15 +30,26 @@ core::IpAddress host_ip(const core::Host &host) noexcept
 core::Target aggregate_targets(const std::vector<core::Target> &targets)
 {
     core::Target aggregate;
+    std::size_t host_count = 0U;
+    std::size_t specification_bytes = 0U;
+    for (const core::Target &target : targets) {
+        host_count += target.resolved_hosts.size();
+        specification_bytes += target.original_specification.size();
+    }
+    if (targets.size() > 1U) {
+        specification_bytes += targets.size() - 1U;
+    }
+    aggregate.original_specification.reserve(specification_bytes);
+    aggregate.resolved_hosts.reserve(host_count);
+    std::unordered_set<std::string_view> seen_addresses;
+    seen_addresses.reserve(host_count);
     for (const core::Target &target : targets) {
         if (!aggregate.original_specification.empty()) {
-            aggregate.original_specification += ";";
+            aggregate.original_specification.push_back(';');
         }
         aggregate.original_specification += target.original_specification;
         for (const core::Host &host : target.resolved_hosts) {
-            const auto found = std::find_if(aggregate.resolved_hosts.begin(), aggregate.resolved_hosts.end(),
-                                            [&](const core::Host &existing) { return existing.address == host.address; });
-            if (found == aggregate.resolved_hosts.end()) {
+            if (seen_addresses.emplace(host.address).second) {
                 aggregate.resolved_hosts.push_back(host);
             }
         }
@@ -314,18 +326,28 @@ bool ScanPipeline::execute_os_detection(
         if (cancelled()) {
             return false;
         }
+        const auto port_begin = std::lower_bound(
+            ports.begin(), ports.end(), host.address,
+            [](const portscan::PortResult &port, const std::string &address) { return port.target < address; });
+        const auto port_end = std::upper_bound(
+            port_begin, ports.end(), host.address,
+            [](const std::string &address, const portscan::PortResult &port) { return address < port.target; });
         std::vector<portscan::PortResult> host_ports;
+        host_ports.reserve(static_cast<std::size_t>(std::distance(port_begin, port_end)));
+        for (auto iterator = port_begin; iterator != port_end; ++iterator) {
+            if (iterator->port.protocol == portscan::Protocol::Tcp) {
+                host_ports.push_back(*iterator);
+            }
+        }
+        const auto service_begin = std::lower_bound(
+            services.begin(), services.end(), host.address,
+            [](const detect::ServiceResult &service, const std::string &address) { return service.target < address; });
+        const auto service_end = std::upper_bound(
+            service_begin, services.end(), host.address,
+            [](const std::string &address, const detect::ServiceResult &service) { return address < service.target; });
         std::vector<detect::ServiceResult> host_services;
-        for (const portscan::PortResult &port : ports) {
-            if (port.target == host.address && port.port.protocol == portscan::Protocol::Tcp) {
-                host_ports.push_back(port);
-            }
-        }
-        for (const detect::ServiceResult &service : services) {
-            if (service.target == host.address) {
-                host_services.push_back(service);
-            }
-        }
+        host_services.reserve(static_cast<std::size_t>(std::distance(service_begin, service_end)));
+        host_services.insert(host_services.end(), service_begin, service_end);
         core::Target one_host{host.address, {host}};
         os_stage_ = std::make_unique<OSDetectionStage>(session_.io_engine(), config_, one_host, &dependencies_);
         const StageResult stage_result = os_stage_->start(host_ports, host_services);
@@ -465,13 +487,6 @@ core::StatusCode ScanPipeline::run(std::ostream &output)
         }
         return final_status_;
     }
-    if (config_.service_detection_enabled && !execute_service_detection(port_results_, service_results_)) {
-        if (cancelled()) {
-            (void)serialize_report(output);
-            return core::StatusCode::Ok;
-        }
-        return final_status_;
-    }
     port_results_.insert(port_results_.end(), udp_results_.begin(), udp_results_.end());
     std::sort(port_results_.begin(), port_results_.end(), [](const portscan::PortResult &left,
                                                              const portscan::PortResult &right) {
@@ -483,6 +498,13 @@ core::StatusCode ScanPipeline::run(std::ostream &output)
         }
         return left.port.protocol < right.port.protocol;
     });
+    if (config_.service_detection_enabled && !execute_service_detection(port_results_, service_results_)) {
+        if (cancelled()) {
+            (void)serialize_report(output);
+            return core::StatusCode::Ok;
+        }
+        return final_status_;
+    }
     if (config_.os_detection_enabled && !execute_os_detection(active_target_, port_results_, service_results_, os_results_)) {
         if (cancelled()) {
             (void)serialize_report(output);

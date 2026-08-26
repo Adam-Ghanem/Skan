@@ -1,0 +1,2 @@
+Probe TCP X rarity=1
+match type=regex pattern="[" service=x confidence=2.0

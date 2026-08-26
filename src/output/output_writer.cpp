@@ -63,9 +63,9 @@ std::vector<const HostResult *> ordered_hosts(const ScanReport &report)
     return hosts;
 }
 
-std::vector<portscan::PortResult> ordered_ports(const HostResult &host, const OutputContext &context)
+std::vector<const portscan::PortResult *> ordered_ports(const HostResult &host, const OutputContext &context)
 {
-    std::vector<portscan::PortResult> ports;
+    std::vector<const portscan::PortResult *> ports;
     ports.reserve(host.ports.size());
     for (const portscan::PortResult &port : host.ports) {
         if (port.state == portscan::PortState::Closed && !context.include_closed_ports) {
@@ -78,23 +78,39 @@ std::vector<portscan::PortResult> ordered_ports(const HostResult &host, const Ou
         if (port.state == portscan::PortState::Unknown && !context.include_unknown) {
             continue;
         }
-        ports.push_back(port);
+        ports.push_back(&port);
     }
-    std::sort(ports.begin(), ports.end(), port_less);
+    std::sort(ports.begin(), ports.end(), [](const portscan::PortResult *left, const portscan::PortResult *right) {
+        return port_less(*left, *right);
+    });
     return ports;
 }
 
-std::vector<detect::ServiceResult> ordered_services(const HostResult &host)
+std::vector<const detect::ServiceResult *> ordered_services(const HostResult &host)
 {
-    std::vector<detect::ServiceResult> services = host.services;
-    std::sort(services.begin(), services.end(), service_less);
+    std::vector<const detect::ServiceResult *> services;
+    services.reserve(host.services.size());
+    for (const detect::ServiceResult &service : host.services) {
+        services.push_back(&service);
+    }
+    std::sort(services.begin(), services.end(), [](const detect::ServiceResult *left,
+                                                   const detect::ServiceResult *right) {
+        return service_less(*left, *right);
+    });
     return services;
 }
 
-std::vector<osdetect::OSMatchResult> ordered_os_matches(const HostResult &host)
+std::vector<const osdetect::OSMatchResult *> ordered_os_matches(const HostResult &host)
 {
-    std::vector<osdetect::OSMatchResult> matches = host.os_matches;
-    std::sort(matches.begin(), matches.end(), os_less);
+    std::vector<const osdetect::OSMatchResult *> matches;
+    matches.reserve(host.os_matches.size());
+    for (const osdetect::OSMatchResult &match : host.os_matches) {
+        matches.push_back(&match);
+    }
+    std::sort(matches.begin(), matches.end(), [](const osdetect::OSMatchResult *left,
+                                                 const osdetect::OSMatchResult *right) {
+        return os_less(*left, *right);
+    });
     return matches;
 }
 

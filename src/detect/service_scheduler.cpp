@@ -28,10 +28,11 @@ DetectionError error_for_status(core::StatusCode status) noexcept
 struct SeenService final {
     std::string target;
     std::uint16_t port{0U};
+    TransportProtocol protocol{TransportProtocol::Tcp};
 
     bool operator==(const SeenService &other) const noexcept
     {
-        return port == other.port && target == other.target;
+        return port == other.port && protocol == other.protocol && target == other.target;
     }
 };
 
@@ -39,7 +40,8 @@ struct SeenServiceHash final {
     std::size_t operator()(const SeenService &value) const noexcept
     {
         const std::size_t target_hash = std::hash<std::string>{}(value.target);
-        return target_hash ^ (static_cast<std::size_t>(value.port) * 0x9E3779B1U);
+        const std::size_t protocol_hash = static_cast<std::size_t>(value.protocol) * 0x85EBCA77U;
+        return target_hash ^ (static_cast<std::size_t>(value.port) * 0x9E3779B1U) ^ protocol_hash;
     }
 };
 
@@ -103,7 +105,8 @@ core::StatusCode ServiceScheduler::submit(const std::vector<portscan::PortResult
         seen.reserve(open_ports.size());
         for (const portscan::PortResult &port_result : open_ports) {
             if (port_result.state != portscan::PortState::Open ||
-                port_result.port.protocol != portscan::Protocol::Tcp) {
+                (port_result.port.protocol != portscan::Protocol::Tcp &&
+                 port_result.port.protocol != portscan::Protocol::Udp)) {
                 continue;
             }
             if (port_result.target.empty() || port_result.port.number == 0U) {
@@ -116,7 +119,7 @@ core::StatusCode ServiceScheduler::submit(const std::vector<portscan::PortResult
                 status_ = core::StatusCode::InvalidArgument;
                 continue;
             }
-            if (!seen.emplace(SeenService{port_result.target, port_result.port.number}).second) {
+            if (!seen.emplace(SeenService{port_result.target, port_result.port.number, port_result.port.protocol}).second) {
                 continue;
             }
             WorkItem work;
@@ -339,6 +342,15 @@ void ServiceScheduler::start_or_retry(WorkItem work) noexcept
     }
     const std::size_t probe_index = work.probe_indices[work.next_probe];
     const ServiceProbeDefinition &definition = database_.probes()[probe_index];
+    if (!transport_.supports(work.port_result.port.protocol)) {
+        append_result(
+            work.port_result,
+            &definition,
+            DetectionState::Unknown,
+            DetectionError::UnsupportedProtocol,
+            nullptr);
+        return;
+    }
     const ServiceProbe probe(definition, config_.max_response_bytes);
     ServiceSubmission submission;
     const ServiceProbeId id = next_id_++;

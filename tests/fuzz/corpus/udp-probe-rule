@@ -1,0 +1,3 @@
+Probe UDP X rarity=1 ports=53
+send "\x12"
+match type=exact pattern="\x12" service=x confidence=0.5

@@ -22,6 +22,43 @@ void ScanMetrics::set_parallelism(std::size_t current, std::size_t observed) noe
 {
     current_parallelism = current;
     maximum_observed_parallelism = std::max(maximum_observed_parallelism, observed);
+    active_probes = current;
+    peak_active_probes = std::max(peak_active_probes, observed);
+}
+
+void ScanMetrics::record_submission(std::size_t active) noexcept
+{
+    ++probes_submitted;
+    ++total_submitted;
+    set_parallelism(active, std::max(active, peak_active_probes));
+}
+
+void ScanMetrics::record_completion(std::size_t active) noexcept
+{
+    ++probes_completed;
+    ++completed;
+    set_parallelism(active, std::max(active, peak_active_probes));
+}
+
+void ScanMetrics::record_timeout(std::size_t active) noexcept
+{
+    ++probes_timed_out;
+    ++timed_out;
+    ++timeout_count;
+    set_parallelism(active, std::max(active, peak_active_probes));
+}
+
+void ScanMetrics::record_failure(std::size_t active) noexcept
+{
+    ++probes_failed;
+    ++failed;
+    set_parallelism(active, std::max(active, peak_active_probes));
+}
+
+void ScanMetrics::record_retry() noexcept
+{
+    ++retries;
+    ++retry_count;
 }
 
 std::chrono::milliseconds ScanMetrics::elapsed() const noexcept

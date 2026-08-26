@@ -318,3 +318,11 @@ Phase 19 audited and extended the Phase 0–18 implementation without changing t
 | Output/observability | IMPLEMENTED | `interfaces` normal and JSON output expose typed capability facts; diagnostics remain on stderr for live failures. Existing scan writers remain deterministic and stdout-clean for structured formats. |
 
 The restricted sandbox result is recorded as an environment limitation, not a code failure: AF_PACKET-dependent tests report `SKIPPED: ... Operation not permitted`. The optional fuzz target reports `SKIPPED` when `clang++` is unavailable. No public Internet target was contacted.
+
+## L. Phase 20 Audit Update — Production Hardening
+
+Phase 20 adds low-overhead ScanMetrics lifecycle, retry, byte, parser/correlation, active/peak, stage-duration, timeout, cancellation, and drop-rate observability; deadline-indexed CorrelationTable cleanup with rollback on allocation failure; reserved/deduplicated target aggregation; binary-search OS range selection; non-owning output ordering views; protocol-aware TCP/UDP service scheduling; exact structured service matches; bounded TCP/UDP/TLS-identification probes; fuzz corpus seeds; and 10,000-host output coverage.
+
+Validation uses offline fixtures, loopback, and private documentation addresses only. The complete regression suite, 10k-host output path, service UDP/TLS identification, correlation stress, benchmark smoke, and strict-warning build passed. AF_PACKET-dependent raw paths remain capability-gated; this sandbox returns `Operation not permitted`, so raw SYN, raw UDP, raw OS, and Linux discovery are not claimed as live-validated and no fallback is used.
+
+The service and OS corpora remain small Skan-owned datasets. TLS identifies bounded record headers/alerts and does not negotiate or audit certificates. Nmap breadth, NSE, broad fingerprints, CPE/device classification, and evasion modes remain out of scope. No Nmap source or database data was copied.

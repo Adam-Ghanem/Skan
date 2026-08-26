@@ -16,13 +16,6 @@
 namespace skan::orchestrator {
 namespace {
 
-bool has_ipv6_hosts(const core::Target &target) noexcept
-{
-    return std::any_of(target.resolved_hosts.begin(), target.resolved_hosts.end(), [](const core::Host &host) {
-        return host.ip_address.is_ipv6() || host.address.find(':') != std::string::npos;
-    });
-}
-
 StageResult stage_success()
 {
     return {core::StatusCode::Ok, true, false, {}};
@@ -62,10 +55,6 @@ StageResult DiscoveryStage::start()
     if (dependencies_ != nullptr && dependencies_->discovery_transport) {
         transport_ = dependencies_->discovery_transport(engine_, config_);
     } else if (config_.transport == ScanTransport::Linux) {
-        if (has_ipv6_hosts(target_)) {
-            result_ = stage_failure(core::StatusCode::PermissionDenied, "IPv6 Linux discovery is unavailable; no fallback transport is used");
-            return result_;
-        }
         if (!config_.interface_name.has_value()) {
             result_ = stage_failure(core::StatusCode::InvalidArgument, "Linux discovery requires an interface");
             return result_;
@@ -399,7 +388,7 @@ StageResult ServiceDetectionStage::start(const std::vector<portscan::PortResult>
     } else if (config_.transport == ScanTransport::Offline) {
         transport_ = std::make_unique<detect::RecordingServiceTransport>();
     } else {
-        transport_ = std::make_unique<detect::ServiceTcpTransport>(engine_);
+        transport_ = std::make_unique<detect::ServiceTransportRouter>(engine_);
     }
     if (transport_ == nullptr) {
         result_ = stage_failure(core::StatusCode::InternalError, "service transport factory returned null");

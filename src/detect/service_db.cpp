@@ -29,7 +29,6 @@ match type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.72
 Probe TCP SSHBanner rarity=1 ports=22
 send "\r\n"
 match type=regex pattern="^SSH-[0-9.]+-OpenSSH_([0-9.]+)" service=ssh product=OpenSSH version="$1" confidence=0.92
-match type=prefix pattern="SSH-" service=ssh product=SSH confidence=0.78
 
 Probe TCP FTPBanner rarity=1 ports=21
 send "\r\n"
@@ -39,9 +38,26 @@ Probe TCP SMTPBanner rarity=1 ports=25,587
 send "\r\n"
 match type=prefix pattern="220" service=smtp product=SMTP confidence=0.80
 
-Probe TCP TLSGreeting rarity=2 ports=443
+Probe TCP TLSGreeting rarity=1 ports=443,8443
 send "\x16\x03\x01\x00\x00"
-match type=prefix pattern="\x16\x03" service=https product=TLS confidence=0.76
+match type=prefix pattern="\x16\x03" service=https product=TLS version="record-header" confidence=0.76
+match type=exact pattern="\x15\x03" service=tls product=TLS version="alert" confidence=0.82
+
+Probe TCP POP3Banner rarity=2 ports=110,995
+send "\r\n"
+match type=prefix pattern="+OK" service=pop3 product=POP3 confidence=0.80
+
+Probe TCP IMAPBanner rarity=2 ports=143,993
+send "a001 CAPABILITY\r\n"
+match type=prefix pattern="* OK" service=imap product=IMAP confidence=0.82
+
+Probe TCP RedisGreeting rarity=2 ports=6379
+send "PING\r\n"
+match type=prefix pattern="+PONG" service=redis product=Redis confidence=0.86
+
+Probe TCP MongoGreeting rarity=2 ports=27017
+send "\x00"
+match type=prefix pattern="\x00" service=mongodb product=MongoDB confidence=0.40
 
 Probe TCP GenericBanner rarity=3
 send "\r\n"
@@ -50,6 +66,22 @@ match type=regex pattern="^[Hh][Tt][Tt][Pp]/([0-9.]+)" service=http product=HTTP
 match type=prefix pattern="SSH-" service=ssh product=SSH confidence=0.60
 match type=prefix pattern="220" service=banner product=TextBanner confidence=0.45
 match type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.60
+
+Probe UDP DNSQuery rarity=1 ports=53
+send "\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07example\x03com\x00\x00\x01\x00\x01"
+match type=prefix pattern="\x12\x34" service=dns product=DNS confidence=0.82
+
+Probe UDP NTPQuery rarity=2 ports=123
+send "\x1b\x00\x00\x00\x00\x00\x00\x00"
+match type=prefix pattern="\x1c" service=ntp product=NTP confidence=0.72
+
+Probe UDP SNMPQuery rarity=2 ports=161
+send "\x30"
+match type=prefix pattern="\x30" service=snmp product=SNMP confidence=0.75
+
+Probe UDP SSDPQuery rarity=2 ports=1900
+send "M-SEARCH * HTTP/1.1\r\nMAN: \"ssdp:discover\"\r\n\r\n"
+match type=prefix pattern="HTTP/1.1" service=ssdp product=UPnP confidence=0.78
 )DB";
 
 std::string_view trim(std::string_view value) noexcept
@@ -212,7 +244,9 @@ bool parse_confidence(std::string_view value, double &output) noexcept
 
 bool parse_match_type(std::string_view value, ServiceMatchType &type) noexcept
 {
-    if (value == "prefix") {
+    if (value == "exact") {
+        type = ServiceMatchType::Exact;
+    } else if (value == "prefix") {
         type = ServiceMatchType::Prefix;
     } else if (value == "substring") {
         type = ServiceMatchType::Substring;
@@ -268,7 +302,7 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                 return database;
             }
             if (tokens[0] == "Probe") {
-                if (tokens.size() < 3U || tokens[1] != "TCP") {
+                if (tokens.size() < 3U || (tokens[1] != "TCP" && tokens[1] != "UDP")) {
                     status = core::StatusCode::ParseError;
                     return fail(status);
                 }
@@ -279,6 +313,7 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                 ServiceProbeDefinition definition;
                 definition.id = tokens[2];
                 definition.name = tokens[2];
+                definition.protocol = tokens[1] == "UDP" ? TransportProtocol::Udp : TransportProtocol::Tcp;
                 for (std::size_t index = 3U; index < tokens.size(); ++index) {
                     std::string_view key;
                     std::string_view value;
@@ -293,14 +328,24 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                             return database;
                         }
                     } else if (key == "ports") {
-                        const portscan::PortSelection selection = portscan::parse_tcp_ports(value);
+                        const portscan::PortSelection selection = definition.protocol == TransportProtocol::Udp
+                                                                        ? portscan::parse_udp_ports(value)
+                                                                        : portscan::parse_tcp_ports(value);
                         if (selection.status != core::StatusCode::Ok) {
                             status = core::StatusCode::ParseError;
                             database.status_ = status;
                             return database;
                         }
                         definition.port_hints = selection.ports;
-                    } else if (key != "protocol") {
+                    } else if (key == "protocol") {
+                        const bool protocol_matches =
+                            (value == "tcp" && definition.protocol == TransportProtocol::Tcp) ||
+                            (value == "udp" && definition.protocol == TransportProtocol::Udp);
+                        if (!protocol_matches) {
+                            status = core::StatusCode::ParseError;
+                            return fail(status);
+                        }
+                    } else {
                         status = core::StatusCode::ParseError;
                         return fail(status);
                     }
@@ -376,9 +421,11 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                         return fail(status);
                     }
                 }
-                const std::size_t base_specificity = rule.type == ServiceMatchType::Prefix
-                                                          ? 3000U
-                                                          : rule.type == ServiceMatchType::Substring ? 2000U : 1000U;
+                const std::size_t base_specificity = rule.type == ServiceMatchType::Exact
+                                                          ? 4000U
+                                                          : rule.type == ServiceMatchType::Prefix
+                                                                ? 3000U
+                                                                : rule.type == ServiceMatchType::Substring ? 2000U : 1000U;
                 rule.specificity = base_specificity + rule.pattern.size();
                 current->rules.push_back(std::move(rule));
             } else {
@@ -490,6 +537,8 @@ std::vector<std::size_t> ServiceProbeDatabase::ordered_probe_indices(
 const char *service_match_type_name(ServiceMatchType type) noexcept
 {
     switch (type) {
+    case ServiceMatchType::Exact:
+        return "exact";
     case ServiceMatchType::Prefix:
         return "prefix";
     case ServiceMatchType::Substring:

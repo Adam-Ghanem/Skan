@@ -83,6 +83,15 @@ void write_metrics(XmlWriter &xml, const scanengine::ScanMetrics &metrics, std::
 {
     xml.open(depth, "timing-metrics");
     xml.element(depth + 1U, "total-queued", std::to_string(metrics.total_queued));
+    xml.element(depth + 1U, "targets-total", std::to_string(metrics.targets_total));
+    xml.element(depth + 1U, "targets-completed", std::to_string(metrics.targets_completed));
+    xml.element(depth + 1U, "probes-submitted", std::to_string(metrics.probes_submitted));
+    xml.element(depth + 1U, "probes-completed", std::to_string(metrics.probes_completed));
+    xml.element(depth + 1U, "probes-timed-out", std::to_string(metrics.probes_timed_out));
+    xml.element(depth + 1U, "probes-failed", std::to_string(metrics.probes_failed));
+    xml.element(depth + 1U, "retries", std::to_string(metrics.retries));
+    xml.element(depth + 1U, "bytes-sent", std::to_string(metrics.bytes_sent));
+    xml.element(depth + 1U, "bytes-received", std::to_string(metrics.bytes_received));
     xml.element(depth + 1U, "total-submitted", std::to_string(metrics.total_submitted));
     xml.element(depth + 1U, "completed", std::to_string(metrics.completed));
     xml.element(depth + 1U, "timed-out", std::to_string(metrics.timed_out));
@@ -91,6 +100,10 @@ void write_metrics(XmlWriter &xml, const scanengine::ScanMetrics &metrics, std::
     xml.element(depth + 1U, "duplicate-responses", std::to_string(metrics.duplicate_responses));
     xml.element(depth + 1U, "late-responses", std::to_string(metrics.late_responses));
     xml.element(depth + 1U, "malformed-responses", std::to_string(metrics.malformed_responses));
+    xml.element(depth + 1U, "parse-errors", std::to_string(metrics.parse_errors));
+    xml.element(depth + 1U, "correlation-misses", std::to_string(metrics.correlation_misses));
+    xml.element(depth + 1U, "active-probes", std::to_string(metrics.active_probes));
+    xml.element(depth + 1U, "peak-active-probes", std::to_string(metrics.peak_active_probes));
     xml.element(depth + 1U, "current-parallelism", std::to_string(metrics.current_parallelism));
     xml.element(depth + 1U, "maximum-observed-parallelism",
                 std::to_string(metrics.maximum_observed_parallelism));
@@ -111,6 +124,10 @@ void write_metrics(XmlWriter &xml, const scanengine::ScanMetrics &metrics, std::
     xml.element(depth + 1U, "retry-count", std::to_string(metrics.retry_count));
     xml.element(depth + 1U, "estimated-drop-rate", detail::number(metrics.estimated_drop_rate));
     xml.element(depth + 1U, "elapsed-ms", detail::number(static_cast<double>(metrics.elapsed().count())));
+    for (std::size_t index = 0U; index < metrics.stage_duration_ms.size(); ++index) {
+        xml.element(depth + 1U, "stage-" + std::to_string(index) + "-duration-ms",
+                    detail::number(metrics.stage_duration_ms[index]));
+    }
     xml.close(depth, "timing-metrics");
 }
 
@@ -270,30 +287,30 @@ OutputStatus XmlOutputWriter::write(
             attributes += attribute_number("rtt-ms", *host->rtt_ms);
         }
         xml.open(1U, "host" + attributes);
-        const std::vector<portscan::PortResult> ports = detail::ordered_ports(*host, context);
+        const std::vector<const portscan::PortResult *> ports = detail::ordered_ports(*host, context);
         if (!ports.empty()) {
             xml.open(2U, "ports");
-            for (const portscan::PortResult &port : ports) {
-                write_port(xml, port, 3U);
+            for (const portscan::PortResult *port : ports) {
+                write_port(xml, *port, 3U);
             }
             xml.close(2U, "ports");
         }
-        const std::vector<detect::ServiceResult> services = detail::ordered_services(*host);
+        const std::vector<const detect::ServiceResult *> services = detail::ordered_services(*host);
         if (!services.empty()) {
             xml.open(2U, "services");
-            for (const detect::ServiceResult &service : services) {
-                write_service(xml, service, 3U);
+            for (const detect::ServiceResult *service : services) {
+                write_service(xml, *service, 3U);
             }
             xml.close(2U, "services");
         }
         if (host->os_detection.has_value()) {
             write_os_detection(xml, *host->os_detection, 2U);
         }
-        const std::vector<osdetect::OSMatchResult> matches = detail::ordered_os_matches(*host);
+        const std::vector<const osdetect::OSMatchResult *> matches = detail::ordered_os_matches(*host);
         if (!matches.empty()) {
             xml.open(2U, "os");
-            for (const osdetect::OSMatchResult &match : matches) {
-                write_os_match(xml, match, 3U);
+            for (const osdetect::OSMatchResult *match : matches) {
+                write_os_match(xml, *match, 3U);
             }
             xml.close(2U, "os");
         }

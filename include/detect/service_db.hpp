@@ -14,7 +14,8 @@
 namespace skan::detect {
 
 enum class ServiceMatchType {
-    Prefix = 0,
+    Exact = 0,
+    Prefix,
     Substring,
     Regex
 };

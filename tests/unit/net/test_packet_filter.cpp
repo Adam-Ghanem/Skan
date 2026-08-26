@@ -36,6 +36,7 @@ int main()
     const auto expiry = timestamp + std::chrono::seconds{10};
     assert(table.insert(key, 42U, expiry) == skan::net::CorrelationStatus::Inserted);
     assert(table.insert(key, 43U, expiry) == skan::net::CorrelationStatus::Duplicate);
+    assert(table.metrics().duplicates == 1U);
     const skan::net::CorrelationResult found = table.lookup(key, timestamp + std::chrono::seconds{1});
     assert(found.status == skan::net::CorrelationStatus::Found);
     assert(found.entry->token == 42U);
@@ -48,6 +49,7 @@ int main()
     const skan::net::CorrelationResult late = table.lookup(late_key, expiry);
     assert(late.status == skan::net::CorrelationStatus::Late);
     assert(!table.contains(late_key));
+    assert(table.metrics().late == 1U);
 
     const skan::net::CorrelationKey expired_one{1U, 1U, 2U, 3U};
     const skan::net::CorrelationKey live_one{1U, 1U, 2U, 4U};
@@ -55,12 +57,18 @@ int main()
     assert(table.insert(live_one, 2U, timestamp + std::chrono::seconds{20}) == skan::net::CorrelationStatus::Inserted);
     assert(table.remove_expired(timestamp + std::chrono::seconds{2}) == 1U);
     assert(table.size() == 1U);
-    for (std::uint32_t index = 0U; index < 10000U; ++index) {
+    for (std::uint32_t index = 0U; index < 100000U; ++index) {
         const skan::net::CorrelationKey stress_key{2U, 1000U, 2000U, index};
-        assert(table.insert(stress_key, index + 1U, timestamp + std::chrono::hours{1}) ==
+        const auto stress_expiry = timestamp + std::chrono::seconds{30 + (index % 5U)};
+        assert(table.insert(stress_key, index + 1U, stress_expiry) ==
                skan::net::CorrelationStatus::Inserted);
     }
-    assert(table.size() == 10001U);
+    assert(table.size() == 100001U);
+    assert(table.lookup(skan::net::CorrelationKey{2U, 1000U, 2000U, 50000U}, timestamp + std::chrono::seconds{1})
+               .status == skan::net::CorrelationStatus::Found);
+    assert(table.remove_expired(timestamp + std::chrono::seconds{35}) == 100001U);
+    assert(table.size() == 0U);
+    assert(table.metrics().cleanup_removals == 100002U);
     table.clear();
     assert(table.size() == 0U);
     return 0;

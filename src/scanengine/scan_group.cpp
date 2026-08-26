@@ -114,7 +114,7 @@ bool ScanGroup::requeue_for_retry(ScanWorkItem item) noexcept
         ++metrics_.failed;
         return false;
     }
-    ++metrics_.retry_count;
+    metrics_.record_retry();
     return true;
 }
 
@@ -150,9 +150,8 @@ bool ScanGroup::mark_submitted(ScanWorkId id, ScanTimePoint submitted_at, ScanTi
     iterator->second.state = ScanWorkState::Submitted;
     iterator->second.submitted_at = submitted_at;
     iterator->second.deadline = deadline;
-    ++metrics_.total_submitted;
-    const std::size_t outstanding = outstanding_metric(metrics_);
-    metrics_.set_parallelism(outstanding, outstanding);
+    const std::size_t outstanding = outstanding_metric(metrics_) + 1U;
+    metrics_.record_submission(outstanding);
     return true;
 }
 
@@ -163,8 +162,7 @@ bool ScanGroup::mark_completed(ScanWorkId id) noexcept
         return false;
     }
     iterator->second.state = ScanWorkState::Completed;
-    ++metrics_.completed;
-    update_parallelism();
+    metrics_.record_completion(outstanding_metric(metrics_));
     return true;
 }
 
@@ -175,9 +173,7 @@ bool ScanGroup::mark_timed_out(ScanWorkId id) noexcept
         return false;
     }
     iterator->second.state = ScanWorkState::TimedOut;
-    ++metrics_.timed_out;
-    ++metrics_.timeout_count;
-    update_parallelism();
+    metrics_.record_timeout(outstanding_metric(metrics_));
     return true;
 }
 
@@ -188,8 +184,7 @@ bool ScanGroup::mark_failed(ScanWorkId id) noexcept
         return false;
     }
     iterator->second.state = ScanWorkState::Failed;
-    ++metrics_.failed;
-    update_parallelism();
+    metrics_.record_failure(outstanding_metric(metrics_));
     return true;
 }
 

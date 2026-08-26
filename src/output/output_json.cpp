@@ -108,6 +108,24 @@ void write_timing_metrics(JsonWriter &json, const scanengine::ScanMetrics &metri
     bool first = true;
     json.key("total_queued", first, depth + 1U);
     json.integer(metrics.total_queued);
+    json.key("targets_total", first, depth + 1U);
+    json.integer(metrics.targets_total);
+    json.key("targets_completed", first, depth + 1U);
+    json.integer(metrics.targets_completed);
+    json.key("probes_submitted", first, depth + 1U);
+    json.integer(metrics.probes_submitted);
+    json.key("probes_completed", first, depth + 1U);
+    json.integer(metrics.probes_completed);
+    json.key("probes_timed_out", first, depth + 1U);
+    json.integer(metrics.probes_timed_out);
+    json.key("probes_failed", first, depth + 1U);
+    json.integer(metrics.probes_failed);
+    json.key("retries", first, depth + 1U);
+    json.integer(metrics.retries);
+    json.key("bytes_sent", first, depth + 1U);
+    json.integer(metrics.bytes_sent);
+    json.key("bytes_received", first, depth + 1U);
+    json.integer(metrics.bytes_received);
     json.key("total_submitted", first, depth + 1U);
     json.integer(metrics.total_submitted);
     json.key("completed", first, depth + 1U);
@@ -124,6 +142,14 @@ void write_timing_metrics(JsonWriter &json, const scanengine::ScanMetrics &metri
     json.integer(metrics.late_responses);
     json.key("malformed_responses", first, depth + 1U);
     json.integer(metrics.malformed_responses);
+    json.key("parse_errors", first, depth + 1U);
+    json.integer(metrics.parse_errors);
+    json.key("correlation_misses", first, depth + 1U);
+    json.integer(metrics.correlation_misses);
+    json.key("active_probes", first, depth + 1U);
+    json.integer(metrics.active_probes);
+    json.key("peak_active_probes", first, depth + 1U);
+    json.integer(metrics.peak_active_probes);
     json.key("current_parallelism", first, depth + 1U);
     json.integer(metrics.current_parallelism);
     json.key("maximum_observed_parallelism", first, depth + 1U);
@@ -154,6 +180,14 @@ void write_timing_metrics(JsonWriter &json, const scanengine::ScanMetrics &metri
     json.number(metrics.estimated_drop_rate);
     json.key("elapsed_ms", first, depth + 1U);
     json.number(static_cast<double>(metrics.elapsed().count()));
+    json.key("stage_duration_ms", first, depth + 1U);
+    json.begin_array();
+    bool first_stage = true;
+    for (const double duration : metrics.stage_duration_ms) {
+        json.array_value(first_stage, depth + 1U);
+        json.number(duration);
+    }
+    json.end_array(depth, !first_stage);
     json.end_object(depth, !first);
 }
 
@@ -349,29 +383,29 @@ void write_host(JsonWriter &json, const HostResult &host, const OutputContext &c
     }
     json.key("ports", first, depth + 1U);
     json.begin_array();
-    const std::vector<portscan::PortResult> ports = detail::ordered_ports(host, context);
+    const std::vector<const portscan::PortResult *> ports = detail::ordered_ports(host, context);
     bool first_port = true;
-    for (const portscan::PortResult &port : ports) {
+    for (const portscan::PortResult *port : ports) {
         json.array_value(first_port, depth + 2U);
-        write_port(json, port, depth + 2U);
+        write_port(json, *port, depth + 2U);
     }
     json.end_array(depth + 1U, !first_port);
     json.key("services", first, depth + 1U);
     json.begin_array();
-    const std::vector<detect::ServiceResult> services = detail::ordered_services(host);
+    const std::vector<const detect::ServiceResult *> services = detail::ordered_services(host);
     bool first_service = true;
-    for (const detect::ServiceResult &service : services) {
+    for (const detect::ServiceResult *service : services) {
         json.array_value(first_service, depth + 2U);
-        write_service(json, service, depth + 2U);
+        write_service(json, *service, depth + 2U);
     }
     json.end_array(depth + 1U, !first_service);
     json.key("os", first, depth + 1U);
     json.begin_array();
-    const std::vector<osdetect::OSMatchResult> matches = detail::ordered_os_matches(host);
+    const std::vector<const osdetect::OSMatchResult *> matches = detail::ordered_os_matches(host);
     bool first_match = true;
-    for (const osdetect::OSMatchResult &match : matches) {
+    for (const osdetect::OSMatchResult *match : matches) {
         json.array_value(first_match, depth + 2U);
-        write_os_match(json, match, depth + 2U);
+        write_os_match(json, *match, depth + 2U);
     }
     json.end_array(depth + 1U, !first_match);
     if (host.os_detection.has_value()) {

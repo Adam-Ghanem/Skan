@@ -12,6 +12,9 @@ int main()
         "Probe TCP Demo rarity=2 ports=80,8080\n"
         "send \"GET /\\r\\n\\r\\n\"\n"
         "match type=regex pattern=\"^Demo/([0-9.]+)\" service=demo product=Demo version=\"$1\" confidence=0.75\n"
+        "Probe UDP DemoUDP rarity=2 ports=53 protocol=udp\n"
+        "send \"\\x12\\x34\"\n"
+        "match type=exact pattern=\"\\x12\\x34\" service=dns product=DNS confidence=0.90\n"
         "Probe TCP Generic rarity=3\n"
         "send \"\\r\\n\"\n"
         "match type=substring pattern=hello service=text product=Text confidence=0.40\n";
@@ -19,19 +22,22 @@ int main()
     const ServiceProbeDatabase database = ServiceProbeDatabase::parse(text, status);
     assert(status == skan::core::StatusCode::Ok);
     assert(database.status() == skan::core::StatusCode::Ok);
-    assert(database.probes().size() == 2U);
+    assert(database.probes().size() == 3U);
     assert(database.probes()[0].payload == "GET /\r\n\r\n");
     assert(database.probes()[0].port_hints.size() == 2U);
     assert(database.probes()[0].rules[0].compiled_regex.has_value());
+    assert(database.probes()[1].protocol == skan::portscan::Protocol::Udp);
+    assert(database.probes()[1].rules[0].type == ServiceMatchType::Exact);
 
     const auto ordered = database.ordered_probe_indices({80U, skan::portscan::Protocol::Tcp}, 2U);
     assert(ordered.size() == 2U);
     assert(database.probes()[ordered[0]].name == "Demo");
     assert(database.probes()[ordered[1]].name == "Generic");
+    assert(database.ordered_probe_indices({53U, skan::portscan::Protocol::Udp}, 1U).size() == 1U);
 
     const ServiceProbeDatabase built_in = ServiceProbeDatabase::built_in();
     assert(built_in.status() == skan::core::StatusCode::Ok);
-    assert(built_in.probes().size() >= 5U);
+    assert(built_in.probes().size() >= 12U);
     assert(built_in.ordered_probe_indices({22U, skan::portscan::Protocol::Tcp}, 1U).size() == 1U);
     assert(built_in.probes()[built_in.ordered_probe_indices({22U, skan::portscan::Protocol::Tcp}, 1U)[0]].name ==
            "SSHBanner");

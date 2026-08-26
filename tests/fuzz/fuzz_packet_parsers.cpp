@@ -5,9 +5,11 @@
 
 #include "db/os_db.hpp"
 #include "detect/service_db.hpp"
+#include "detect/service_matcher.hpp"
 #include "net/packet_receiver.hpp"
 #include "osdetect/os_matcher.hpp"
 #include "osdetect/os_probe.hpp"
+#include "output/output_writer.hpp"
 #include "packet/ethernet.hpp"
 #include "packet/icmp.hpp"
 #include "packet/icmpv6.hpp"
@@ -44,7 +46,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
         (void)icmpv6->neighbor_options();
     }
     skan::core::StatusCode status = skan::core::StatusCode::Ok;
-    (void)skan::detect::ServiceProbeDatabase::parse(text, status);
+    const auto service_database = skan::detect::ServiceProbeDatabase::parse(text, status);
+    if (!service_database.probes().empty()) {
+        skan::detect::ServiceMatcher service_matcher(service_database);
+        (void)service_matcher.match(service_database.probes().front(), text);
+    }
+    (void)skan::output::detail::json_escape(text);
+    (void)skan::output::detail::xml_escape(text);
+    (void)skan::output::detail::grep_escape(text);
     (void)skan::db::OSFingerprintDatabase::parse(text, status);
     const auto ipv6_database = skan::db::OSFingerprintDatabase::parse(
         text, status, skan::core::AddressFamily::IPv6);

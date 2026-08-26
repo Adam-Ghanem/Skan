@@ -38,36 +38,36 @@ OutputStatus NormalOutputWriter::write(
             output << " rtt_ms=" << std::setprecision(15) << *host->rtt_ms;
         }
         output << '\n';
-        const std::vector<detect::ServiceResult> services = detail::ordered_services(*host);
-        const std::vector<portscan::PortResult> ports = detail::ordered_ports(*host, context);
-        for (const portscan::PortResult &port : ports) {
-            output << "  Port " << port.port.number << '/'
-                   << portscan::protocol_name(port.port.protocol)
-                   << " " << portscan::port_state_name(port.state);
-            if (!port.rtt_ms.has_value()) {
+        const std::vector<const detect::ServiceResult *> services = detail::ordered_services(*host);
+        const std::vector<const portscan::PortResult *> ports = detail::ordered_ports(*host, context);
+        for (const portscan::PortResult *port : ports) {
+            output << "  Port " << port->port.number << '/'
+                   << portscan::protocol_name(port->port.protocol)
+                   << " " << portscan::port_state_name(port->state);
+            if (!port->rtt_ms.has_value()) {
                 // No RTT field is printed when the source result did not provide one.
             } else {
-                output << " rtt_ms=" << std::setprecision(15) << *port.rtt_ms;
+                output << " rtt_ms=" << std::setprecision(15) << *port->rtt_ms;
             }
-            if (port.port.protocol == portscan::Protocol::Udp) {
-                output << " probe=" << detail::grep_escape(port.probe_name.value_or(""))
-                       << " retries=" << port.retry_count;
+            if (port->port.protocol == portscan::Protocol::Udp) {
+                output << " probe=" << detail::grep_escape(port->probe_name.value_or(""))
+                       << " retries=" << port->retry_count;
             }
-            for (const detect::ServiceResult &service : services) {
-                if (service.port.number != port.port.number || service.protocol != port.port.protocol) {
+            for (const detect::ServiceResult *service : services) {
+                if (service->port.number != port->port.number || service->protocol != port->port.protocol) {
                     continue;
                 }
-                if (service.state == detect::DetectionState::Detected) {
-                    if (!service.service.empty()) {
-                        output << " service=" << detail::grep_escape(service.service);
+                if (service->state == detect::DetectionState::Detected) {
+                    if (!service->service.empty()) {
+                        output << " service=" << detail::grep_escape(service->service);
                     }
-                    if (!service.product.empty()) {
-                        output << " product=" << detail::grep_escape(service.product);
+                    if (!service->product.empty()) {
+                        output << " product=" << detail::grep_escape(service->product);
                     }
-                    if (!service.version.empty()) {
-                        output << " version=" << detail::grep_escape(service.version);
+                    if (!service->version.empty()) {
+                        output << " version=" << detail::grep_escape(service->version);
                     }
-                    output << " confidence=" << std::setprecision(15) << service.confidence;
+                    output << " confidence=" << std::setprecision(15) << service->confidence;
                 }
             }
             output << '\n';
@@ -94,11 +94,11 @@ OutputStatus NormalOutputWriter::write(
         }
         if (!host->os_matches.empty()) {
             output << "  OS detection:\n";
-            for (const osdetect::OSMatchResult &match : detail::ordered_os_matches(*host)) {
-                                    output << "    " << detail::grep_escape(match.fingerprint_name)
-                       << " id=" << detail::grep_escape(match.fingerprint_id)
-                       << " confidence=" << std::setprecision(15) << match.confidence
-                       << " class=" << db::match_category_name(match.category) << '\n';
+            for (const osdetect::OSMatchResult *match : detail::ordered_os_matches(*host)) {
+                                    output << "    " << detail::grep_escape(match->fingerprint_name)
+                       << " id=" << detail::grep_escape(match->fingerprint_id)
+                       << " confidence=" << std::setprecision(15) << match->confidence
+                       << " class=" << db::match_category_name(match->category) << '\n';
             }
         }
         for (const std::string &warning : host->warnings) {

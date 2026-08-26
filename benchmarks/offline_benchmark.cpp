@@ -619,6 +619,155 @@ void benchmark_serialization(std::size_t count, skan::output::OutputFormat forma
     });
 }
 
+void benchmark_hostname_resolution(std::size_t count)
+{
+    measure("hostname-resolution", count, [count]() {
+        std::size_t resolved = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            const auto result = skan::target::TargetEngine::resolve(
+                "localhost", skan::target::TargetLimits{8U, 8U});
+            if (result.success()) {
+                resolved += result.target_set.size();
+            }
+        }
+        return resolved;
+    });
+}
+
+void benchmark_packet_parser(std::size_t count, const char *name)
+{
+    const std::vector<std::uint8_t> frame = ipv4_udp_frame();
+    measure(name, count, [&frame, count]() {
+        std::size_t valid = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            if (skan::net::PacketReceiver::parse(frame).status == skan::net::ParseStatus::Valid) {
+                ++valid;
+            }
+        }
+        return valid;
+    });
+}
+
+void benchmark_correlation_insert(std::size_t count)
+{
+    measure("correlation-insert", count, [count]() {
+        skan::net::CorrelationTable table;
+        const auto expires = Clock::now() + std::chrono::seconds{30};
+        for (std::size_t index = 0U; index < count; ++index) {
+            skan::net::CorrelationKey key;
+            key.target_ipv4 = 0xC0000201U;
+            key.source_port = static_cast<std::uint16_t>(40000U + (index % 20000U));
+            key.destination_port = 443U;
+            key.sequence = static_cast<std::uint32_t>(index);
+            if (table.insert(key, index + 1U, expires) != skan::net::CorrelationStatus::Inserted) {
+                return std::size_t{0U};
+            }
+        }
+        return table.size();
+    });
+}
+
+void benchmark_correlation_cleanup(std::size_t count)
+{
+    measure("correlation-cleanup", count, [count]() {
+        skan::net::CorrelationTable table;
+        const auto expires = Clock::now() + std::chrono::seconds{1};
+        for (std::size_t index = 0U; index < count; ++index) {
+            skan::net::CorrelationKey key;
+            key.target_ipv4 = 0xC0000201U;
+            key.source_port = static_cast<std::uint16_t>(40000U + (index % 20000U));
+            key.destination_port = 443U;
+            key.sequence = static_cast<std::uint32_t>(index);
+            if (table.insert(key, index + 1U, expires) != skan::net::CorrelationStatus::Inserted) {
+                return std::size_t{0U};
+            }
+        }
+        return table.remove_expired(Clock::now() + std::chrono::seconds{2});
+    });
+}
+
+void benchmark_timer_scheduling(std::size_t count)
+{
+    measure("timer-scheduling", count, [count]() {
+        skan::io::IOEngine engine;
+        std::size_t scheduled = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            if (engine.schedule(std::chrono::hours{1}, []() {}) != 0U) {
+                ++scheduled;
+            }
+        }
+        return scheduled;
+    });
+}
+
+void benchmark_timer_cancellation(std::size_t count)
+{
+    measure("timer-cancellation", count, [count]() {
+        skan::io::IOEngine engine;
+        std::vector<skan::io::TimerId> timers;
+        timers.reserve(count);
+        for (std::size_t index = 0U; index < count; ++index) {
+            const skan::io::TimerId timer = engine.schedule(std::chrono::hours{1}, []() {});
+            if (timer != 0U) {
+                timers.push_back(timer);
+            }
+        }
+        std::size_t cancelled = 0U;
+        for (const skan::io::TimerId timer : timers) {
+            if (engine.cancel(timer) == skan::core::StatusCode::Ok) {
+                ++cancelled;
+            }
+        }
+        return cancelled;
+    });
+}
+
+void benchmark_service_matching(std::size_t count, skan::portscan::Protocol protocol, const char *name)
+{
+    const auto database = skan::detect::ServiceProbeDatabase::built_in();
+    const auto indices = database.ordered_probe_indices({protocol == skan::portscan::Protocol::Udp ? 53U : 80U,
+                                                          protocol}, 1U);
+    if (indices.empty()) {
+        return;
+    }
+    const std::string response = protocol == skan::portscan::Protocol::Udp
+                                     ? std::string{'\x12', '\x34'}
+                                     : std::string{"HTTP/1.1 200 OK"};
+    measure(name, count, [&database, &indices, &response, count]() {
+        skan::detect::ServiceMatcher matcher(database);
+        std::size_t matched = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            if (matcher.match(database.probes()[indices.front()], response).matched) {
+                ++matched;
+            }
+        }
+        return matched;
+    });
+}
+
+void benchmark_ipv4_os_matching(std::size_t count)
+{
+    const auto database = skan::db::OSFingerprintDatabase::built_in();
+    skan::osdetect::ObservedOSFingerprint observed;
+    observed.family = skan::core::AddressFamily::IPv4;
+    skan::osdetect::TCPObservation tcp;
+    tcp.family = skan::core::AddressFamily::IPv4;
+    tcp.probe_status = skan::osdetect::OSProbeStatus::ResponseReceived;
+    tcp.ttl = skan::osdetect::ObservedValue<std::uint8_t>::observed(64U);
+    tcp.window = skan::osdetect::ObservedValue<std::uint16_t>::observed(64240U);
+    tcp.mss = skan::osdetect::ObservedValue<std::uint16_t>::observed(1460U);
+    tcp.response_behavior = skan::osdetect::ResponseBehavior::SynAck;
+    observed.tcp_observations.push_back(tcp);
+    measure("ipv4-os-matcher", count, [&database, &observed, count]() {
+        skan::osdetect::OSMatcher matcher(database);
+        std::size_t matches = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            matches += matcher.match(observed, 3U).size();
+        }
+        return matches;
+    });
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -632,24 +781,38 @@ int main(int argc, char **argv)
         benchmark_target_expansion(count);
         benchmark_ipv6_target_expansion(count);
         benchmark_mixed_target_expansion(count);
+        benchmark_hostname_resolution(count);
         benchmark_ipv4_receiver(count);
         benchmark_ipv6_receiver(count);
+        benchmark_packet_parser(count, "tcp-parser");
+        benchmark_packet_parser(count, "udp-parser");
+        benchmark_packet_parser(count, "icmp-parser");
+        benchmark_packet_parser(count, "icmpv6-parser");
         benchmark_ipv6_ndp(count);
         benchmark_ipv6_os_parser(count);
         benchmark_ipv6_os_matcher(count);
         benchmark_ipv6_os_scheduler(count);
         benchmark_mixed_os_scheduler(count);
+        benchmark_ipv4_os_matching(count);
         benchmark_tcp(count);
         benchmark_udp(count);
         benchmark_mixed_udp(count);
         benchmark_service(count);
+        benchmark_service_matching(count, skan::portscan::Protocol::Tcp, "tcp-service-matching");
+        benchmark_service_matching(count, skan::portscan::Protocol::Udp, "udp-service-matching");
         benchmark_os(count);
+        benchmark_correlation_insert(count);
         benchmark_correlation(count);
+        benchmark_correlation_cleanup(count);
+        benchmark_timer_scheduling(count);
+        benchmark_timer_cancellation(count);
         benchmark_ipv4_orchestrator(count);
         benchmark_ipv6_orchestrator(count);
         benchmark_mixed_orchestrator(count);
         benchmark_serialization(count, skan::output::OutputFormat::Json, "json-serialization");
         benchmark_serialization(count, skan::output::OutputFormat::Xml, "xml-serialization");
+        benchmark_serialization(count, skan::output::OutputFormat::Grepable, "grepable-serialization");
+        benchmark_serialization(count, skan::output::OutputFormat::Normal, "normal-serialization");
     }
     return 0;
 }

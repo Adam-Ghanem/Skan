@@ -93,9 +93,22 @@ CorrelationStatus CorrelationTable::insert(
 {
     const auto found = entries_.find(key);
     if (found != entries_.end()) {
+        ++metrics_.duplicates;
         return CorrelationStatus::Duplicate;
     }
-    entries_.emplace(key, CorrelationEntry{key, token, expires_at});
+    const CorrelationEntry entry{key, token, expires_at};
+    const auto inserted = entries_.emplace(key, entry);
+    if (!inserted.second) {
+        ++metrics_.duplicates;
+        return CorrelationStatus::Duplicate;
+    }
+    try {
+        expiry_index_.emplace(expires_at, key);
+    } catch (...) {
+        entries_.erase(inserted.first);
+        throw;
+    }
+    ++metrics_.inserts;
     return CorrelationStatus::Inserted;
 }
 
@@ -103,14 +116,19 @@ CorrelationResult CorrelationTable::lookup(
     const CorrelationKey &key,
     std::chrono::steady_clock::time_point now)
 {
+    ++metrics_.lookups;
     const auto found = entries_.find(key);
     if (found == entries_.end()) {
+        ++metrics_.misses;
         return CorrelationResult{CorrelationStatus::NotFound, std::nullopt};
     }
     if (now >= found->second.expires_at) {
+        erase_expiry(found->second);
         entries_.erase(found);
+        ++metrics_.late;
         return CorrelationResult{CorrelationStatus::Late, std::nullopt};
     }
+    ++metrics_.found;
     return CorrelationResult{CorrelationStatus::Found, found->second};
 }
 
@@ -120,26 +138,32 @@ CorrelationStatus CorrelationTable::remove(const CorrelationKey &key) noexcept
     if (found == entries_.end()) {
         return CorrelationStatus::NotFound;
     }
+    erase_expiry(found->second);
     entries_.erase(found);
+    ++metrics_.removals;
     return CorrelationStatus::Removed;
 }
 
 void CorrelationTable::clear() noexcept
 {
     entries_.clear();
+    expiry_index_.clear();
 }
 
 std::size_t CorrelationTable::remove_expired(std::chrono::steady_clock::time_point now)
 {
     std::size_t removed = 0U;
-    for (auto iterator = entries_.begin(); iterator != entries_.end();) {
-        if (now >= iterator->second.expires_at) {
-            iterator = entries_.erase(iterator);
+    auto iterator = expiry_index_.begin();
+    while (iterator != expiry_index_.end() && iterator->first <= now) {
+        const CorrelationKey key = iterator->second;
+        iterator = expiry_index_.erase(iterator);
+        const auto found = entries_.find(key);
+        if (found != entries_.end() && found->second.expires_at <= now) {
+            entries_.erase(found);
             ++removed;
-        } else {
-            ++iterator;
         }
     }
+    metrics_.cleanup_removals += removed;
     return removed;
 }
 
@@ -151,6 +175,22 @@ bool CorrelationTable::contains(const CorrelationKey &key) const noexcept
 std::size_t CorrelationTable::size() const noexcept
 {
     return entries_.size();
+}
+
+const CorrelationMetrics &CorrelationTable::metrics() const noexcept
+{
+    return metrics_;
+}
+
+void CorrelationTable::erase_expiry(const CorrelationEntry &entry) noexcept
+{
+    const auto range = expiry_index_.equal_range(entry.expires_at);
+    for (auto iterator = range.first; iterator != range.second; ++iterator) {
+        if (iterator->second == entry.key) {
+            expiry_index_.erase(iterator);
+            return;
+        }
+    }
 }
 
 } // namespace skan::net

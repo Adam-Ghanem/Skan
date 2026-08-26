@@ -98,3 +98,9 @@ These are offline measurements only. They validate algorithmic scaling and resou
 | Mixed orchestrator | 10,000 | 11,809.484 | 12,077.619 | 847 | 245,312 | 10,000 |
 
 These measurements confirm that the expanded IPv6 and mixed orchestration rows execute entirely offline. The substantially higher IPv6 and mixed orchestrator time reflects the enabled OS scheduler’s twelve logical probes per host; it is not a live-network timing claim.
+
+## Phase 20 Benchmark Extension
+
+The offline benchmark now includes hostname resolution using `localhost` with bounded limits; IPv4/IPv6/mixed target expansion; IPv4/IPv6 packet receivers; TCP, UDP, ICMP, ICMPv6, and NDP parser rows; correlation insert, lookup, and deadline cleanup; timer scheduling and cancellation; IPv4 and IPv6 OS matching and scheduling; TCP and UDP service matching; full IPv4/IPv6/mixed orchestration; and normal, JSON, XML, and grepable serialization. All fixtures are offline or loopback-safe and no public network target is contacted.
+
+The correlation stress unit test inserts and cleans 100,000 typed entries. The output integration test serializes a deterministic mixed-family 10,000-host report through JSON and XML. Results are reported as CSV with median and p95 wall time, operations per second, peak resident set size, and operation count. The unusually larger full IPv6/mixed orchestration rows reflect bounded offline OS scheduling for every target and are not presented as network throughput.

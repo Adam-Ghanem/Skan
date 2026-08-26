@@ -23,9 +23,9 @@ public:
 
 namespace detail {
 std::vector<const HostResult *> ordered_hosts(const ScanReport &report);
-std::vector<portscan::PortResult> ordered_ports(const HostResult &host, const OutputContext &context);
-std::vector<detect::ServiceResult> ordered_services(const HostResult &host);
-std::vector<osdetect::OSMatchResult> ordered_os_matches(const HostResult &host);
+std::vector<const portscan::PortResult *> ordered_ports(const HostResult &host, const OutputContext &context);
+std::vector<const detect::ServiceResult *> ordered_services(const HostResult &host);
+std::vector<const osdetect::OSMatchResult *> ordered_os_matches(const HostResult &host);
 std::string json_escape(std::string_view value);
 std::string xml_escape(std::string_view value);
 std::string grep_escape(std::string_view value);

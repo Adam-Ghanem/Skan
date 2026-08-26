@@ -56,6 +56,10 @@ public:
     virtual core::StatusCode submit(
         const ServiceSubmission &submission,
         ServiceResponseCallback callback) = 0;
+    virtual bool supports(TransportProtocol protocol) const noexcept
+    {
+        return protocol == TransportProtocol::Tcp || protocol == TransportProtocol::Udp;
+    }
     virtual core::StatusCode cancel(ServiceProbeId id) noexcept = 0;
 };
 
@@ -86,6 +90,7 @@ public:
     core::StatusCode submit(
         const ServiceSubmission &submission,
         ServiceResponseCallback callback) override;
+    bool supports(TransportProtocol protocol) const noexcept override;
     core::StatusCode cancel(ServiceProbeId id) noexcept override;
 
 private:
@@ -101,6 +106,53 @@ private:
 
     io::IOEngine &engine_;
     std::unordered_map<ServiceProbeId, std::unique_ptr<Connection>> connections_;
+};
+
+class ServiceUdpTransport final : public ServiceTransport {
+public:
+    explicit ServiceUdpTransport(io::IOEngine &engine) noexcept;
+    ~ServiceUdpTransport() override;
+
+    ServiceUdpTransport(const ServiceUdpTransport &) = delete;
+    ServiceUdpTransport &operator=(const ServiceUdpTransport &) = delete;
+
+    core::StatusCode submit(
+        const ServiceSubmission &submission,
+        ServiceResponseCallback callback) override;
+    bool supports(TransportProtocol protocol) const noexcept override;
+    core::StatusCode cancel(ServiceProbeId id) noexcept override;
+
+private:
+    struct Datagram;
+
+    void on_event(ServiceProbeId id) noexcept;
+    void emit(ServiceProbeId id, ServiceResponseKind kind, const std::uint8_t *bytes,
+              std::size_t byte_count, bool truncated, int system_error) noexcept;
+    void cleanup(Datagram &datagram) noexcept;
+
+    io::IOEngine &engine_;
+    std::unordered_map<ServiceProbeId, std::unique_ptr<Datagram>> datagrams_;
+};
+
+class ServiceTransportRouter final : public ServiceTransport {
+public:
+    explicit ServiceTransportRouter(io::IOEngine &engine) noexcept;
+    ~ServiceTransportRouter() override = default;
+
+    ServiceTransportRouter(const ServiceTransportRouter &) = delete;
+    ServiceTransportRouter &operator=(const ServiceTransportRouter &) = delete;
+
+    core::StatusCode submit(
+        const ServiceSubmission &submission,
+        ServiceResponseCallback callback) override;
+    bool supports(TransportProtocol protocol) const noexcept override;
+    core::StatusCode cancel(ServiceProbeId id) noexcept override;
+
+private:
+    io::IOEngine &engine_;
+    ServiceTcpTransport tcp_;
+    ServiceUdpTransport udp_;
+    std::unordered_map<ServiceProbeId, TransportProtocol> routes_;
 };
 
 class ServiceProbe final {

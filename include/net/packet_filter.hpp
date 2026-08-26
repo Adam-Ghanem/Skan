@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -65,6 +66,17 @@ struct CorrelationResult final {
     std::optional<CorrelationEntry> entry;
 };
 
+struct CorrelationMetrics final {
+    std::size_t inserts{0U};
+    std::size_t duplicates{0U};
+    std::size_t lookups{0U};
+    std::size_t found{0U};
+    std::size_t misses{0U};
+    std::size_t late{0U};
+    std::size_t removals{0U};
+    std::size_t cleanup_removals{0U};
+};
+
 class CorrelationTable final {
 public:
     CorrelationStatus insert(
@@ -79,9 +91,14 @@ public:
     std::size_t remove_expired(std::chrono::steady_clock::time_point now);
     bool contains(const CorrelationKey &key) const noexcept;
     std::size_t size() const noexcept;
+    const CorrelationMetrics &metrics() const noexcept;
 
 private:
+    void erase_expiry(const CorrelationEntry &entry) noexcept;
+
     std::unordered_map<CorrelationKey, CorrelationEntry, CorrelationKeyHash> entries_;
+    std::multimap<std::chrono::steady_clock::time_point, CorrelationKey> expiry_index_;
+    CorrelationMetrics metrics_;
 };
 
 } // namespace skan::net

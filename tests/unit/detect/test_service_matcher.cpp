@@ -11,7 +11,8 @@ int main()
         "send \"\\r\\n\"\n"
         "match type=prefix pattern=\"SSH-\" service=ssh product=SSH confidence=0.50\n"
         "match type=substring pattern=\"OpenSSH\" service=ssh product=OpenSSH confidence=0.70\n"
-        "match type=regex pattern=\"^SSH-[0-9.]+-OpenSSH_([0-9.]+)\" service=ssh product=OpenSSH version=\"$1\" confidence=0.90\n";
+        "match type=regex pattern=\"^SSH-[0-9.]+-OpenSSH_([0-9.]+)\" service=ssh product=OpenSSH version=\"$1\" confidence=0.90\n"
+        "match type=exact pattern=\"TLS-ALERT\" service=tls product=TLS confidence=0.99\n";
     skan::core::StatusCode status = skan::core::StatusCode::InternalError;
     const ServiceProbeDatabase database = ServiceProbeDatabase::parse(text, status);
     assert(status == skan::core::StatusCode::Ok);
@@ -31,7 +32,14 @@ int main()
     assert(prefix.product == "SSH");
     assert(prefix.confidence == 0.50);
 
-    const ServiceMatchResult none = matcher.match(database.probes().front(), "HTTP/1.1 200 OK\r\n");
+    const ServiceMatchResult exact = matcher.match(database.probes().front(), "TLS-ALERT");
+    assert(exact.matched);
+    assert(exact.service == "tls");
+    assert(exact.priority == 4U);
+
+    const ServiceMatchResult none = matcher.match(
+        database.probes().front(),
+        "HTTP/1.1 200 OK\r\n");
     assert(!none.matched);
     assert(none.confidence == 0.0);
     return 0;

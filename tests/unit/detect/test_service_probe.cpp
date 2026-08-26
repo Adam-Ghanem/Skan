@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "detect/service_probe.hpp"
+#include "io/io_engine.hpp"
 
 int main()
 {
@@ -52,5 +53,23 @@ int main()
     assert(delivered);
     recording.deliver(data);
     assert(recording.cancel(submission.id) == skan::core::StatusCode::Ok);
+
+    const ServiceProbeDatabase udp_database = ServiceProbeDatabase::parse(
+        "Probe UDP DNS rarity=1 ports=53\n"
+        "send \"\\x12\\x34\"\n"
+        "match type=exact pattern=\"\\x12\\x34\" service=dns confidence=0.9\n",
+        status);
+    assert(status == skan::core::StatusCode::Ok);
+    ServiceProbe udp_probe(udp_database.probes().front(), 512U);
+    ServiceSubmission udp_submission;
+    assert(udp_probe.build(43U, host, {53U, skan::portscan::Protocol::Udp}, udp_submission) ==
+           skan::core::StatusCode::Ok);
+    assert(udp_submission.port.protocol == skan::portscan::Protocol::Udp);
+
+    skan::io::IOEngine engine;
+    ServiceTransportRouter router(engine);
+    assert(router.supports(TransportProtocol::Tcp));
+    assert(router.supports(TransportProtocol::Udp));
+    assert(router.cancel(43U) == skan::core::StatusCode::Ok);
     return 0;
 }

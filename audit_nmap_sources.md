@@ -41,3 +41,19 @@ Nmap uses service and version databases with probe definitions and match express
 Source: https://nmap.org/book/nse.html
 
 NSE is an embedded Lua-based scripting engine supporting discovery, advanced version detection, vulnerability and backdoor detection, and extensible scripts. Scripts run in parallel and integrate with normal and XML output. Skan intentionally does not implement an NSE-equivalent scripting subsystem in this audit.
+
+## Phase 20 Practical Gap Closure
+
+Phase 20 closes several practical gaps without attempting equivalence. Skan now has explicit metrics and stage timing fields, deadline-indexed correlation cleanup, reduced aggregation/output copying, protocol-aware UDP service probes, exact structured matching, bounded TLS record-header/alert identification, datagram service transport through the existing reactor, expanded parser/output/fuzz coverage, and measured 10k-host behavior.
+
+| Nmap capability area | Phase 20 Skan status |
+| --- | --- |
+| Adaptive timing and large-workload observability | Implemented within the existing single-reactor model; metrics are emitted from the canonical report. |
+| TCP service/version probes | Expanded, bounded, project-owned corpus; not Nmap database breadth. |
+| UDP service probes | Implemented for a small DNS/NTP/SNMP/SSDP-style corpus through offline and nonblocking datagram paths. |
+| TLS/SSL | Identification-only record-header/alert matching; no certificate or cryptographic audit. |
+| Correlation and output scale | Deadline index, exact typed keys, non-owning output views, and 100k/10k stress coverage. |
+| OS database and NSE | Still intentionally much smaller and no scripting engine. |
+| Evasion, decoys, spoofing, exploitation | Intentionally not implemented. |
+
+No Nmap code, probe corpus, OS database, or NSE script was copied. Phase 20 validation remains restricted to offline fixtures, loopback, and private documentation addresses.

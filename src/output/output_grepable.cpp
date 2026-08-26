@@ -40,47 +40,47 @@ OutputStatus GrepableOutputWriter::write(
             output << " rtt_ms=" << std::setprecision(15) << *host->rtt_ms;
         }
         output << '\n';
-        const std::vector<portscan::PortResult> ports = detail::ordered_ports(*host, context);
-        const std::vector<detect::ServiceResult> services = detail::ordered_services(*host);
-        for (const portscan::PortResult &port : ports) {
-            output << "Port: target=\"" << detail::grep_escape(port.target)
-                   << "\" number=" << port.port.number
-                   << " protocol=" << portscan::protocol_name(port.port.protocol)
-                   << " state=" << portscan::port_state_name(port.state)
-                   << " probe=" << portscan::scan_probe_type_name(port.probe)
-                   << " reason=" << portscan::scan_reason_name(port.reason);
-            if (port.rtt_ms.has_value()) {
-                output << " rtt_ms=" << std::setprecision(15) << *port.rtt_ms;
+        const std::vector<const portscan::PortResult *> ports = detail::ordered_ports(*host, context);
+        const std::vector<const detect::ServiceResult *> services = detail::ordered_services(*host);
+        for (const portscan::PortResult *port : ports) {
+            output << "Port: target=\"" << detail::grep_escape(port->target)
+                   << "\" number=" << port->port.number
+                   << " protocol=" << portscan::protocol_name(port->port.protocol)
+                   << " state=" << portscan::port_state_name(port->state)
+                   << " probe=" << portscan::scan_probe_type_name(port->probe)
+                   << " reason=" << portscan::scan_reason_name(port->reason);
+            if (port->rtt_ms.has_value()) {
+                output << " rtt_ms=" << std::setprecision(15) << *port->rtt_ms;
             }
-            if (port.port.protocol == portscan::Protocol::Udp) {
-                output << " probe_name=\"" << detail::grep_escape(port.probe_name.value_or("")) << '\"'
-                       << " retry_count=" << port.retry_count;
+            if (port->port.protocol == portscan::Protocol::Udp) {
+                output << " probe_name=\"" << detail::grep_escape(port->probe_name.value_or("")) << '\"'
+                       << " retry_count=" << port->retry_count;
             }
             output << '\n';
-            for (const detect::ServiceResult &service : services) {
-                if (service.port.number != port.port.number || service.protocol != port.port.protocol) {
+            for (const detect::ServiceResult *service : services) {
+                if (service->port.number != port->port.number || service->protocol != port->port.protocol) {
                     continue;
                 }
-                output << "Service: target=\"" << detail::grep_escape(service.target)
-                       << "\" number=" << service.port.number
-                       << " protocol=" << portscan::protocol_name(service.protocol)
-                       << " state=" << detect::detection_state_name(service.state)
-                       << " port_state=" << portscan::port_state_name(service.port_state);
-                if (!service.service.empty()) {
-                    output << " name=\"" << detail::grep_escape(service.service) << '"';
+                output << "Service: target=\"" << detail::grep_escape(service->target)
+                       << "\" number=" << service->port.number
+                       << " protocol=" << portscan::protocol_name(service->protocol)
+                       << " state=" << detect::detection_state_name(service->state)
+                       << " port_state=" << portscan::port_state_name(service->port_state);
+                if (!service->service.empty()) {
+                    output << " name=\"" << detail::grep_escape(service->service) << '\"';
                 }
-                if (!service.product.empty()) {
-                    output << " product=\"" << detail::grep_escape(service.product) << '"';
+                if (!service->product.empty()) {
+                    output << " product=\"" << detail::grep_escape(service->product) << '\"';
                 }
-                if (!service.version.empty()) {
-                    output << " version=\"" << detail::grep_escape(service.version) << '"';
+                if (!service->version.empty()) {
+                    output << " version=\"" << detail::grep_escape(service->version) << '\"';
                 }
-                if (!service.extra.empty()) {
-                    output << " extra=\"" << detail::grep_escape(service.extra) << '"';
+                if (!service->extra.empty()) {
+                    output << " extra=\"" << detail::grep_escape(service->extra) << '\"';
                 }
-                output << " confidence=" << std::setprecision(15) << service.confidence
-                       << " method=" << detect::detection_method_name(service.method)
-                       << " error=" << detect::detection_error_name(service.error) << '\n';
+                output << " confidence=" << std::setprecision(15) << service->confidence
+                       << " method=" << detect::detection_method_name(service->method)
+                       << " error=" << detect::detection_error_name(service->error) << '\n';
             }
         }
         if (host->os_detection.has_value()) {
@@ -97,11 +97,11 @@ OutputStatus GrepableOutputWriter::write(
                    << " icmp_evidence=" << detection.observed.icmp_observations.size()
                    << " udp_evidence=" << detection.observed.udp_observations.size() << '\n';
         }
-        for (const osdetect::OSMatchResult &match : detail::ordered_os_matches(*host)) {
+        for (const osdetect::OSMatchResult *match : detail::ordered_os_matches(*host)) {
             output << "OS: address=\"" << detail::grep_escape(host->address)
-                   << "\" name=\"" << detail::grep_escape(match.fingerprint_name)
-                   << "\" confidence=" << std::setprecision(15) << match.confidence
-                   << " class=" << db::match_category_name(match.category) << '\n';
+                   << "\" name=\"" << detail::grep_escape(match->fingerprint_name)
+                   << "\" confidence=" << std::setprecision(15) << match->confidence
+                   << " class=" << db::match_category_name(match->category) << '\n';
         }
         for (const std::string &warning : host->warnings) {
             output << "Warning: address=\"" << detail::grep_escape(host->address)
