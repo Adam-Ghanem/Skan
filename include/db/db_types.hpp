@@ -51,6 +51,8 @@ struct OSFingerprint final {
     std::string device_type;
     std::vector<FingerprintSignature> signatures;
     core::AddressFamily address_family{core::AddressFamily::IPv4};
+    std::string id;
+    std::uint16_t specificity{0U};
 };
 
 enum class MatchCategory : std::uint8_t {

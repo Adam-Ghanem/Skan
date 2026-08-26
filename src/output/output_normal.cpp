@@ -74,7 +74,8 @@ OutputStatus NormalOutputWriter::write(
         }
         if (host->os_detection.has_value()) {
             const osdetect::OSDetectionResult &detection = *host->os_detection;
-            output << "  OS status=" << osdetect::os_detection_state_name(detection.state)
+            output << "  OS family=" << core::address_family_name(detection.address_family)
+                   << " status=" << osdetect::os_detection_state_name(detection.state)
                    << " error=" << osdetect::os_detection_error_name(detection.error)
                    << " confidence=" << std::setprecision(15) << detection.confidence
                    << " probes=" << detection.probes_sent
@@ -83,6 +84,9 @@ OutputStatus NormalOutputWriter::write(
                    << " tcp_evidence=" << detection.observed.tcp_observations.size()
                    << " icmp_evidence=" << detection.observed.icmp_observations.size()
                    << " udp_evidence=" << detection.observed.udp_observations.size();
+            if (!detection.fingerprint_id.empty()) {
+                output << " fingerprint=" << detail::grep_escape(detection.fingerprint_id);
+            }
             if (detection.rtt_ms.has_value()) {
                 output << " rtt_ms=" << std::setprecision(15) << *detection.rtt_ms;
             }
@@ -91,7 +95,8 @@ OutputStatus NormalOutputWriter::write(
         if (!host->os_matches.empty()) {
             output << "  OS detection:\n";
             for (const osdetect::OSMatchResult &match : detail::ordered_os_matches(*host)) {
-                output << "    " << detail::grep_escape(match.fingerprint_name)
+                                    output << "    " << detail::grep_escape(match.fingerprint_name)
+                       << " id=" << detail::grep_escape(match.fingerprint_id)
                        << " confidence=" << std::setprecision(15) << match.confidence
                        << " class=" << db::match_category_name(match.category) << '\n';
             }

@@ -544,7 +544,8 @@ int run_os_detect(int argc, char **argv)
         std::cerr << "Error: os-detect requires a target specification. Use --help for usage.\n";
         return EXIT_FAILURE;
     }
-    std::string database_path = "data/os-fingerprints.db";
+    std::string database_path;
+    bool explicit_database_path = false;
     std::chrono::milliseconds timeout{1000};
     std::size_t max_outstanding = 8U;
     std::size_t retries = 0U;
@@ -558,6 +559,7 @@ int run_os_detect(int argc, char **argv)
         const std::string_view argument(argv[index]);
         if (argument == "--os-db" && index + 1 < argc) {
             database_path = argv[++index];
+            explicit_database_path = true;
         } else if (argument == "--timeout-ms" && index + 1 < argc) {
             unsigned int value = 0U;
             if (!parse_unsigned(argv[++index], value) || value == 0U) {
@@ -664,7 +666,7 @@ int run_os_detect(int argc, char **argv)
     config.port_scan_enabled = false;
     config.service_detection_enabled = false;
     config.os_detection_enabled = true;
-    config.os_db_path = database_path;
+    config.os_db_path = explicit_database_path ? database_path : std::string{};
     config.timeout = timeout;
     config.max_parallelism = max_outstanding;
     config.retries = retries;

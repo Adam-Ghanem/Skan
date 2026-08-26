@@ -13,8 +13,14 @@ class OSFingerprintDatabase final {
 public:
     OSFingerprintDatabase() = default;
 
-    static OSFingerprintDatabase parse(const std::string &text, core::StatusCode &status);
-    static OSFingerprintDatabase load_file(const std::string &path, core::StatusCode &status);
+    static OSFingerprintDatabase parse(
+        const std::string &text,
+        core::StatusCode &status,
+        core::AddressFamily expected_family = core::AddressFamily::Unknown);
+    static OSFingerprintDatabase load_file(
+        const std::string &path,
+        core::StatusCode &status,
+        core::AddressFamily expected_family = core::AddressFamily::Unknown);
     static OSFingerprintDatabase built_in();
 
     core::StatusCode status() const noexcept;

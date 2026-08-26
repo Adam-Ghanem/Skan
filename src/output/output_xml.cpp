@@ -170,6 +170,10 @@ void write_service(XmlWriter &xml, const detect::ServiceResult &service, std::si
 void write_os_detection(XmlWriter &xml, const osdetect::OSDetectionResult &result, std::size_t depth)
 {
     xml.open(depth, "os-detection");
+    xml.element(depth + 1U, "address-family", core::address_family_name(result.address_family));
+    if (!result.fingerprint_id.empty()) {
+        xml.element(depth + 1U, "fingerprint-id", result.fingerprint_id);
+    }
     xml.element(depth + 1U, "state", osdetect::os_detection_state_name(result.state));
     xml.element(depth + 1U, "error", osdetect::os_detection_error_name(result.error));
     xml.element(depth + 1U, "confidence", detail::number(result.confidence));
@@ -187,7 +191,8 @@ void write_os_detection(XmlWriter &xml, const osdetect::OSDetectionResult &resul
 
 void write_os_match(XmlWriter &xml, const osdetect::OSMatchResult &match, std::size_t depth)
 {
-    std::string attributes = attribute("name", match.fingerprint_name) + attribute_number("confidence", match.confidence) +
+    std::string attributes = attribute("name", match.fingerprint_name) + attribute("id", match.fingerprint_id) +
+                             attribute_number("confidence", match.confidence) +
                              attribute("confidence-class", db::match_category_name(match.category));
     if (!match.vendor.empty()) {
         attributes += attribute("vendor", match.vendor);

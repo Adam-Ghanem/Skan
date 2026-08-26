@@ -24,8 +24,8 @@ int main()
     assert(first.str().find("Port 22/tcp CLOSED") < first.str().find("Port 80/tcp OPEN"));
     assert(first.str().find("service=http") != std::string::npos);
     assert(first.str().find("SkanLinuxGeneric") < first.str().find("SkanWindowsGeneric"));
-    assert(first.str().find("OS status=complete error=none") != std::string::npos);
-    assert(first.str().find("OS status=complete error=none confidence=0.91") != std::string::npos);
+    assert(first.str().find("OS family=ipv4 status=complete error=none") != std::string::npos);
+    assert(first.str().find("OS family=ipv4 status=complete error=none confidence=0.91") != std::string::npos);
     assert(first.str().find("probes=12 responses=7 timeouts=5 tcp_evidence=0") != std::string::npos);
     assert(first.str().find("Warning:") != std::string::npos);
     assert(first.str().find("Error:") != std::string::npos);

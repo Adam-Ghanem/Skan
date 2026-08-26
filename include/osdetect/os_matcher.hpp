@@ -49,6 +49,9 @@ struct OSMatchResult final {
     std::vector<std::string> matched_fields;
     std::vector<std::string> mismatched_fields;
     std::vector<std::string> unavailable_fields;
+    core::AddressFamily address_family{core::AddressFamily::Unknown};
+    std::string fingerprint_id;
+    std::uint16_t specificity{0U};
 };
 
 struct OSDetectionResult final {
@@ -71,6 +74,8 @@ struct OSDetectionResult final {
     std::optional<double> rtt_ms;
     OSDetectionError error{OSDetectionError::None};
     std::chrono::steady_clock::time_point timestamp{};
+    core::AddressFamily address_family{core::AddressFamily::Unknown};
+    std::string fingerprint_id;
 };
 
 const char *os_detection_state_name(OSDetectionState state) noexcept;

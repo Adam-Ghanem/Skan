@@ -47,7 +47,7 @@ int main()
     partial_observation.probe_status = osdetect::OSProbeStatus::ResponseReceived;
     partial.tcp_observations.push_back(partial_observation);
     const auto partial_matches = matcher.match(partial, 3U);
-    assert(partial_matches[0].fingerprint_name == "SkanEmbeddedGeneric");
+    assert(partial_matches[0].fingerprint_name == "SkanLinuxGeneric");
     assert(partial_matches[0].confidence == 1.0);
     assert(partial_matches[0].unavailable_fields.size() >= 8U);
 
@@ -64,14 +64,20 @@ int main()
     assert(unavailable_matches.size() == 2U);
     assert(unavailable_matches[0].confidence == 0.0);
     assert(unavailable_matches[0].category == db::MatchCategory::NoMatch);
-    assert(unavailable_matches[0].fingerprint_name < unavailable_matches[1].fingerprint_name);
+    assert(unavailable_matches[0].specificity >= unavailable_matches[1].specificity);
 
     osdetect::ObservedOSFingerprint ipv6;
     ipv6.family = core::AddressFamily::IPv6;
     auto ipv6_observation = linux_observation();
     ipv6_observation.family = core::AddressFamily::IPv6;
+    ipv6_observation.mss = osdetect::ObservedValue<std::uint16_t>::observed(1440U);
     ipv6.tcp_observations.push_back(ipv6_observation);
-    assert(matcher.match(ipv6, 3U).empty());
+    const auto ipv6_matches = matcher.match(ipv6, 3U);
+    assert(!ipv6_matches.empty());
+    assert(ipv6_matches[0].fingerprint_name == "SkanIPv6LinuxGeneric");
+    assert(ipv6_matches[0].fingerprint_id == "skan-v6-linux-generic");
+    assert(ipv6_matches[0].address_family == core::AddressFamily::IPv6);
+    assert(ipv6_matches[0].category == db::MatchCategory::StrongMatch);
 
     osdetect::ObservedOSFingerprint mixed;
     mixed.family = core::AddressFamily::Unknown;

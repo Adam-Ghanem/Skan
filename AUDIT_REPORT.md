@@ -282,3 +282,19 @@ Phase 17 extends the existing Phase 0–16 architecture rather than introducing 
 | Safety and architecture | Preserved | One IOEngine, one packet layer, one receiver/correlation boundary, no threads, polling, sleeps, fallback, evasion, spoofing, exploitation, credentials, persistence, or public-target traffic. |
 
 Deterministic unit vectors cover IPv6 OS probe construction and assessment, family-safe matching, strict Neighbor Discovery parsing, NS/NA serialization, and multicast mapping. The ordinary build and registered suite pass after the changes; AF_PACKET-dependent tests remain environmental skips with `Operation not permitted` where raw capability is unavailable. The fuzz target remains a clean environmental skip when `clang++` is unavailable.
+
+## Q. Phase 18 production IPv6 OS fingerprinting record
+Phase 18 adds production-shaped, project-owned IPv6 OS fingerprint data and integrates it into the existing bounded database, matcher, scheduler, orchestrator, and output path. The IPv6 dataset is deliberately small and generic; it is not copied from an external corpus and does not claim authoritative vendor identification.
+
+| Area | Phase 18 result | Boundary and evidence |
+| --- | --- | --- |
+| IPv6 fingerprint database | Implemented | `data/os-fingerprints-v6.db` contains explicit family metadata, stable IDs, specificity, and typed TCP/UDP/ICMP-related signatures. The loader enforces bounded file, line, string, record, and signature limits and rejects duplicate names or IDs. |
+| Family/protocol evidence | Implemented | TCP, UDP, ICMPv4, and ICMPv6 observations carry explicit protocol and address-family tags. Mixed aggregates become `Unknown`; incompatible records are filtered before scoring. |
+| Deterministic matching | Implemented | Ranking uses confidence, specificity, display name, and stable fingerprint ID. IPv6 evidence can match only IPv6 records and cannot produce an IPv4 false positive. |
+| Live IPv6 OS probes | Integrated through existing path | IPv6 TCP variants, UDP, and ICMPv6 probes use existing OSProbe, Linux capture, PacketReceiver, correlation, scheduler, and IOEngine contracts. Exact typed address and protocol correlation is required. |
+| Output | Implemented | Normal, JSON, XML, and grepable output expose OS address family and selected fingerprint ID. |
+| Raw Linux capability | Explicit and capability-honest | The adapter requires an explicit interface and usable AF_PACKET capture/injection plus a valid destination-MAC or interface-local neighbor path. In the sandbox, raw operations report `Operation not permitted` and do not fall back. |
+| NDP | Strict packet and bounded local-link support | NS/NA parsing, serialization, options, target validation, and multicast mapping are bounded and tested. Automatic non-loopback neighbor resolution remains dependent on the selected interface’s usable neighbor capability or explicit destination MAC. |
+| Offline validation | Extended | Tests cover IPv6 database metadata, oversized input rejection, IPv6 probe variants and mismatches, protocol tags, family-safe matching, outputs, NDP, fuzz entry points, and IPv6/mixed benchmark rows. |
+
+No public-target traffic, evasion, spoofing, poisoning, exploitation, credentials, persistence, stealth, worker threads, polling, sleeps, duplicate reactors, or duplicate output pipelines were introduced.

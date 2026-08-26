@@ -110,6 +110,7 @@ ICMPObservation observe_icmp_response(
 
 void append_observation(ObservedOSFingerprint &fingerprint, TCPObservation observation)
 {
+    observation.protocol = OSProtocol::Tcp;
     merge_family(fingerprint, observation.family);
     switch (observation.probe_status) {
     case OSProbeStatus::Generated:
@@ -137,6 +138,7 @@ void append_observation(ObservedOSFingerprint &fingerprint, TCPObservation obser
 
 void append_observation(ObservedOSFingerprint &fingerprint, UDPObservation observation)
 {
+    observation.protocol = OSProtocol::Udp;
     merge_family(fingerprint, observation.family);
     switch (observation.probe_status) {
     case OSProbeStatus::Generated:
@@ -164,6 +166,8 @@ void append_observation(ObservedOSFingerprint &fingerprint, UDPObservation obser
 
 void append_observation(ObservedOSFingerprint &fingerprint, ICMPObservation observation)
 {
+    observation.protocol = observation.family == core::AddressFamily::IPv6 ? OSProtocol::Icmpv6 :
+                                                                            OSProtocol::Icmpv4;
     merge_family(fingerprint, observation.family);
     switch (observation.probe_status) {
     case OSProbeStatus::Generated:

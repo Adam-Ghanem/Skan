@@ -261,6 +261,9 @@ std::vector<OSMatchResult> OSMatcher::match(
             }
             OSMatchResult result;
             result.fingerprint_name = fingerprint.name;
+            result.fingerprint_id = fingerprint.id;
+            result.address_family = fingerprint.address_family;
+            result.specificity = fingerprint.specificity;
             result.vendor = fingerprint.vendor;
             result.family = fingerprint.family;
             result.generation = fingerprint.generation;
@@ -298,7 +301,13 @@ std::vector<OSMatchResult> OSMatcher::match(
             if (left.confidence != right.confidence) {
                 return left.confidence > right.confidence;
             }
-            return left.fingerprint_name < right.fingerprint_name;
+            if (left.specificity != right.specificity) {
+                return left.specificity > right.specificity;
+            }
+            if (left.fingerprint_name != right.fingerprint_name) {
+                return left.fingerprint_name < right.fingerprint_name;
+            }
+            return left.fingerprint_id < right.fingerprint_id;
         });
         if (results.size() > max_results) {
             results.resize(max_results);

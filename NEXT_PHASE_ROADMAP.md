@@ -50,3 +50,10 @@ Any broader service or OS corpus must have project-owned provenance, determinist
 ## Non-goals
 
 Skan continues to reject evasion, spoofing, decoys, fragmentation attacks, idle scanning, exploitation, credential handling, persistence, public-target automation, implicit raw-interface selection, and any fallback that disguises missing live capability. Nmap feature breadth remains a comparison reference rather than an implementation obligation.
+
+## Phase 18 status override
+The Phase 18 record supersedes the historical current-capability table above for IPv6 OS fingerprinting. The project-owned `data/os-fingerprints-v6.db` is now loaded with the IPv4 database through the existing bounded loader, and typed TCP/UDP/ICMPv4/ICMPv6 evidence is family-filtered before deterministic matching. Normal, JSON, XML, and grepable output expose address family and stable fingerprint ID.
+
+The live raw boundary remains explicit rather than implicit. Native IPv6 OS probing requires an explicitly selected interface, usable AF_PACKET capture/injection, valid typed source selection, and either a supplied destination MAC or a supported interface-local neighbor path. If that capability is absent, Skan returns the corresponding unavailable or permission-denied state and does not fall back to Connect, IPv4, offline mode, or implicit interface selection. Neighbor Discovery packet primitives and bounded local-link state are implemented and tested, but automatic non-loopback neighbor resolution remains dependent on the selected interface’s actual capability.
+
+The next acceptance review should focus only on broader project-owned fingerprint coverage or additional interface-local capability validation. It must preserve the existing one-reactor pipeline and continue to exclude public-target traffic, evasion, spoofing, poisoning, exploitation, credentials, persistence, stealth, threads, polling, sleeps, and duplicate subsystems.

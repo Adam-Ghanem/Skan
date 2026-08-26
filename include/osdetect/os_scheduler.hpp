@@ -106,6 +106,7 @@ private:
     std::optional<ObservedOSFingerprint> observed_;
     std::optional<OSDetectionResult> result_;
     std::string target_;
+    core::AddressFamily target_family_{core::AddressFamily::Unknown};
     core::StatusCode status_{core::StatusCode::Ok};
     OSProbeId next_id_{1U};
     bool submitted_{false};

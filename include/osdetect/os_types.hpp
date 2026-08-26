@@ -62,6 +62,14 @@ enum class SequenceBehavior : std::uint8_t {
     TimeBased
 };
 
+enum class OSProtocol : std::uint8_t {
+    Unknown = 0,
+    Tcp,
+    Udp,
+    Icmpv4,
+    Icmpv6
+};
+
 enum class ResponseBehavior : std::uint8_t {
     Unknown = 0,
     SynAck,
@@ -96,6 +104,7 @@ struct TCPObservation final {
     ResponseBehavior response_behavior{ResponseBehavior::Unknown};
     OSProbeStatus probe_status{OSProbeStatus::ResponseReceived};
     core::AddressFamily family{core::AddressFamily::Unknown};
+    OSProtocol protocol{OSProtocol::Tcp};
 };
 
 struct UDPObservation final {
@@ -108,6 +117,7 @@ struct UDPObservation final {
     ResponseBehavior response_behavior{ResponseBehavior::Unknown};
     OSProbeStatus probe_status{OSProbeStatus::ResponseReceived};
     core::AddressFamily family{core::AddressFamily::Unknown};
+    OSProtocol protocol{OSProtocol::Udp};
 };
 
 struct ICMPObservation final {
@@ -117,6 +127,7 @@ struct ICMPObservation final {
     ResponseBehavior response_behavior{ResponseBehavior::Unknown};
     OSProbeStatus probe_status{OSProbeStatus::ResponseReceived};
     core::AddressFamily family{core::AddressFamily::Unknown};
+    OSProtocol protocol{OSProtocol::Icmpv4};
 };
 
 struct ObservedOSFingerprint final {
@@ -140,6 +151,7 @@ const char *timestamp_behavior_name(TimestampBehavior behavior) noexcept;
 const char *ack_behavior_name(AckBehavior behavior) noexcept;
 const char *sequence_behavior_name(SequenceBehavior behavior) noexcept;
 const char *response_behavior_name(ResponseBehavior behavior) noexcept;
+const char *os_protocol_name(OSProtocol protocol) noexcept;
 
 } // namespace skan::osdetect
 

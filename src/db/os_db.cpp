@@ -2,12 +2,20 @@
 
 #include <charconv>
 #include <fstream>
+#include <new>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_set>
 
 namespace skan::db {
 namespace {
+
+constexpr std::size_t kMaximumDatabaseBytes = 1024U * 1024U;
+constexpr std::size_t kMaximumLineBytes = 4096U;
+constexpr std::size_t kMaximumFingerprints = 256U;
+constexpr std::size_t kMaximumSignatures = 64U;
+constexpr std::size_t kMaximumStringBytes = 128U;
 
 std::string_view trim(std::string_view value) noexcept
 {
@@ -121,6 +129,18 @@ bool parse_option(std::string_view text, packet::TcpOptionKind &option) noexcept
     return false;
 }
 
+std::optional<core::AddressFamily> parse_family(std::string_view text) noexcept
+{
+    text = trim(text);
+    if (text == "IPv4" || text == "ipv4") {
+        return core::AddressFamily::IPv4;
+    }
+    if (text == "IPv6" || text == "ipv6") {
+        return core::AddressFamily::IPv6;
+    }
+    return std::nullopt;
+}
+
 bool has_field(const OSFingerprint &fingerprint, FingerprintField field) noexcept
 {
     for (const FingerprintSignature &signature : fingerprint.signatures) {
@@ -134,14 +154,29 @@ bool has_field(const OSFingerprint &fingerprint, FingerprintField field) noexcep
 bool finalize(
     std::optional<OSFingerprint> &current,
     bool &has_class,
+    bool has_family_metadata,
+    core::AddressFamily expected_family,
     std::unordered_set<std::string> &names,
+    std::unordered_set<std::string> &ids,
     std::vector<OSFingerprint> &fingerprints)
 {
     if (!current.has_value()) {
         return true;
     }
+    if (current->id.empty()) {
+        current->id = current->name;
+    }
+    if (current->specificity == 0U) {
+        current->specificity = static_cast<std::uint16_t>(current->signatures.size());
+    }
     if (!has_class || current->signatures.empty() || current->vendor.empty() || current->family.empty() ||
-        !names.insert(current->name).second) {
+        current->name.size() > kMaximumStringBytes || current->vendor.size() > kMaximumStringBytes ||
+        current->family.size() > kMaximumStringBytes || current->generation.size() > kMaximumStringBytes ||
+        current->device_type.size() > kMaximumStringBytes || current->signatures.size() > kMaximumSignatures ||
+        (expected_family == core::AddressFamily::IPv6 && !has_family_metadata) ||
+        (expected_family != core::AddressFamily::Unknown && current->address_family != expected_family) ||
+        fingerprints.size() >= kMaximumFingerprints || !names.insert(current->name).second ||
+        !ids.insert(current->id).second) {
         return false;
     }
     fingerprints.push_back(std::move(*current));
@@ -152,17 +187,32 @@ bool finalize(
 
 } // namespace
 
-OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core::StatusCode &status)
+OSFingerprintDatabase OSFingerprintDatabase::parse(
+    const std::string &text,
+    core::StatusCode &status,
+    core::AddressFamily expected_family)
 {
     OSFingerprintDatabase database;
     status = core::StatusCode::Ok;
+    if (text.size() > kMaximumDatabaseBytes) {
+        status = core::StatusCode::ParseError;
+        database.status_ = status;
+        return database;
+    }
     std::optional<OSFingerprint> current;
     bool has_class = false;
+    bool has_family_metadata = false;
     std::unordered_set<std::string> names;
+    std::unordered_set<std::string> ids;
     std::istringstream input(text);
     std::string line;
     try {
         while (std::getline(input, line)) {
+            if (line.size() > kMaximumLineBytes) {
+                database.fingerprints_.clear();
+                status = core::StatusCode::ParseError;
+                return database;
+            }
             std::string_view view = trim(line);
             const std::size_t comment = view.find('#');
             if (comment != std::string_view::npos) {
@@ -172,7 +222,7 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
                 continue;
             }
             if (starts_with(view, "Fingerprint ")) {
-                if (!finalize(current, has_class, names, database.fingerprints_)) {
+                if (!finalize(current, has_class, has_family_metadata, expected_family, names, ids, database.fingerprints_)) {
                     database.fingerprints_.clear();
                     status = core::StatusCode::ParseError;
                     return database;
@@ -184,7 +234,12 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
                     return database;
                 }
                 current = OSFingerprint{};
+                current->address_family = expected_family == core::AddressFamily::Unknown
+                                              ? core::AddressFamily::IPv4
+                                              : expected_family;
                 current->name = std::string{name};
+                current->id = current->name;
+                has_family_metadata = false;
                 continue;
             }
             if (!current.has_value()) {
@@ -225,6 +280,37 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
                 database.fingerprints_.clear();
                 status = core::StatusCode::ParseError;
                 return database;
+            }
+            if (key == "ID") {
+                if (value.size() > kMaximumStringBytes || current->id != current->name) {
+                    database.fingerprints_.clear();
+                    status = core::StatusCode::ParseError;
+                    return database;
+                }
+                current->id = std::string{value};
+                continue;
+            }
+            if (key == "SPECIFICITY") {
+                std::int64_t specificity = 0;
+                if (!parse_integer(value, specificity) || specificity <= 0 || specificity > 65535) {
+                    database.fingerprints_.clear();
+                    status = core::StatusCode::ParseError;
+                    return database;
+                }
+                current->specificity = static_cast<std::uint16_t>(specificity);
+                continue;
+            }
+            if (key == "ADDRESS_FAMILY") {
+                const auto family = parse_family(value);
+                if (!family.has_value() || has_family_metadata ||
+                    (expected_family != core::AddressFamily::Unknown && *family != expected_family)) {
+                    database.fingerprints_.clear();
+                    status = core::StatusCode::ParseError;
+                    return database;
+                }
+                current->address_family = *family;
+                has_family_metadata = true;
+                continue;
             }
             FingerprintSignature signature;
             bool recognized = true;
@@ -334,14 +420,21 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
             } else {
                 recognized = false;
             }
-            if (!recognized || has_field(*current, signature.field)) {
+            if (!recognized || has_field(*current, signature.field) || signature.text.size() > kMaximumStringBytes ||
+                signature.options.size() > kMaximumSignatures) {
+                database.fingerprints_.clear();
+                status = core::StatusCode::ParseError;
+                return database;
+            }
+            if (current->signatures.size() >= kMaximumSignatures) {
                 database.fingerprints_.clear();
                 status = core::StatusCode::ParseError;
                 return database;
             }
             current->signatures.push_back(std::move(signature));
         }
-        if (!finalize(current, has_class, names, database.fingerprints_) || database.fingerprints_.empty()) {
+        if (!finalize(current, has_class, has_family_metadata, expected_family, names, ids, database.fingerprints_) ||
+            database.fingerprints_.empty()) {
             database.fingerprints_.clear();
             status = core::StatusCode::ParseError;
             return database;
@@ -353,7 +446,10 @@ OSFingerprintDatabase OSFingerprintDatabase::parse(const std::string &text, core
     return database;
 }
 
-OSFingerprintDatabase OSFingerprintDatabase::load_file(const std::string &path, core::StatusCode &status)
+OSFingerprintDatabase OSFingerprintDatabase::load_file(
+    const std::string &path,
+    core::StatusCode &status,
+    core::AddressFamily expected_family)
 {
     OSFingerprintDatabase database;
     std::ifstream file(path);
@@ -362,6 +458,14 @@ OSFingerprintDatabase OSFingerprintDatabase::load_file(const std::string &path, 
         database.status_ = status;
         return database;
     }
+    file.seekg(0, std::ios::end);
+    const std::streampos file_size = file.tellg();
+    if (file_size < 0 || static_cast<std::uintmax_t>(file_size) > kMaximumDatabaseBytes) {
+        status = core::StatusCode::ParseError;
+        database.status_ = status;
+        return database;
+    }
+    file.seekg(0, std::ios::beg);
     std::ostringstream contents;
     contents << file.rdbuf();
     if (!file.good() && !file.eof()) {
@@ -369,7 +473,8 @@ OSFingerprintDatabase OSFingerprintDatabase::load_file(const std::string &path, 
         database.status_ = status;
         return database;
     }
-    database = parse(contents.str(), status);
+    const std::string content = contents.str();
+    database = parse(content, status, expected_family);
     database.status_ = status;
     return database;
 }
@@ -377,8 +482,33 @@ OSFingerprintDatabase OSFingerprintDatabase::load_file(const std::string &path, 
 OSFingerprintDatabase OSFingerprintDatabase::built_in()
 {
     core::StatusCode status = core::StatusCode::InternalError;
-    OSFingerprintDatabase database = load_file("data/os-fingerprints.db", status);
-    database.status_ = status;
+    OSFingerprintDatabase database = load_file("data/os-fingerprints.db", status, core::AddressFamily::IPv4);
+    if (status != core::StatusCode::Ok) {
+        database.status_ = status;
+        return database;
+    }
+    core::StatusCode ipv6_status = core::StatusCode::InternalError;
+    OSFingerprintDatabase ipv6 = load_file(
+        "data/os-fingerprints-v6.db", ipv6_status, core::AddressFamily::IPv6);
+    if (ipv6_status != core::StatusCode::Ok) {
+        database.status_ = ipv6_status;
+        database.fingerprints_.clear();
+        return database;
+    }
+    try {
+        if (database.fingerprints_.size() + ipv6.fingerprints_.size() > kMaximumFingerprints) {
+            database.status_ = core::StatusCode::ParseError;
+            database.fingerprints_.clear();
+            return database;
+        }
+        database.fingerprints_.insert(
+            database.fingerprints_.end(), ipv6.fingerprints_.begin(), ipv6.fingerprints_.end());
+    } catch (const std::bad_alloc &) {
+        database.status_ = core::StatusCode::MemoryError;
+        database.fingerprints_.clear();
+        return database;
+    }
+    database.status_ = core::StatusCode::Ok;
     return database;
 }
 

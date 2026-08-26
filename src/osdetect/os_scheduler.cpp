@@ -46,6 +46,15 @@ bool host_matches(const core::Host &host, const std::string &target) noexcept
     return target == host.address || (host.hostname.has_value() && target == *host.hostname);
 }
 
+core::AddressFamily family_for_host(const core::Host &host) noexcept
+{
+    if (host.ip_address.valid()) {
+        return host.ip_address.family;
+    }
+    const auto parsed = core::parse_ip_address(host.address);
+    return parsed.has_value() ? parsed->family : core::AddressFamily::Unknown;
+}
+
 } // namespace
 
 OSScheduler::OSScheduler(
@@ -87,6 +96,22 @@ core::StatusCode OSScheduler::submit(
         emit_result(OSDetectionState::Failed, error_for_status(status_));
         return status_;
     }
+    bool family_seen = false;
+    for (const core::Host &host : target.resolved_hosts) {
+        const core::AddressFamily family = family_for_host(host);
+        if (family == core::AddressFamily::Unknown) {
+            continue;
+        }
+        if (!family_seen) {
+            target_family_ = family;
+            family_seen = true;
+        } else if (target_family_ != family) {
+            target_family_ = core::AddressFamily::Unknown;
+            break;
+        }
+    }
+    observed_.emplace();
+    observed_->family = target_family_;
     if (config_.max_outstanding == 0U || config_.timeout.count() <= 0 || config_.probe_port == 0U ||
         config_.max_results == 0U || (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
         status_ = core::StatusCode::InvalidArgument;
@@ -439,6 +464,7 @@ void OSScheduler::emit_result(OSDetectionState state, OSDetectionError error) no
         OSDetectionResult result;
         result.target = target_;
         result.state = state;
+        result.address_family = target_family_;
         result.error = error;
         result.timestamp = OSProbeClock::now();
         result.probes_generated = generated_count_;
@@ -461,6 +487,7 @@ void OSScheduler::emit_result(OSDetectionState state, OSDetectionError error) no
                 result.device_type = top.device_type;
                 result.confidence = top.confidence;
                 result.category = top.category;
+                result.fingerprint_id = top.fingerprint_id;
             }
         }
         result_ = std::move(result);

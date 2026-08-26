@@ -1,9 +1,14 @@
 #include "osdetect/os_probe.hpp"
 
 #include <algorithm>
+#include <arpa/inet.h>
 #include <new>
 #include <span>
 #include <utility>
+#include <unistd.h>
+#include <linux/if_ether.h>
+#include <linux/if_packet.h>
+#include <sys/socket.h>
 
 #include "discovery/discovery_types.hpp"
 #include "packet/checksum.hpp"
@@ -269,6 +274,7 @@ public:
                 observation.response_behavior = assessment.response_behavior;
                 observation.probe_status = OSProbeStatus::ResponseReceived;
                 observation.family = core::AddressFamily::IPv6;
+                observation.protocol = OSProtocol::Icmpv6;
                 assessment.icmp_observation = std::move(observation);
                 return assessment;
             }
@@ -278,6 +284,7 @@ public:
                                                          : ObservedValue<std::uint8_t>::observed(response.ip_ttl);
                 observation.probe_status = OSProbeStatus::ResponseReceived;
                 observation.family = core::AddressFamily::IPv6;
+                observation.protocol = OSProtocol::Udp;
                 if (response.kind == OSProbeResponseKind::IcmpError) {
                     const auto icmp = packet::ICMPv6::parse(response.bytes);
                     const auto quote = icmp.has_value()
@@ -353,6 +360,7 @@ public:
             observation.response_behavior = assessment.response_behavior;
             observation.probe_status = OSProbeStatus::ResponseReceived;
             observation.family = core::AddressFamily::IPv6;
+            observation.protocol = OSProtocol::Tcp;
             assessment.tcp_observation = std::move(observation);
             return assessment;
         }
@@ -570,7 +578,17 @@ const std::vector<OSProbeSubmission> &RecordingOSProbeTransport::submissions() c
 
 bool live_os_fingerprinting_available() noexcept
 {
-    return true;
+    struct FdGuard final {
+        int descriptor{-1};
+        ~FdGuard() noexcept
+        {
+            if (descriptor >= 0) {
+                (void)::close(descriptor);
+            }
+        }
+    };
+    FdGuard guard{::socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))};
+    return guard.descriptor >= 0;
 }
 
 } // namespace skan::osdetect

@@ -59,6 +59,11 @@ int main()
     assert(status == core::StatusCode::ParseError);
     assert(bad_range.fingerprints().empty());
 
+    std::string oversized(1024U * 1024U + 1U, 'x');
+    const db::OSFingerprintDatabase oversized_database = db::OSFingerprintDatabase::parse(oversized, status);
+    assert(status == core::StatusCode::ParseError);
+    assert(oversized_database.fingerprints().empty());
+
     const db::OSFingerprintDatabase unsupported = db::OSFingerprintDatabase::parse(
         "Fingerprint Broken\nClass Skan | Test | 1 | device\nMADE_UP=1\n", status);
     assert(status == core::StatusCode::ParseError);
@@ -75,8 +80,24 @@ int main()
     assert(status == core::StatusCode::NotFound);
     assert(missing.status() == core::StatusCode::NotFound);
 
+    const db::OSFingerprintDatabase ipv6 = db::OSFingerprintDatabase::parse(
+        "Fingerprint IPv6Only\nID=test-v6\nSPECIFICITY=7\nADDRESS_FAMILY=IPv6\n"
+        "Class Skan | IPv6 | test | appliance\nTTL=64\nWINDOW=64240\nRESPONSE_BEHAVIOR=SYN_ACK\n",
+        status, core::AddressFamily::IPv6);
+    assert(status == core::StatusCode::Ok);
+    assert(ipv6.fingerprints().size() == 1U);
+    assert(ipv6.fingerprints()[0].address_family == core::AddressFamily::IPv6);
+    assert(ipv6.fingerprints()[0].id == "test-v6");
+    assert(ipv6.fingerprints()[0].specificity == 7U);
+    const db::OSFingerprintDatabase missing_ipv6_family = db::OSFingerprintDatabase::parse(
+        "Fingerprint Broken\nClass Skan | IPv6 | test\nTTL=64\n", status, core::AddressFamily::IPv6);
+    assert(status == core::StatusCode::ParseError);
+    assert(missing_ipv6_family.fingerprints().empty());
+
     const db::OSFingerprintDatabase built_in = db::OSFingerprintDatabase::built_in();
     assert(built_in.status() == core::StatusCode::Ok);
-    assert(built_in.fingerprints().size() == 3U);
+    assert(built_in.fingerprints().size() == 8U);
+    assert(built_in.fingerprints()[0].address_family == core::AddressFamily::IPv4);
+    assert(built_in.fingerprints()[3].address_family == core::AddressFamily::IPv6);
     return 0;
 }

@@ -1,0 +1,73 @@
+# Original Skan IPv6 profiles; generic laboratory signatures, not authoritative fingerprints.
+# This file is independent from data/os-fingerprints.db.
+
+Fingerprint SkanIPv6LinuxGeneric
+ID=skan-v6-linux-generic
+SPECIFICITY=13
+ADDRESS_FAMILY=IPv6
+Class Skan | Linux IPv6 | generic | general-purpose
+TTL=64
+WINDOW=64240
+MSS=1440
+WSCALE=7
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+UDP_RESPONSE_BEHAVIOR=UDP_RESPONSE
+
+Fingerprint SkanIPv6WindowsGeneric
+ID=skan-v6-windows-generic
+SPECIFICITY=11
+ADDRESS_FAMILY=IPv6
+Class Skan | Windows IPv6 | generic | general-purpose
+TTL=128
+WINDOW=65535
+MSS=1440
+WSCALE=8
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+Fingerprint SkanIPv6BSDGeneric
+ID=skan-v6-bsd-generic
+SPECIFICITY=9
+ADDRESS_FAMILY=IPv6
+Class Skan | BSD/macOS IPv6 | generic | general-purpose
+TTL=64
+WINDOW=65535
+MSS=1440
+WSCALE=6
+SACK=Y
+TIMESTAMP=N
+TCP_OPTIONS=MSS,NOP,WS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+Fingerprint SkanIPv6EmbeddedGeneric
+ID=skan-v6-embedded-generic
+SPECIFICITY=9
+ADDRESS_FAMILY=IPv6
+Class Skan | Embedded IPv6 | generic | network-device
+TTL=64
+WINDOW=4128
+MSS=1280
+WSCALE=2
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS,NOP,WS
+RESPONSE_BEHAVIOR=RST
+RESPONSE_PRESENCE=YES
+
+Fingerprint SkanIPv6ModernGeneric
+ID=skan-v6-modern-generic
+SPECIFICITY=5
+ADDRESS_FAMILY=IPv6
+Class Skan | Generic IPv6 | modern | general-purpose
+TTL_RANGE=32-255
+WINDOW_RANGE=1024-65535
+MSS=1440
+RESPONSE_PRESENCE=YES

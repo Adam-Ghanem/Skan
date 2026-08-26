@@ -27,6 +27,8 @@ int main()
     assert(first.str().find(",}") == std::string::npos);
     assert(first.str().find("\"os\": [\n") != std::string::npos);
     assert(first.str().find("\"os_detection\": {") != std::string::npos);
+    assert(first.str().find("\"address_family\": \"ipv4\"") != std::string::npos);
+    assert(first.str().find("\"fingerprint_id\": \"fixture\"") != std::string::npos);
     assert(first.str().find("\"state\": \"complete\"") != std::string::npos);
     assert(first.str().find("\"family\": \"Linux\"") != std::string::npos);
     assert(first.str().find("\"confidence\": 0.91") != std::string::npos);

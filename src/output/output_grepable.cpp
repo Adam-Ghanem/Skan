@@ -86,7 +86,8 @@ OutputStatus GrepableOutputWriter::write(
         if (host->os_detection.has_value()) {
             const osdetect::OSDetectionResult &detection = *host->os_detection;
             output << "OSStatus: address=\"" << detail::grep_escape(host->address)
-                   << "\" state=" << osdetect::os_detection_state_name(detection.state)
+                   << "\" family=" << core::address_family_name(detection.address_family)
+                   << " state=" << osdetect::os_detection_state_name(detection.state)
                    << " error=" << osdetect::os_detection_error_name(detection.error)
                    << " confidence=" << std::setprecision(15) << detection.confidence
                    << " probes=" << detection.probes_sent

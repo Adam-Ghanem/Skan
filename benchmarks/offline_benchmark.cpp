@@ -16,6 +16,7 @@
 #include "io/io_engine.hpp"
 #include "orchestrator/scan_pipeline.hpp"
 #include "net/packet_receiver.hpp"
+#include "osdetect/os_matcher.hpp"
 #include "osdetect/os_scheduler.hpp"
 #include "output/output_manager.hpp"
 #include "output/result_model.hpp"
@@ -342,6 +343,93 @@ void benchmark_service(std::size_t count)
     });
 }
 
+void benchmark_ipv6_os_parser(std::size_t count)
+{
+    std::ifstream file("data/os-fingerprints-v6.db");
+    std::ostringstream contents;
+    contents << file.rdbuf();
+    const std::string text = contents.str();
+    measure("ipv6-os-parser", count, [&text, count]() {
+        std::size_t parsed = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+            const auto database = skan::db::OSFingerprintDatabase::parse(
+                text, status, skan::core::AddressFamily::IPv6);
+            if (status == skan::core::StatusCode::Ok && database.fingerprints().size() >= 4U) {
+                parsed += database.fingerprints().size();
+            }
+        }
+        return parsed;
+    });
+}
+
+void benchmark_ipv6_os_matcher(std::size_t count)
+{
+    const auto database = skan::db::OSFingerprintDatabase::built_in();
+    skan::osdetect::ObservedOSFingerprint observed;
+    observed.family = skan::core::AddressFamily::IPv6;
+    skan::osdetect::TCPObservation tcp;
+    tcp.family = skan::core::AddressFamily::IPv6;
+    tcp.probe_status = skan::osdetect::OSProbeStatus::ResponseReceived;
+    tcp.ttl = skan::osdetect::ObservedValue<std::uint8_t>::observed(64U);
+    tcp.window = skan::osdetect::ObservedValue<std::uint16_t>::observed(64240U);
+    tcp.mss = skan::osdetect::ObservedValue<std::uint16_t>::observed(1440U);
+    tcp.window_scale = skan::osdetect::ObservedValue<std::uint8_t>::observed(7U);
+    tcp.sack_permitted = skan::osdetect::ObservedValue<bool>::observed(true);
+    tcp.timestamps = skan::osdetect::ObservedValue<bool>::observed(true);
+    tcp.options = {skan::packet::TcpOptionKind::Mss, skan::packet::TcpOptionKind::SackPermitted,
+                   skan::packet::TcpOptionKind::Timestamp, skan::packet::TcpOptionKind::Nop,
+                   skan::packet::TcpOptionKind::WindowScale};
+    tcp.response_behavior = skan::osdetect::ResponseBehavior::SynAck;
+    observed.tcp_observations.push_back(tcp);
+    measure("ipv6-os-matcher", count, [&database, &observed, count]() {
+        skan::osdetect::OSMatcher matcher(database);
+        std::size_t matches = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            matches += matcher.match(observed, 3U).size();
+        }
+        return matches;
+    });
+}
+
+void benchmark_ipv6_os_scheduler(std::size_t count)
+{
+    const skan::core::Target target = ipv6_target_for(count);
+    measure("ipv6-os-scheduler", count, [&target, count]() {
+        skan::io::IOEngine engine;
+        skan::osdetect::RecordingOSProbeTransport transport;
+        skan::osdetect::OSSchedulerConfig config;
+        config.timeout = std::chrono::milliseconds{1};
+        config.max_outstanding = std::min<std::size_t>(count, 1024U);
+        const auto database = skan::db::OSFingerprintDatabase::built_in();
+        skan::osdetect::OSScheduler scheduler(engine, transport, database, config);
+        if (scheduler.submit(target, {}) != skan::core::StatusCode::Ok ||
+            scheduler.run() != skan::core::StatusCode::Ok) {
+            return std::size_t{0U};
+        }
+        return scheduler.result().has_value() ? scheduler.result()->probes_sent : 0U;
+    });
+}
+
+void benchmark_mixed_os_scheduler(std::size_t count)
+{
+    const skan::core::Target target = mixed_target_for(count);
+    measure("mixed-os-scheduler", count, [&target, count]() {
+        skan::io::IOEngine engine;
+        skan::osdetect::RecordingOSProbeTransport transport;
+        skan::osdetect::OSSchedulerConfig config;
+        config.timeout = std::chrono::milliseconds{1};
+        config.max_outstanding = std::min<std::size_t>(count, 1024U);
+        const auto database = skan::db::OSFingerprintDatabase::built_in();
+        skan::osdetect::OSScheduler scheduler(engine, transport, database, config);
+        if (scheduler.submit(target, {}) != skan::core::StatusCode::Ok ||
+            scheduler.run() != skan::core::StatusCode::Ok) {
+            return std::size_t{0U};
+        }
+        return scheduler.result().has_value() ? scheduler.result()->probes_sent : 0U;
+    });
+}
+
 void benchmark_os(std::size_t count)
 {
     const skan::core::Target target = target_for(count);
@@ -360,6 +448,29 @@ void benchmark_os(std::size_t count)
             return std::size_t{0U};
         }
         return scheduler.result()->probes_sent;
+    });
+}
+
+void benchmark_mixed_orchestrator(std::size_t count)
+{
+    const skan::core::Target target = mixed_target_for(count);
+    measure("mixed-orchestrator", count, [&target, count]() {
+        skan::orchestrator::ScanConfig config;
+        config.targets = {target};
+        config.transport = skan::orchestrator::ScanTransport::Offline;
+        config.discovery_enabled = false;
+        config.port_scan_enabled = true;
+        config.os_detection_enabled = true;
+        config.ports = {80U};
+        config.timeout = std::chrono::milliseconds{1};
+        config.max_parallelism = std::min<std::size_t>(count, 1024U);
+        config.output_format = skan::output::OutputFormat::Json;
+        skan::orchestrator::ScanPipeline pipeline(config);
+        std::ostringstream output;
+        if (pipeline.run(output) != skan::core::StatusCode::Ok) {
+            return std::size_t{0U};
+        }
+        return pipeline.report().has_value() ? pipeline.report()->hosts.size() : 0U;
     });
 }
 
@@ -410,12 +521,17 @@ int main(int argc, char **argv)
         benchmark_ipv6_target_expansion(count);
         benchmark_ipv6_receiver(count);
         benchmark_ipv6_ndp(count);
+        benchmark_ipv6_os_parser(count);
+        benchmark_ipv6_os_matcher(count);
+        benchmark_ipv6_os_scheduler(count);
+        benchmark_mixed_os_scheduler(count);
         benchmark_tcp(count);
         benchmark_udp(count);
         benchmark_mixed_udp(count);
         benchmark_service(count);
         benchmark_os(count);
         benchmark_orchestrator(count);
+        benchmark_mixed_orchestrator(count);
         benchmark_serialization(count, skan::output::OutputFormat::Json, "json-serialization");
         benchmark_serialization(count, skan::output::OutputFormat::Xml, "xml-serialization");
     }

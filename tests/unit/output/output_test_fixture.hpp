@@ -87,10 +87,10 @@ inline ScanReport make_report()
         {}});
     second.os_matches.push_back(osdetect::OSMatchResult{
         "SkanWindowsGeneric", "Skan", "Windows", "generic", "desktop", 0.91,
-        db::MatchCategory::StrongMatch, {"ttl"}, {}, {}});
+        db::MatchCategory::StrongMatch, {"ttl"}, {}, {}, core::AddressFamily::IPv4, "fixture", 10U});
     second.os_matches.push_back(osdetect::OSMatchResult{
         "SkanLinuxGeneric", "Skan", "Linux", "generic", "server", 0.91,
-        db::MatchCategory::StrongMatch, {"ttl"}, {}, {}});
+        db::MatchCategory::StrongMatch, {"ttl"}, {}, {}, core::AddressFamily::IPv4, "fixture", 10U});
     osdetect::OSDetectionResult os_detection;
     os_detection.target = second.address;
     os_detection.state = osdetect::OSDetectionState::Complete;
@@ -109,6 +109,8 @@ inline ScanReport make_report()
     os_detection.probes_malformed = 0U;
     os_detection.rtt_ms = 4.5;
     os_detection.error = osdetect::OSDetectionError::None;
+    os_detection.address_family = core::AddressFamily::IPv4;
+    os_detection.fingerprint_id = "fixture";
     os_detection.observed.target = second.address;
     os_detection.observed.probes_generated = 12U;
     os_detection.observed.probes_sent = 12U;

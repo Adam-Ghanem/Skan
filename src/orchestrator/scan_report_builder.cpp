@@ -139,7 +139,13 @@ output::ScanReport ScanReportBuilder::build(
             if (left.confidence != right.confidence) {
                 return left.confidence > right.confidence;
             }
-            return left.fingerprint_name < right.fingerprint_name;
+            if (left.specificity != right.specificity) {
+                return left.specificity > right.specificity;
+            }
+            if (left.fingerprint_name != right.fingerprint_name) {
+                return left.fingerprint_name < right.fingerprint_name;
+            }
+            return left.fingerprint_id < right.fingerprint_id;
         });
     }
     return report;

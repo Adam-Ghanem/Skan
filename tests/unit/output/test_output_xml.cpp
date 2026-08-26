@@ -26,6 +26,8 @@ int main()
            first.str().find("<port target=\"192.0.2.20\" number=\"80\""));
     assert(first.str().find("<os>") != std::string::npos);
     assert(first.str().find("<os-detection>\n") != std::string::npos);
+    assert(first.str().find("<address-family>ipv4</address-family>") != std::string::npos);
+    assert(first.str().find("<fingerprint-id>fixture</fingerprint-id>") != std::string::npos);
     assert(first.str().find("<state>complete</state>") != std::string::npos);
     assert(first.str().find("<error>none</error>") != std::string::npos);
     assert(first.str().find("<confidence>0.91</confidence>") != std::string::npos);

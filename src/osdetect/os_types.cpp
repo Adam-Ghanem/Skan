@@ -76,6 +76,24 @@ const char *sequence_behavior_name(SequenceBehavior behavior) noexcept
     }
 }
 
+const char *os_protocol_name(OSProtocol protocol) noexcept
+{
+    switch (protocol) {
+    case OSProtocol::Unknown:
+        return "UNKNOWN";
+    case OSProtocol::Tcp:
+        return "TCP";
+    case OSProtocol::Udp:
+        return "UDP";
+    case OSProtocol::Icmpv4:
+        return "ICMPv4";
+    case OSProtocol::Icmpv6:
+        return "ICMPv6";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 const char *response_behavior_name(ResponseBehavior behavior) noexcept
 {
     switch (behavior) {

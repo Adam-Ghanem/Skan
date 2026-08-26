@@ -241,6 +241,8 @@ void write_os_match(JsonWriter &json, const osdetect::OSMatchResult &match, std:
     bool first = true;
     json.key("name", first, depth + 1U);
     json.string(match.fingerprint_name);
+    json.key("id", first, depth + 1U);
+    json.string(match.fingerprint_id);
     if (!match.vendor.empty()) {
         json.key("vendor", first, depth + 1U);
         json.string(match.vendor);
@@ -274,6 +276,8 @@ void write_os_detection(JsonWriter &json, const osdetect::OSDetectionResult &res
 {
     json.begin_object();
     bool first = true;
+    json.key("address_family", first, depth + 1U);
+    json.string(core::address_family_name(result.address_family));
     json.key("state", first, depth + 1U);
     json.string(osdetect::os_detection_state_name(result.state));
     json.key("error", first, depth + 1U);
@@ -296,6 +300,10 @@ void write_os_detection(JsonWriter &json, const osdetect::OSDetectionResult &res
     }
     json.key("confidence", first, depth + 1U);
     json.number(result.confidence);
+    if (!result.fingerprint_id.empty()) {
+        json.key("fingerprint_id", first, depth + 1U);
+        json.string(result.fingerprint_id);
+    }
     json.key("probes_generated", first, depth + 1U);
     json.integer(result.probes_generated);
     json.key("probes_sent", first, depth + 1U);

@@ -218,6 +218,7 @@ int main()
     assert(ipv6_tcp_assessment.disposition == osdetect::OSProbeDisposition::Matching);
     assert(ipv6_tcp_assessment.tcp_observation.has_value());
     assert(ipv6_tcp_assessment.tcp_observation->source_address == "::1");
+    assert(ipv6_tcp_assessment.tcp_observation->protocol == osdetect::OSProtocol::Tcp);
 
     const auto ipv6_icmp_probe = osdetect::make_os_probe(osdetect::OSProbeType::IcmpEcho);
     assert(ipv6_icmp_probe != nullptr);
@@ -233,6 +234,67 @@ int main()
     const auto ipv6_icmp_assessment = ipv6_icmp_probe->assess(ipv6_icmp_response, ipv6_icmp_submission);
     assert(ipv6_icmp_assessment.disposition == osdetect::OSProbeDisposition::Matching);
     assert(ipv6_icmp_assessment.icmp_observation.has_value());
+    assert(ipv6_icmp_assessment.icmp_observation->protocol == osdetect::OSProtocol::Icmpv6);
+    auto wrong_icmp_identifier = response_for(ipv6_icmp_submission, ipv6_icmp_reply.serialize());
+    wrong_icmp_identifier.source_ip = ipv6_icmp_submission.target_ip;
+    wrong_icmp_identifier.bytes = ipv6_icmp_reply.serialize();
+    packet::ICMPv6 wrong_reply(packet::Icmpv6Type::EchoReply);
+    wrong_reply.set_identifier(static_cast<std::uint16_t>(ipv6_icmp_submission.correlation_identifier + 1U));
+    wrong_reply.set_sequence(ipv6_icmp_submission.correlation_sequence);
+    wrong_reply.set_payload({0x53U, 0x4BU});
+    wrong_icmp_identifier.bytes = wrong_reply.serialize();
+    assert(ipv6_icmp_probe->assess(wrong_icmp_identifier, ipv6_icmp_submission).disposition ==
+           osdetect::OSProbeDisposition::Unrelated);
+    auto malformed_ipv6_icmp = response_for(ipv6_icmp_submission, {0x80U, 0x00U});
+    assert(ipv6_icmp_probe->assess(malformed_ipv6_icmp, ipv6_icmp_submission).disposition ==
+           osdetect::OSProbeDisposition::Malformed);
+
+    const std::vector<osdetect::OSProbeType> ipv6_tcp_variants{
+        osdetect::OSProbeType::TcpSynVariant, osdetect::OSProbeType::TcpSynTimestamp,
+        osdetect::OSProbeType::TcpEcn, osdetect::OSProbeType::TcpAck, osdetect::OSProbeType::TcpFin,
+        osdetect::OSProbeType::TcpNull, osdetect::OSProbeType::TcpXmas,
+        osdetect::OSProbeType::TcpClosedStandard, osdetect::OSProbeType::TcpClosedVariant};
+    for (const osdetect::OSProbeType type : ipv6_tcp_variants) {
+        const auto probe = osdetect::make_os_probe(type);
+        assert(probe != nullptr);
+        osdetect::OSProbeSubmission submission;
+        assert(probe->build(40U + static_cast<osdetect::OSProbeId>(type), ipv6_host, ipv6_config, submission) ==
+               core::StatusCode::Ok);
+        assert(packet::IPv6::parse(submission.bytes).has_value());
+        packet::TCP reply;
+        reply.set_source_port(submission.destination_port);
+        reply.set_destination_port(submission.source_port);
+        reply.set_sequence_number(0x44000000U);
+        reply.set_acknowledgment_number(submission.sequence_number + 1U);
+        reply.set_flags(static_cast<std::uint16_t>(packet::TcpFlag::Syn) |
+                        static_cast<std::uint16_t>(packet::TcpFlag::Ack));
+        reply.set_window(64240U);
+        const auto assessment = probe->assess(response_for(submission, reply.serialize()), submission);
+        assert(assessment.disposition == osdetect::OSProbeDisposition::Matching);
+        assert(assessment.tcp_observation.has_value());
+        assert(assessment.tcp_observation->family == core::AddressFamily::IPv6);
+    }
+
+    const auto ipv6_udp_probe = osdetect::make_os_probe(osdetect::OSProbeType::UdpFingerprint);
+    assert(ipv6_udp_probe != nullptr);
+    osdetect::OSProbeSubmission ipv6_udp_submission;
+    assert(ipv6_udp_probe->build(52U, ipv6_host, ipv6_config, ipv6_udp_submission) == core::StatusCode::Ok);
+    assert(packet::UDP::parse(ipv6_udp_submission.bytes).has_value());
+    packet::UDP ipv6_udp_reply;
+    ipv6_udp_reply.set_source_port(ipv6_udp_submission.destination_port);
+    ipv6_udp_reply.set_destination_port(ipv6_udp_submission.source_port);
+    ipv6_udp_reply.set_payload({0x01U, 0x02U, 0x03U});
+    const auto ipv6_udp_assessment = ipv6_udp_probe->assess(
+        response_for(ipv6_udp_submission, ipv6_udp_reply.serialize()), ipv6_udp_submission);
+    assert(ipv6_udp_assessment.disposition == osdetect::OSProbeDisposition::Matching);
+    assert(ipv6_udp_assessment.udp_observation.has_value());
+    assert(ipv6_udp_assessment.udp_observation->family == core::AddressFamily::IPv6);
+    assert(ipv6_udp_assessment.udp_observation->protocol == osdetect::OSProtocol::Udp);
+    auto wrong_ipv6_source = response_for(ipv6_udp_submission, ipv6_udp_reply.serialize());
+    wrong_ipv6_source.source_ip = *core::parse_ip_address("2001:db8::1");
+    wrong_ipv6_source.source_address = "2001:db8::1";
+    assert(ipv6_udp_probe->assess(wrong_ipv6_source, ipv6_udp_submission).disposition ==
+           osdetect::OSProbeDisposition::Unrelated);
 
     osdetect::RecordingOSProbeTransport transport;
     assert(transport.supports(osdetect::OSProbeType::TcpSynStandard));
