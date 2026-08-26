@@ -2,6 +2,19 @@
 
 namespace skan::net {
 
+const char *capability_state_name(CapabilityState state) noexcept
+{
+    switch (state) {
+    case CapabilityState::Available:
+        return "AVAILABLE";
+    case CapabilityState::Unavailable:
+        return "UNAVAILABLE";
+    case CapabilityState::Unknown:
+        return "UNKNOWN";
+    }
+    return "UNKNOWN";
+}
+
 const char *interface_status_name(InterfaceStatus status) noexcept
 {
     switch (status) {

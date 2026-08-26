@@ -2,6 +2,7 @@
 #define SKAN_NET_LINUX_DISCOVERY_TRANSPORT_HPP
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -42,6 +43,11 @@ private:
         discovery::ProbeSubmission submission;
     };
 
+    struct NeighborCacheEntry final {
+        std::array<std::uint8_t, 6U> mac{};
+        std::chrono::steady_clock::time_point expires_at{};
+    };
+
     void on_capture_event(io::Event &event) noexcept;
     void dispatch_observation(const PacketObservation &observation) noexcept;
     std::optional<std::vector<std::uint8_t>> compose_frame(
@@ -58,7 +64,7 @@ private:
     LinuxCapture capture_;
     PacketReceiver receiver_;
     std::unordered_map<discovery::ProbeId, Pending> pending_;
-    std::unordered_map<core::IpAddress, std::array<std::uint8_t, 6U>, core::IpAddressHash> neighbor_cache_;
+    mutable std::unordered_map<core::IpAddress, NeighborCacheEntry, core::IpAddressHash> neighbor_cache_;
     std::unordered_map<discovery::ProbeId, io::TimerId> neighbor_timers_;
     std::function<void(const discovery::DiscoveryResponse &)> response_handler_;
     std::uint32_t source_ipv4_{0U};

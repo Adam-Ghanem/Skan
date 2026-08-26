@@ -298,3 +298,23 @@ Phase 18 adds production-shaped, project-owned IPv6 OS fingerprint data and inte
 | Offline validation | Extended | Tests cover IPv6 database metadata, oversized input rejection, IPv6 probe variants and mismatches, protocol tags, family-safe matching, outputs, NDP, fuzz entry points, and IPv6/mixed benchmark rows. |
 
 No public-target traffic, evasion, spoofing, poisoning, exploitation, credentials, persistence, stealth, worker threads, polling, sleeps, duplicate reactors, or duplicate output pipelines were introduced.
+
+## R. Phase 19 production network capability validation
+
+Phase 19 audited and extended the Phase 0–18 implementation without changing the one-reactor architecture. The existing Target Engine, Scan Orchestrator, discovery, port scan, service, OS, packet, capture, correlation, timing, and output boundaries remain the only execution path.
+
+| Area | Status | Evidence and boundary |
+| --- | --- | --- |
+| Typed capability engine | IMPLEMENTED | `CapabilityFact` reports `AVAILABLE`, `UNAVAILABLE`, or `UNKNOWN` with interface, family, reason, and optional diagnostic. AF_INET/AF_INET6 sockets, route-table entries, source addresses, and AF_PACKET bind are separately evidenced. |
+| IPv4 capability facts | VALIDATED | Interface JSON and normal output expose AF_INET, route, source, raw capture/injection, TCP SYN, UDP, and ICMP facts. Legacy boolean fields remain compatible. |
+| IPv6 capability facts | VALIDATED | Interface JSON and normal output expose AF_INET6, route, global/link-local source, raw capture/injection, ICMPv6, TCP SYN, UDP, and NDP facts. No syscall-only fact is reported as live packet capability. |
+| Transport selection | IMPLEMENTED | Explicit offline, Connect, and Linux selection remains enforced. Linux raw discovery now reaches the existing IPv6 adapter after explicit interface and scope validation; unavailable capability is non-zero and never downgraded. |
+| NDP | IMPLEMENTED within bounded local-link scope | Existing discovery-local NS/NA processing now uses strict target/source/MAC checks, solicited-node multicast, SLLA/TLLA validation, a 64-entry maximum cache, 30-second TTL, deterministic eviction, timer expiry, duplicate suppression, and teardown cleanup. IPv6 never uses ARP. |
+| IPv6 raw SYN/UDP/discovery/OS | CAPABILITY-DEPENDENT | Existing typed packet composition, checksum, capture, exact correlation, retry, timeout, and cancellation paths remain in use. The sandbox cannot open AF_PACKET and reports `Operation not permitted`; no live success is claimed. |
+| Service detection | VALIDATED offline and through existing IPv4/IPv6 Connect path | Bounded TCP HTTP/SSH-like/banner fixtures remain on the existing stream transport; no identity is inferred solely from port number. |
+| OS fingerprinting | TESTED OFFLINE; CAPABILITY-DEPENDENT live | Phase 18’s project-owned IPv6 database and family-safe evidence/matcher remain integrated. Live raw OS probing requires actual interface capability and is unavailable in this sandbox. |
+| Packet safety | VALIDATED | Existing frame, extension, transport, ICMPv6, quoted-packet, checksum, malformed, truncation, duplicate, late, shutdown, and bounded-allocation tests remain passing. |
+| Timing/concurrency | VALIDATED | Existing one-IOEngine timers, adaptive timing, retry, cancellation, and stress coverage remain passing; no thread, polling, or sleep loop was introduced. |
+| Output/observability | IMPLEMENTED | `interfaces` normal and JSON output expose typed capability facts; diagnostics remain on stderr for live failures. Existing scan writers remain deterministic and stdout-clean for structured formats. |
+
+The restricted sandbox result is recorded as an environment limitation, not a code failure: AF_PACKET-dependent tests report `SKIPPED: ... Operation not permitted`. The optional fuzz target reports `SKIPPED` when `clang++` is unavailable. No public Internet target was contacted.

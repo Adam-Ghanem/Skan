@@ -1,14 +1,14 @@
 # Offline Benchmark Report
 
 **Author:** Manus AI
-**Date:** 2026-08-25
-**Revision under test:** `2a9e992b20e0e12dcee430a5e8169f6f443621e1` plus the audit hardening changes recorded in the working tree.
+**Date:** 2026-08-26
+**Revision under test:** Phase 19 working tree; the final commit hash is recorded in the delivery report.
 
 ## Methodology
 
 The opt-in `make benchmark` target builds `benchmarks/offline_benchmark.cpp` against the production library without the CLI entry point. It performs no network I/O. Each stage is executed five times for each target count; the reported wall time is the median sample and `p95_wall_ms` is the maximum of the five samples. Peak RSS is the Linux process `VmHWM` observed after the stage. The workload uses deterministic IPv4 addresses in documentation space, one TCP port per target, project-owned offline transports, the existing schedulers, the existing orchestrator, and the canonical JSON/XML writers.
 
-The benchmark measures target expansion, TCP scheduling, UDP scheduling, service scheduling, OS scheduling, full offline orchestration, and serialization. The OS stage sends twelve deterministic logical probes per target through `RecordingOSProbeTransport`; no packets leave the process. Results are machine-specific and should be used for regression comparison rather than as universal throughput claims.
+The benchmark measures IPv4, IPv6, and mixed target expansion; IPv4 and IPv6 packet parsing; NDP parsing; correlation lookup; TCP/UDP/service scheduling; IPv6 OS parsing/matching/scheduling; mixed scheduling; full IPv4/IPv6/mixed offline orchestration; OS scheduling; and serialization. The OS stage sends twelve deterministic logical probes per target through `RecordingOSProbeTransport`; no packets leave the process. Each row reports five-sample median and maximum-of-five p95, throughput, and peak Linux `VmHWM`. Results are machine-specific and should be used for regression comparison rather than as universal throughput claims.
 
 ## Results
 
@@ -59,3 +59,42 @@ make benchmark
 ```
 
 The benchmark target is opt-in and is not part of the ordinary test recipe. It must remain offline and must not be changed to generate public-target traffic.
+
+## Phase 19 required matrix
+
+The benchmark driver now emits the following required rows: `target-expansion`, `ipv6-target-expansion`, `mixed-target-expansion`, `ipv4-receiver-parser`, `ipv6-receiver-parser`, `ipv6-ndp-parser`, `correlation-lookup`, `ipv6-os-matcher`, `ipv6-os-scheduler`, `mixed-os-scheduler`, `full-ipv4-orchestrator`, `full-ipv6-orchestrator`, and `mixed-orchestrator`. The 1,000- and 10,000-target runs exercise the corresponding bounded workloads; the correlation row uses the existing typed IPv6 `CorrelationTable` with deterministic insertion and lookup.
+
+These are offline measurements only. They validate algorithmic scaling and resource behavior, not permission to inject or capture live packets. AF_PACKET-dependent integration remains capability-gated and is reported separately as `SKIPPED`/`UNAVAILABLE` when the host denies raw packet access.
+
+## Phase 19 measurements
+
+| Stage | Targets | Median wall (ms) | p95 wall (ms) | Operations/s | Peak RSS (KiB) | Operations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Target expansion | 1,000 | 0.131 | 0.200 | 7,657,730 | 4,368 | 1,000 |
+| IPv6 target expansion | 1,000 | 0.209 | 0.258 | 4,774,272 | 4,620 | 1,000 |
+| Mixed target expansion | 1,000 | 0.291 | 0.416 | 3,437,135 | 4,940 | 1,000 |
+| IPv4 packet parser | 1,000 | 0.065 | 0.067 | 15,499,791 | 4,940 | 1,000 |
+| IPv6 packet parser | 1,000 | 0.070 | 0.082 | 14,227,584 | 4,940 | 1,000 |
+| NDP parser | 1,000 | 0.072 | 0.072 | 27,832,283 | 4,940 | 2,000 |
+| Correlation lookup | 1,000 | 0.271 | 0.279 | 3,691,099 | 15,136 | 1,000 |
+| IPv6 OS matcher | 1,000 | 1.427 | 1.971 | 2,102,475 | 4,940 | 3,000 |
+| IPv6 OS scheduler | 1,000 | 51.820 | 52.900 | 231,570 | 14,812 | 12,000 |
+| Mixed OS scheduler | 1,000 | 52.244 | 53.087 | 229,694 | 14,812 | 12,000 |
+| Full IPv4 orchestrator | 1,000 | 7.270 | 7.844 | 137,551 | 15,136 | 1,000 |
+| Full IPv6 orchestrator | 1,000 | 1,166.051 | 1,173.563 | 858 | 29,708 | 1,000 |
+| Mixed orchestrator | 1,000 | 1,162.880 | 1,188.274 | 860 | 29,708 | 1,000 |
+| Target expansion | 10,000 | 2.064 | 2.856 | 4,845,957 | 7,056 | 10,000 |
+| IPv6 target expansion | 10,000 | 2.560 | 2.596 | 3,906,816 | 7,376 | 10,000 |
+| Mixed target expansion | 10,000 | 3.821 | 3.923 | 2,616,873 | 11,392 | 10,000 |
+| IPv4 packet parser | 10,000 | 0.675 | 0.677 | 14,816,527 | 11,392 | 10,000 |
+| IPv6 packet parser | 10,000 | 0.718 | 0.747 | 13,926,490 | 11,392 | 10,000 |
+| NDP parser | 10,000 | 0.736 | 0.747 | 27,170,443 | 11,392 | 20,000 |
+| Correlation lookup | 10,000 | 3.002 | 3.148 | 3,331,626 | 93,664 | 10,000 |
+| IPv6 OS matcher | 10,000 | 13.807 | 14.807 | 2,172,872 | 11,392 | 30,000 |
+| IPv6 OS scheduler | 10,000 | 523.177 | 535.059 | 229,368 | 92,248 | 120,000 |
+| Mixed OS scheduler | 10,000 | 525.875 | 527.766 | 228,191 | 92,288 | 120,000 |
+| Full IPv4 orchestrator | 10,000 | 106.229 | 112.219 | 94,137 | 93,664 | 10,000 |
+| Full IPv6 orchestrator | 10,000 | 11,865.634 | 11,932.637 | 843 | 245,312 | 10,000 |
+| Mixed orchestrator | 10,000 | 11,809.484 | 12,077.619 | 847 | 245,312 | 10,000 |
+
+These measurements confirm that the expanded IPv6 and mixed orchestration rows execute entirely offline. The substantially higher IPv6 and mixed orchestrator time reflects the enabled OS scheduler’s twelve logical probes per host; it is not a live-network timing claim.

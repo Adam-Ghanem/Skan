@@ -25,6 +25,8 @@ namespace {
 
 constexpr std::uint16_t kEtherTypeIpv4 = 0x0800U;
 constexpr std::uint16_t kEtherTypeArp = 0x0806U;
+constexpr std::size_t kMaximumNeighborCacheEntries = 64U;
+constexpr std::chrono::seconds kNeighborCacheTtl{30};
 constexpr std::uint8_t kIpProtocolIcmp = 1U;
 constexpr std::uint8_t kIpProtocolTcp = 6U;
 
@@ -354,7 +356,30 @@ void LinuxDiscoveryTransport::dispatch_observation(const PacketObservation &obse
                     continue;
                 }
                 const discovery::ProbeSubmission original = pending->second.submission;
-                neighbor_cache_[original.target_ip] = options.front().mac;
+                const auto now = std::chrono::steady_clock::now();
+                for (auto cache_iterator = neighbor_cache_.begin(); cache_iterator != neighbor_cache_.end();) {
+                    if (cache_iterator->second.expires_at <= now) {
+                        cache_iterator = neighbor_cache_.erase(cache_iterator);
+                    } else {
+                        ++cache_iterator;
+                    }
+                }
+                if (!neighbor_cache_.contains(original.target_ip) &&
+                    neighbor_cache_.size() >= kMaximumNeighborCacheEntries) {
+                    const auto oldest = std::min_element(
+                        neighbor_cache_.begin(), neighbor_cache_.end(),
+                        [](const auto &left, const auto &right) {
+                            if (left.second.expires_at != right.second.expires_at) {
+                                return left.second.expires_at < right.second.expires_at;
+                            }
+                            return left.first < right.first;
+                        });
+                    if (oldest != neighbor_cache_.end()) {
+                        neighbor_cache_.erase(oldest);
+                    }
+                }
+                neighbor_cache_[original.target_ip] = NeighborCacheEntry{
+                    options.front().mac, now + kNeighborCacheTtl};
                 (void)io_engine_.cancel(timer_id);
                 neighbor_timers_.erase(timer_iterator);
                 const auto frame = compose_frame(original);
@@ -577,7 +602,10 @@ std::optional<std::array<std::uint8_t, 6U>> LinuxDiscoveryTransport::destination
     if (target_ip.is_ipv6()) {
         const auto cached = neighbor_cache_.find(target_ip);
         if (cached != neighbor_cache_.end()) {
-            return cached->second;
+            if (cached->second.expires_at > std::chrono::steady_clock::now()) {
+                return cached->second.mac;
+            }
+            neighbor_cache_.erase(cached);
         }
         return std::nullopt;
     }

@@ -26,6 +26,16 @@ int main()
     first.supports_injection = false;
     first.supports_ipv6_capture = true;
     first.supports_ipv6_injection = false;
+    first.ipv6_route = {skan::net::CapabilityState::Available, first.name, skan::core::AddressFamily::IPv6,
+                        "IPv6 route entry is present", 0};
+    first.raw_ipv6_capture = {skan::net::CapabilityState::Unavailable, first.name, skan::core::AddressFamily::IPv6,
+                              "Operation not permitted", 1};
+    assert(skan::net::capability_state_name(skan::net::CapabilityState::Available) == std::string{"AVAILABLE"});
+    assert(first.ipv6_route.state == skan::net::CapabilityState::Available);
+    assert(first.ipv6_route.family == skan::core::AddressFamily::IPv6);
+    assert(first.ipv6_route.interface_name == "zeta0");
+    assert(first.raw_ipv6_capture.reason == "Operation not permitted");
+    assert(first.raw_ipv6_capture.diagnostic == 1);
     skan::net::NetworkInterface second;
     second.name = "alpha0";
     second.index = 4U;

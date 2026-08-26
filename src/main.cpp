@@ -97,7 +97,7 @@ void print_help()
               << "  Phase 14 — Live OS Fingerprinting Engine\n"
               << "\nTarget specifications accept IPv4/IPv6, CIDR, inclusive ranges, hostnames, and comma-separated mixtures.\n"
               << "The resolve command normalizes targets without scanning; use --max-targets to bound expansion.\n"
-              << "Discovery CLI mode uses an offline recording transport; Linux IPv6 discovery is reported unavailable without fallback.\n"
+              << "Discovery CLI mode uses an offline recording transport; explicit Linux IPv6 discovery is capability-gated and reports failure without fallback.\n"
               << "Scan Connect mode uses normal nonblocking TCP sockets unless --transport offline is selected.\n"
               << "Scan SYN mode requires explicit --transport offline or --transport linux --interface <name>.\n"
               << "The scan pipeline runs Discovery, TCP Port, UDP (when --udp), Service, OS, and Output stages sequentially.\n"
@@ -235,8 +235,6 @@ int run_discover(int argc, char **argv)
             std::cerr << "Error: " << scope_error << ".\n";
             return EXIT_FAILURE;
         }
-        std::cerr << "Error: Linux IPv6 discovery is unavailable in this phase; no fallback transport is used.\n";
-        return EXIT_FAILURE;
     }
 
     skan::core::Target target{
@@ -386,6 +384,29 @@ std::string interface_ipv6_address_text(const skan::net::InterfaceIPv6Address &a
     return address.address.to_string();
 }
 
+void write_capability_json(const skan::net::CapabilityFact &fact)
+{
+    std::cout << "{\"state\":\"" << skan::net::capability_state_name(fact.state)
+              << "\",\"interface\":\"" << json_escape(fact.interface_name)
+              << "\",\"family\":\"" << skan::core::address_family_name(fact.family)
+              << "\",\"reason\":\"" << json_escape(fact.reason) << '\"';
+    if (fact.diagnostic != 0) {
+        std::cout << ",\"diagnostic\":" << fact.diagnostic;
+    }
+    std::cout << '}';
+}
+
+void write_capability_normal(std::string_view name, const skan::net::CapabilityFact &fact)
+{
+    std::cout << name << ": " << skan::net::capability_state_name(fact.state)
+              << " family=" << skan::core::address_family_name(fact.family)
+              << " reason=" << fact.reason;
+    if (fact.diagnostic != 0) {
+        std::cout << " diagnostic=" << fact.diagnostic;
+    }
+    std::cout << '\n';
+}
+
 void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &interfaces)
 {
     std::cout << "{\"interfaces\":[";
@@ -421,7 +442,44 @@ void write_interfaces_json(const std::vector<skan::net::NetworkInterface> &inter
                   << ",\"ipv6_injection\":" << (interface.supports_ipv6_injection ? "true" : "false")
                   << ",\"af_inet6\":" << (interface.supports_af_inet6 ? "true" : "false")
                   << ",\"ipv6_route\":" << (interface.supports_ipv6_route ? "true" : "false")
-                  << ",\"cap_net_raw\":" << (interface.has_cap_net_raw ? "true" : "false") << '}';
+                  << ",\"cap_net_raw\":" << (interface.has_cap_net_raw ? "true" : "false")
+                  << ",\"capabilities\":{\"ipv4\":{\"af_inet\":";
+        write_capability_json(interface.af_inet);
+        std::cout << ",\"route\":";
+        write_capability_json(interface.ipv4_route);
+        std::cout << ",\"source\":";
+        write_capability_json(interface.ipv4_source);
+        std::cout << ",\"raw_capture\":";
+        write_capability_json(interface.raw_ipv4_capture);
+        std::cout << ",\"raw_injection\":";
+        write_capability_json(interface.raw_ipv4_injection);
+        std::cout << ",\"tcp_syn\":";
+        write_capability_json(interface.tcp_syn_ipv4);
+        std::cout << ",\"udp\":";
+        write_capability_json(interface.udp_raw_ipv4);
+        std::cout << ",\"icmp\":";
+        write_capability_json(interface.icmp_ipv4);
+        std::cout << "},\"ipv6\":{\"af_inet6\":";
+        write_capability_json(interface.af_inet6);
+        std::cout << ",\"route\":";
+        write_capability_json(interface.ipv6_route);
+        std::cout << ",\"global_source\":";
+        write_capability_json(interface.global_ipv6_source);
+        std::cout << ",\"link_local_source\":";
+        write_capability_json(interface.link_local_ipv6_source);
+        std::cout << ",\"raw_capture\":";
+        write_capability_json(interface.raw_ipv6_capture);
+        std::cout << ",\"raw_injection\":";
+        write_capability_json(interface.raw_ipv6_injection);
+        std::cout << ",\"icmpv6\":";
+        write_capability_json(interface.icmpv6);
+        std::cout << ",\"tcp_syn\":";
+        write_capability_json(interface.tcp_syn_ipv6);
+        std::cout << ",\"udp\":";
+        write_capability_json(interface.udp_ipv6);
+        std::cout << ",\"ndp\":";
+        write_capability_json(interface.ndp_ipv6);
+        std::cout << "}}}";
     }
     std::cout << "]}\n";
 }
@@ -467,7 +525,26 @@ void write_interfaces_normal(const std::vector<skan::net::NetworkInterface> &int
                   << "IPv6 injection: " << (interface.supports_ipv6_injection ? "available" : "unavailable") << '\n'
                   << "AF_INET6: " << (interface.supports_af_inet6 ? "available" : "unavailable") << '\n'
                   << "IPv6 route: " << (interface.supports_ipv6_route ? "available" : "unavailable") << '\n'
-                  << "CAP_NET_RAW: " << (interface.has_cap_net_raw ? "available" : "unavailable") << "\n\n";
+                  << "CAP_NET_RAW: " << (interface.has_cap_net_raw ? "available" : "unavailable") << '\n';
+        write_capability_normal("IPv4 AF_INET", interface.af_inet);
+        write_capability_normal("IPv4 route", interface.ipv4_route);
+        write_capability_normal("IPv4 source", interface.ipv4_source);
+        write_capability_normal("IPv4 raw capture", interface.raw_ipv4_capture);
+        write_capability_normal("IPv4 raw injection", interface.raw_ipv4_injection);
+        write_capability_normal("IPv4 TCP SYN", interface.tcp_syn_ipv4);
+        write_capability_normal("IPv4 UDP", interface.udp_raw_ipv4);
+        write_capability_normal("IPv4 ICMP", interface.icmp_ipv4);
+        write_capability_normal("IPv6 AF_INET6", interface.af_inet6);
+        write_capability_normal("IPv6 route", interface.ipv6_route);
+        write_capability_normal("IPv6 global source", interface.global_ipv6_source);
+        write_capability_normal("IPv6 link-local source", interface.link_local_ipv6_source);
+        write_capability_normal("IPv6 raw capture", interface.raw_ipv6_capture);
+        write_capability_normal("IPv6 raw injection", interface.raw_ipv6_injection);
+        write_capability_normal("IPv6 ICMPv6", interface.icmpv6);
+        write_capability_normal("IPv6 TCP SYN", interface.tcp_syn_ipv6);
+        write_capability_normal("IPv6 UDP", interface.udp_ipv6);
+        write_capability_normal("IPv6 NDP", interface.ndp_ipv6);
+        std::cout << '\n';
     }
 }
 

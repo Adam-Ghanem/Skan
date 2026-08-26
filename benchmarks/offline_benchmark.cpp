@@ -16,6 +16,7 @@
 #include "io/io_engine.hpp"
 #include "orchestrator/scan_pipeline.hpp"
 #include "net/packet_receiver.hpp"
+#include "net/packet_filter.hpp"
 #include "osdetect/os_matcher.hpp"
 #include "osdetect/os_scheduler.hpp"
 #include "output/output_manager.hpp"
@@ -23,6 +24,7 @@
 #include "portscan/port_scheduler.hpp"
 #include "portscan/udp_scan.hpp"
 #include "packet/ethernet.hpp"
+#include "packet/ipv4.hpp"
 #include "packet/ipv6.hpp"
 #include "packet/icmpv6.hpp"
 #include "packet/packet.hpp"
@@ -204,6 +206,57 @@ void benchmark_ipv6_target_expansion(std::size_t count)
     });
 }
 
+void benchmark_mixed_target_expansion(std::size_t count)
+{
+    std::string specification;
+    specification.reserve(count * 40U);
+    for (std::size_t index = 0U; index < count; ++index) {
+        if (!specification.empty()) {
+            specification.push_back(',');
+        }
+        specification += (index % 2U == 0U) ? address_for(index / 2U) : ipv6_address_for(index / 2U);
+    }
+    measure("mixed-target-expansion", count, [&specification, count]() {
+        const auto result = skan::target::TargetEngine::resolve(
+            specification, skan::target::TargetLimits{count, 64U});
+        return result.success() ? result.target_set.size() : 0U;
+    });
+}
+
+std::vector<std::uint8_t> ipv4_udp_frame()
+{
+    skan::packet::Ethernet ethernet(
+        {0x00U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U},
+        {0x66U, 0x77U, 0x88U, 0x99U, 0xAAU, 0xBBU}, 0x0800U);
+    skan::packet::IPv4 ipv4;
+    ipv4.set_source_address(0xC0000201U);
+    ipv4.set_destination_address(0xC0000202U);
+    ipv4.set_protocol(17U);
+    skan::packet::UDP udp;
+    udp.set_source_port(40000U);
+    udp.set_destination_port(53U);
+    udp.set_payload({0x01U, 0x02U, 0x03U, 0x04U, 0x05U});
+    skan::packet::Packet packet;
+    packet.set_ethernet(ethernet);
+    packet.set_ipv4(ipv4);
+    packet.set_udp(udp);
+    return packet.serialize();
+}
+
+void benchmark_ipv4_receiver(std::size_t count)
+{
+    const std::vector<std::uint8_t> frame = ipv4_udp_frame();
+    measure("ipv4-receiver-parser", count, [&frame, count]() {
+        std::size_t valid = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            if (skan::net::PacketReceiver::parse(frame).status == skan::net::ParseStatus::Valid) {
+                ++valid;
+            }
+        }
+        return valid;
+    });
+}
+
 void benchmark_ipv6_receiver(std::size_t count)
 {
     const std::vector<std::uint8_t> frame = ipv6_udp_frame();
@@ -241,6 +294,42 @@ void benchmark_ipv6_ndp(std::size_t count)
             }
         }
         return valid;
+    });
+}
+
+void benchmark_correlation(std::size_t count)
+{
+    measure("correlation-lookup", count, [count]() {
+        skan::net::CorrelationTable table;
+        const auto expires = Clock::now() + std::chrono::seconds{30};
+        for (std::size_t index = 0U; index < count; ++index) {
+            auto address = skan::core::parse_ip_address("2001:db8::1")->bytes;
+            address[8] = static_cast<std::uint8_t>(index >> 8U);
+            address[15] = static_cast<std::uint8_t>(index);
+            skan::net::CorrelationKey key;
+            key.target_ip = skan::core::IpAddress::from_ipv6(address);
+            key.source_port = static_cast<std::uint16_t>(40000U + (index % 20000U));
+            key.destination_port = 443U;
+            key.sequence = static_cast<std::uint32_t>(index);
+            if (table.insert(key, index + 1U, expires) != skan::net::CorrelationStatus::Inserted) {
+                return std::size_t{0U};
+            }
+        }
+        std::size_t found = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            auto address = skan::core::parse_ip_address("2001:db8::1")->bytes;
+            address[8] = static_cast<std::uint8_t>(index >> 8U);
+            address[15] = static_cast<std::uint8_t>(index);
+            skan::net::CorrelationKey key;
+            key.target_ip = skan::core::IpAddress::from_ipv6(address);
+            key.source_port = static_cast<std::uint16_t>(40000U + (index % 20000U));
+            key.destination_port = 443U;
+            key.sequence = static_cast<std::uint32_t>(index);
+            if (table.lookup(key, Clock::now()).status == skan::net::CorrelationStatus::Found) {
+                ++found;
+            }
+        }
+        return found;
     });
 }
 
@@ -474,10 +563,33 @@ void benchmark_mixed_orchestrator(std::size_t count)
     });
 }
 
-void benchmark_orchestrator(std::size_t count)
+void benchmark_ipv6_orchestrator(std::size_t count)
+{
+    const skan::core::Target target = ipv6_target_for(count);
+    measure("full-ipv6-orchestrator", count, [&target, count]() {
+        skan::orchestrator::ScanConfig config;
+        config.targets = {target};
+        config.transport = skan::orchestrator::ScanTransport::Offline;
+        config.discovery_enabled = false;
+        config.port_scan_enabled = true;
+        config.os_detection_enabled = true;
+        config.ports = {80U};
+        config.timeout = std::chrono::milliseconds{1};
+        config.max_parallelism = std::min<std::size_t>(count, 1024U);
+        config.output_format = skan::output::OutputFormat::Json;
+        skan::orchestrator::ScanPipeline pipeline(config);
+        std::ostringstream output;
+        if (pipeline.run(output) != skan::core::StatusCode::Ok) {
+            return std::size_t{0U};
+        }
+        return pipeline.report().has_value() ? pipeline.report()->hosts.size() : 0U;
+    });
+}
+
+void benchmark_ipv4_orchestrator(std::size_t count)
 {
     const skan::core::Target target = target_for(count);
-    measure("full-orchestrator", count, [&target, count]() {
+    measure("full-ipv4-orchestrator", count, [&target, count]() {
         skan::orchestrator::ScanConfig config;
         config.targets = {target};
         config.transport = skan::orchestrator::ScanTransport::Offline;
@@ -519,6 +631,8 @@ int main(int argc, char **argv)
     for (const std::size_t count : counts) {
         benchmark_target_expansion(count);
         benchmark_ipv6_target_expansion(count);
+        benchmark_mixed_target_expansion(count);
+        benchmark_ipv4_receiver(count);
         benchmark_ipv6_receiver(count);
         benchmark_ipv6_ndp(count);
         benchmark_ipv6_os_parser(count);
@@ -530,7 +644,9 @@ int main(int argc, char **argv)
         benchmark_mixed_udp(count);
         benchmark_service(count);
         benchmark_os(count);
-        benchmark_orchestrator(count);
+        benchmark_correlation(count);
+        benchmark_ipv4_orchestrator(count);
+        benchmark_ipv6_orchestrator(count);
         benchmark_mixed_orchestrator(count);
         benchmark_serialization(count, skan::output::OutputFormat::Json, "json-serialization");
         benchmark_serialization(count, skan::output::OutputFormat::Xml, "xml-serialization");
