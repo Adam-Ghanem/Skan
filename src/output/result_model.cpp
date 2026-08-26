@@ -93,6 +93,9 @@ ScanSummary calculate_summary(const ScanReport &report) noexcept
             case portscan::PortState::Error:
                 ++summary.error_ports;
                 break;
+            case portscan::PortState::Unreachable:
+                ++summary.unreachable_ports;
+                break;
             }
         }
         for (const detect::ServiceResult &service : host.services) {

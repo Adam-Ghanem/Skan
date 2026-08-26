@@ -31,12 +31,15 @@ enum class PortState {
     Unknown,
     OpenOrFiltered,
     Unfiltered,
-    Error
+    Error,
+    Unreachable
 };
 
 enum class ScanReason {
     ImmediateSuccess = 0,
     ConnectionRefused,
+    NetworkUnreachable,
+    LocalAddressUnavailable,
     SynAck,
     Rst,
     Timeout,

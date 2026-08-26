@@ -76,3 +76,19 @@ No Nmap code, probe corpus, OS database, or NSE script was copied. Phase 20 vali
 | Evasion/decoys/spoofing/exploitation | Intentionally not implemented. |
 
 Phase 21 does not clone Nmap, import its code or databases, or claim compatibility or equivalence. The comparison is a capability-gap record only. No public-target traffic was used.
+
+## Phase 22 capability comparison
+
+Phase 22 improves operational correctness at the explicit live-transport boundary without attempting Nmap equivalence. Target-aware interface selection uses Skan’s existing interface facts and route/source evidence; ARP requests use the selected local identity and replies are checked against Ethernet and ARP correlation fields; Connect errors preserve unreachable and local-source distinctions; and raw Linux failures remain structured and terminal.
+
+| Nmap capability area | Phase 22 Skan status |
+| --- | --- |
+| Raw interface selection | Implemented within Skan’s existing interface/capability subsystem; deterministic source and route evidence, explicit-interface override, no fallback. |
+| ARP discovery identity | Implemented for the existing bounded Linux discovery adapter; sender identity is patched from the selected interface and replies are strictly validated. |
+| TCP Connect states | Implemented for the existing nonblocking path, including `UNREACHABLE` and local-source `UNKNOWN` reasons. |
+| Raw SYN/UDP/ICMP/ICMPv6/NDP/OS exchange | Implemented as explicit capability-gated adapters within scope; not live-validated in this sandbox because AF_PACKET returns `Operation not permitted`. |
+| Service and TLS handling | Bounded project-owned probes and identification-only TLS record handling; not Nmap’s broad probe corpus or certificate analysis. |
+| OS detection | Bounded project-owned evidence and matcher; raw capability failure is explicit and does not fabricate an identity. |
+| NSE, broad databases, evasion, spoofing, exploitation | Intentionally not implemented. |
+
+No Nmap source code, probe database, OS database, or scripts were copied. All validation remains offline, loopback-only, or private/documentation-address scoped, and no public target was contacted.

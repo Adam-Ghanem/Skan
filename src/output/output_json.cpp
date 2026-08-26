@@ -528,6 +528,8 @@ OutputStatus JsonOutputWriter::write(
     json.integer(summary.unfiltered_ports);
     json.key("error_ports", summary_first, 2U);
     json.integer(summary.error_ports);
+    json.key("unreachable_ports", summary_first, 2U);
+    json.integer(summary.unreachable_ports);
     json.key("unknown_ports", summary_first, 2U);
     json.integer(summary.unknown_ports);
     json.key("services_detected", summary_first, 2U);

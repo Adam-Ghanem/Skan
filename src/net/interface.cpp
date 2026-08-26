@@ -546,6 +546,76 @@ std::vector<NetworkInterface> enumerate_interfaces()
     return enumerate_interfaces_result().interfaces;
 }
 
+InterfaceResult select_interface_for_target(const core::Target &target)
+{
+    InterfaceResult result;
+    if (target.resolved_hosts.empty()) {
+        result.status = InterfaceStatus::RoutingUnavailable;
+        result.message = "cannot select a raw interface for an empty target";
+        return result;
+    }
+
+    bool needs_ipv4 = false;
+    bool needs_ipv6 = false;
+    bool all_loopback = true;
+    for (const core::Host &host : target.resolved_hosts) {
+        const core::IpAddress address = host.ip_address.valid() ? host.ip_address
+                                                                  : core::parse_ip_address(host.address).value_or(core::IpAddress{});
+        if (address.is_ipv4()) {
+            needs_ipv4 = true;
+            if (address.bytes[0] != 127U) {
+                all_loopback = false;
+            }
+        } else if (address.is_ipv6()) {
+            needs_ipv6 = true;
+            const bool loopback = address.bytes[0] == 0U && address.bytes[1] == 0U && address.bytes[2] == 0U &&
+                                  address.bytes[3] == 0U && address.bytes[4] == 0U && address.bytes[5] == 0U &&
+                                  address.bytes[6] == 0U && address.bytes[7] == 0U && address.bytes[8] == 0U &&
+                                  address.bytes[9] == 0U && address.bytes[10] == 0U && address.bytes[11] == 0U &&
+                                  address.bytes[12] == 0U && address.bytes[13] == 0U && address.bytes[14] == 0U &&
+                                  address.bytes[15] == 1U;
+            if (!loopback) {
+                all_loopback = false;
+            }
+        } else {
+            result.status = InterfaceStatus::NotSupported;
+            result.message = "target contains an unsupported address family";
+            return result;
+        }
+    }
+
+    const InterfaceEnumerationResult enumeration = enumerate_interfaces_result();
+    if (!enumeration.success()) {
+        result.status = enumeration.status;
+        result.system_error = enumeration.system_error;
+        result.message = enumeration.message;
+        return result;
+    }
+    for (const NetworkInterface &candidate : enumeration.interfaces) {
+        if (!candidate.is_up) {
+            continue;
+        }
+        const bool has_ipv4 = !candidate.ipv4_addresses.empty() &&
+                              candidate.ipv4_route.state == CapabilityState::Available;
+        const bool has_ipv6 = !candidate.ipv6_addresses.empty() &&
+                              candidate.ipv6_route.state == CapabilityState::Available;
+        const bool loopback_candidate = candidate.name == "lo";
+        if (needs_ipv4 && !(has_ipv4 || (all_loopback && loopback_candidate && !candidate.ipv4_addresses.empty()))) {
+            continue;
+        }
+        if (needs_ipv6 && !(has_ipv6 || (all_loopback && loopback_candidate && !candidate.ipv6_addresses.empty()))) {
+            continue;
+        }
+        result.status = InterfaceStatus::Success;
+        result.interface = candidate;
+        result.message = "interface selected from deterministic source and route evidence";
+        return result;
+    }
+    result.status = InterfaceStatus::RoutingUnavailable;
+    result.message = "no single operational interface has source and route evidence for every target family";
+    return result;
+}
+
 InterfaceResult find_interface_result(std::string_view name)
 {
     InterfaceResult result;

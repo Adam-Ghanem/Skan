@@ -65,6 +65,7 @@ struct ScanSummary final {
     std::size_t open_or_filtered_ports{0U};
     std::size_t unfiltered_ports{0U};
     std::size_t error_ports{0U};
+    std::size_t unreachable_ports{0U};
     std::size_t unknown_ports{0U};
     std::size_t services_detected{0U};
     std::size_t os_matches{0U};

@@ -165,6 +165,7 @@ OutputStatus GrepableOutputWriter::write(
            << " open_or_filtered_ports=" << summary.open_or_filtered_ports
            << " unfiltered_ports=" << summary.unfiltered_ports
            << " error_ports=" << summary.error_ports
+           << " unreachable_ports=" << summary.unreachable_ports
            << " unknown_ports=" << summary.unknown_ports
            << " services_detected=" << summary.services_detected
            << " os_matches=" << summary.os_matches << '\n';

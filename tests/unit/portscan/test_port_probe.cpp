@@ -56,6 +56,30 @@ int main()
     assert(connect_probe.assess(refused, connect_submission, state, reason) == skan::core::StatusCode::Ok);
     assert(state == PortState::Closed);
     assert(reason == ScanReason::ConnectionRefused);
+
+    PortResponse timeout{1U, "127.0.0.1", PortResponseKind::SocketError, ETIMEDOUT, {}, PortScanClock::now()};
+    assert(connect_probe.assess(timeout, connect_submission, state, reason) == skan::core::StatusCode::Ok);
+    assert(state == PortState::Filtered);
+    assert(reason == ScanReason::Timeout);
+
+    PortResponse unreachable{1U, "127.0.0.1", PortResponseKind::SocketError, ENETUNREACH, {}, PortScanClock::now()};
+    assert(connect_probe.assess(unreachable, connect_submission, state, reason) == skan::core::StatusCode::Ok);
+    assert(state == PortState::Unreachable);
+    assert(reason == ScanReason::NetworkUnreachable);
+
+    PortResponse host_unreachable{1U, "127.0.0.1", PortResponseKind::SocketError, EHOSTUNREACH, {}, PortScanClock::now()};
+    assert(connect_probe.assess(host_unreachable, connect_submission, state, reason) == skan::core::StatusCode::Ok);
+    assert(state == PortState::Unreachable);
+
+    PortResponse local_address{1U, "127.0.0.1", PortResponseKind::SocketError, EADDRNOTAVAIL, {}, PortScanClock::now()};
+    assert(connect_probe.assess(local_address, connect_submission, state, reason) == skan::core::StatusCode::Ok);
+    assert(state == PortState::Unknown);
+    assert(reason == ScanReason::LocalAddressUnavailable);
+
+    PortResponse reset{1U, "127.0.0.1", PortResponseKind::SocketError, ECONNRESET, {}, PortScanClock::now()};
+    assert(connect_probe.assess(reset, connect_submission, state, reason) == skan::core::StatusCode::Ok);
+    assert(state == PortState::Unknown);
+
     PortResponse wrong_id{2U, "127.0.0.1", PortResponseKind::Connected, 0, {}, PortScanClock::now()};
     assert(connect_probe.assess(wrong_id, connect_submission, state, reason) == skan::core::StatusCode::NotFound);
 

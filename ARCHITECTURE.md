@@ -741,3 +741,12 @@ The preflight deliberately distinguishes evidence from proof. AF_PACKET bind est
 IPv6 discovery accepts a target-family hint before opening so loopback, global, and scoped link-local diagnostics remain family-correct. NDP remains discovery-local and bounded; Phase 21 does not claim a generalized neighbor subsystem for every raw adapter. Non-loopback raw IPv6 SYN/UDP/OS operation remains capability- and neighbor-dependent, with explicit destination-MAC/NDP limitations documented rather than hidden.
 
 `ScanMetrics` now exposes saturating-safe target failure, cancellation, retry, SRTT, RTTVAR, RTO, and timeout-backoff fields. Writers consume the canonical report only; JSON, XML, normal, and grepable formats are still presentation branches of one output tree. No blocking operation, shell invocation, worker thread, polling loop, or sleep-based wait was introduced.
+
+
+## Phase 22 Architecture Record
+
+Phase 22 extends the existing interface module rather than adding a parallel capability subsystem. `select_interface_for_target` evaluates the already-resolved target families against deterministic interface enumeration, assigned sources, and route evidence; loopback targets receive the controlled local exception needed for `lo`. A single selected interface is propagated through the existing orchestrator and stage constructors, and explicit user selection still takes precedence.
+
+The Linux discovery adapter now rewrites the offline-oriented ARP request with the actual selected interface MAC and IPv4 source before Ethernet transmission. ARP replies are admitted only when Ethernet and ARP identities agree with the pending target and selected local identity. IPv6 continues to use NDP only, with scoped link-local validation and the existing bounded discovery-local cache/retry path.
+
+Phase 22 also preserves structured failure semantics through the existing transport/session boundary. TCP Connect distinguishes timeout, routed-unreachable, and unavailable-local-source errors. Raw UDP records family-aware preflight and injection diagnostics. Linux raw OS setup is a terminal capability failure when AF_PACKET or another required prerequisite is unavailable; it does not return a fabricated identity or silently substitute another transport. The single epoll reactor, one-shot timers, packet parser, correlation ownership, and canonical output model remain unchanged.

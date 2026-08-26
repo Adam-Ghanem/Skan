@@ -2,6 +2,7 @@
 #define SKAN_TEST_OUTPUT_TEST_FIXTURE_HPP
 
 #include <chrono>
+#include <cerrno>
 #include <string>
 
 #include "output/result_model.hpp"
@@ -68,6 +69,16 @@ inline ScanReport make_report()
         std::nullopt,
         {},
         0U,
+        std::nullopt});
+    second.ports.push_back(portscan::PortResult{
+        second.address,
+        portscan::Port{8443U, portscan::Protocol::Tcp},
+        portscan::PortState::Unreachable,
+        portscan::ScanProbeType::TcpConnect,
+        portscan::ScanReason::NetworkUnreachable,
+        std::nullopt,
+        {},
+        ENETUNREACH,
         std::nullopt});
     second.services.push_back(detect::ServiceResult{
         second.address,

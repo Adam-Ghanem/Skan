@@ -41,7 +41,8 @@ int main()
 
     invalid = valid_config();
     invalid.transport = skan::orchestrator::ScanTransport::Linux;
-    assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
+    invalid.port_method = skan::portscan::ScanProbeType::TcpSyn;
+    assert(invalid.validate() == skan::core::StatusCode::Ok);
     invalid.interface_name = "lo";
     invalid.port_method = skan::portscan::ScanProbeType::TcpConnect;
     assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);

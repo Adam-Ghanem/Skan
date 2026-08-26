@@ -174,6 +174,8 @@ const char *port_state_name(PortState state) noexcept
         return "UNFILTERED";
     case PortState::Error:
         return "ERROR";
+    case PortState::Unreachable:
+        return "UNREACHABLE";
     default:
         return "UNKNOWN";
     }
@@ -186,6 +188,10 @@ const char *scan_reason_name(ScanReason reason) noexcept
         return "IMMEDIATE_SUCCESS";
     case ScanReason::ConnectionRefused:
         return "CONNECTION_REFUSED";
+    case ScanReason::NetworkUnreachable:
+        return "NETWORK_UNREACHABLE";
+    case ScanReason::LocalAddressUnavailable:
+        return "LOCAL_ADDRESS_UNAVAILABLE";
     case ScanReason::SynAck:
         return "SYN_ACK";
     case ScanReason::Rst:

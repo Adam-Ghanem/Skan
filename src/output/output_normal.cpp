@@ -149,6 +149,7 @@ OutputStatus NormalOutputWriter::write(
            << " open_or_filtered=" << summary.open_or_filtered_ports
            << " unfiltered=" << summary.unfiltered_ports
            << " errors=" << summary.error_ports
+           << " unreachable=" << summary.unreachable_ports
            << " services=" << summary.services_detected
            << " os_matches=" << summary.os_matches << '\n';
     if (report.duration_ms.has_value()) {

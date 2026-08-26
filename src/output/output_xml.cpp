@@ -367,6 +367,7 @@ OutputStatus XmlOutputWriter::write(
     xml.element(2U, "open-or-filtered-ports", std::to_string(summary.open_or_filtered_ports));
     xml.element(2U, "unfiltered-ports", std::to_string(summary.unfiltered_ports));
     xml.element(2U, "error-ports", std::to_string(summary.error_ports));
+    xml.element(2U, "unreachable-ports", std::to_string(summary.unreachable_ports));
     xml.element(2U, "unknown-ports", std::to_string(summary.unknown_ports));
     xml.element(2U, "services-detected", std::to_string(summary.services_detected));
     xml.element(2U, "os-matches", std::to_string(summary.os_matches));

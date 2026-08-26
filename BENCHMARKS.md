@@ -2,7 +2,7 @@
 
 **Author:** Manus AI
 **Date:** 2026-08-26
-**Revision under test:** Phase 19 working tree; the final commit hash is recorded in the delivery report.
+**Revision under test:** Phase 22 working tree; the final commit hash is recorded in the delivery report.
 
 ## Methodology
 
@@ -131,3 +131,22 @@ Measured 10,000-target highlights:
 | mixed-orchestrator | 11,732.302 | 11,759.842 | 852.348 | 244,732 |
 
 The IPv6 and mixed orchestration rows are intentionally much slower because the offline fixture schedules bounded OS probes for every host. These are Phase 21 measurements, not claims of improvement over Phase 20; a comparable baseline must use the same binary, host limits, compiler, and sandbox conditions.
+
+
+## Phase 22 Benchmark Record
+
+Phase 22 retains the deterministic offline benchmark driver and extends the measured live-path boundary rather than creating a second benchmark harness. The current benchmark scope covers target expansion, packet construction and parsing, capture/parser handling, correlation insert/lookup/cleanup, timer scheduling/cancellation, TCP/UDP/service/OS schedulers, full IPv4/IPv6/mixed pipelines, and all canonical output formats. Workloads remain offline or loopback-only and do not contact public targets.
+
+The Phase 22 implementation adds target-aware interface selection and explicit transport error classification; those paths are validated functionally. Fresh final-gate measurements were taken at 1,000 and 10,000 targets from the final source tree. Any AF_PACKET-dependent timing is excluded from throughput claims when the environment reports `Operation not permitted`.
+
+| Row | 1,000 targets p50 / p95 ms | 10,000 targets p50 / p95 ms | 10,000 operations/s | 10,000 RSS KiB |
+| --- | ---: | ---: | ---: | ---: |
+| target-expansion | 0.152 / 0.207 | 2.422 / 3.121 | 4,128,696 | 7,024 |
+| ipv6-target-expansion | 0.173 / 0.194 | 2.717 / 2.914 | 3,680,195 | 7,344 |
+| correlation-lookup | 0.317 / 0.333 | 3.682 / 3.695 | 2,716,187 | 93,836 |
+| timer-scheduling | 0.079 / 0.103 | 0.931 / 0.946 | 10,740,285 | 93,836 |
+| full-ipv4-orchestrator | 11.016 / 12.232 | 82.408 / 86.482 | 121,348 | 93,836 |
+| full-ipv6-orchestrator | 1,294.241 / 1,324.693 | 13,216.343 / 13,286.481 | 757 | 244,608 |
+| mixed-orchestrator | 1,308.567 / 1,327.278 | 13,143.931 / 13,185.891 | 761 | 244,608 |
+
+The IPv6 and mixed orchestration figures include bounded offline OS probes for each target and are not live-network throughput claims. AF_PACKET-dependent measurements are intentionally absent because the sandbox reports `Operation not permitted`.

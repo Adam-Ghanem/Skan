@@ -56,9 +56,6 @@ core::StatusCode ScanConfig::validate() const noexcept
     if (timing_profile.validate() != core::StatusCode::Ok) {
         return core::StatusCode::InvalidArgument;
     }
-    if (transport == ScanTransport::Linux && !interface_name.has_value()) {
-        return core::StatusCode::InvalidArgument;
-    }
     if (discovery_enabled && transport == ScanTransport::Connect) {
         return core::StatusCode::InvalidArgument;
     }

@@ -56,6 +56,15 @@ int main()
     assert(interfaces.front().name == "alpha0");
     assert(interfaces.back().index == 9U);
 
+    const skan::net::InterfaceResult empty_target = skan::net::select_interface_for_target(skan::core::Target{});
+    assert(!empty_target.success());
+    assert(empty_target.status == skan::net::InterfaceStatus::RoutingUnavailable);
+    skan::core::Target invalid_target;
+    invalid_target.resolved_hosts.push_back(skan::core::Host{"not-an-ip", std::nullopt, false});
+    const skan::net::InterfaceResult unsupported_target = skan::net::select_interface_for_target(invalid_target);
+    assert(!unsupported_target.success());
+    assert(unsupported_target.status == skan::net::InterfaceStatus::NotSupported);
+
     const skan::net::InterfaceResult invalid = skan::net::find_interface_result("");
     assert(invalid.status == skan::net::InterfaceStatus::InvalidName);
     assert(!invalid.success());

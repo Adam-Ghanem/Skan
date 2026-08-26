@@ -31,6 +31,9 @@ InterfaceEnumerationResult enumerate_interfaces_result();
 /** Convenience API returning an empty vector when enumeration fails. */
 std::vector<NetworkInterface> enumerate_interfaces();
 
+/** Select one deterministic interface that has source/route evidence for every target family. */
+InterfaceResult select_interface_for_target(const core::Target &target);
+
 /** Look up one interface by its exact kernel name. */
 InterfaceResult find_interface_result(std::string_view name);
 

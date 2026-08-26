@@ -78,7 +78,7 @@ void print_help()
               << "  -o, --output-file <path> Write serialized output to a file (replace)\n"
               << "  --os-db <path>         Use a project-owned OS fingerprint database\n"
               << "  --json                 Emit structured output for resolve, os-detect, or interfaces\n"
-              << "  --interface <name>     Select an explicit interface for raw scans or inspection\n"
+              << "  --interface <name>     Select an interface for raw scans or inspection; raw scans derive one safely when omitted\n"
               << "  --max-targets <n>      Bound CIDR/range/hostname expansion (default 4096)\n"
               << "  --max-hostname-results <n> Bound A records per hostname (default 64)\n\n"
               << "Status:\n"
@@ -99,7 +99,7 @@ void print_help()
               << "The resolve command normalizes targets without scanning; use --max-targets to bound expansion.\n"
               << "Discovery CLI mode uses an offline recording transport; explicit Linux IPv6 discovery is capability-gated and reports failure without fallback.\n"
               << "Scan Connect mode uses normal nonblocking TCP sockets unless --transport offline is selected.\n"
-              << "Scan SYN mode requires explicit --transport offline or --transport linux --interface <name>.\n"
+              << "Scan SYN mode requires explicit --transport offline or --transport linux; Linux derives an interface from route/source evidence when omitted.\n"
               << "The scan pipeline runs Discovery, TCP Port, UDP (when --udp), Service, OS, and Output stages sequentially.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
               << "OS fingerprinting supports deterministic offline/injected probes and explicit Linux raw-packet mode.\n"
@@ -222,9 +222,17 @@ int run_discover(int argc, char **argv)
         std::cerr << "Error: --interface for discovery requires --transport linux.\n";
         return EXIT_FAILURE;
     }
+    skan::core::Target target{
+        canonical_target_address,
+        {skan::core::Host{canonical_target_address, std::nullopt, false, *parsed_target_address}}};
     if (transport_mode == "linux" && interface_name.empty()) {
-        std::cerr << "Error: --transport linux requires an explicit --interface <name>.\n";
-        return EXIT_FAILURE;
+        const skan::net::InterfaceResult selected = skan::net::select_interface_for_target(target);
+        if (!selected.success()) {
+            std::cerr << "Error: raw interface selection failed: " << selected.message << " ("
+                      << skan::net::interface_status_name(selected.status) << ").\n";
+            return EXIT_FAILURE;
+        }
+        interface_name = selected.interface.name;
     }
     if (transport_mode == "linux" && parsed_target_address->is_ipv6()) {
         std::string scope_error;
@@ -236,10 +244,6 @@ int run_discover(int argc, char **argv)
             return EXIT_FAILURE;
         }
     }
-
-    skan::core::Target target{
-        canonical_target_address,
-        {skan::core::Host{canonical_target_address, std::nullopt, false, *parsed_target_address}}};
     skan::io::IOEngine io_engine;
     if (io_engine.initialization_status() != skan::core::StatusCode::Ok) {
         std::cerr << "Error: unable to initialize the asynchronous I/O engine.\n";
@@ -634,7 +638,7 @@ int run_os_detect(int argc, char **argv)
                   << "  --max-outstanding <N>          Bounded concurrent probes\n"
                   << "  --retries <N>                  Bounded timeout retries\n"
                   << "  --adaptive-timing              Enable Phase 7 adaptive timing\n"
-                  << "  --interface <name>             Explicit interface for Linux raw mode\n"
+                  << "  --interface <name>             Interface for Linux raw mode; derives safely when omitted\n"
                   << "  --transport offline|linux      Select transport; no implicit fallback\n"
                   << "  --json                         Emit JSON output\n"
                   << "  --output normal|json|xml|grepable\n"
@@ -728,10 +732,6 @@ int run_os_detect(int argc, char **argv)
             return EXIT_FAILURE;
         }
     }
-    if (transport_mode == "linux" && !interface_name.has_value()) {
-        std::cerr << "Error: --transport linux requires an explicit --interface <name>.\n";
-        return EXIT_FAILURE;
-    }
     if (transport_mode == "offline" && interface_name.has_value()) {
         std::cerr << "Error: --interface requires --transport linux for os-detect.\n";
         return EXIT_FAILURE;
@@ -749,6 +749,15 @@ int run_os_detect(int argc, char **argv)
         target.resolved_hosts.push_back(skan::core::Host{
             skan::target::format_ip_address(resolved_target.ip_address), resolved_target.source_hostname, false,
             resolved_target.ip_address});
+    }
+    if (transport_mode == "linux" && !interface_name.has_value()) {
+        const skan::net::InterfaceResult selected = skan::net::select_interface_for_target(target);
+        if (!selected.success()) {
+            std::cerr << "Error: raw interface selection failed: " << selected.message << " ("
+                      << skan::net::interface_status_name(selected.status) << ").\n";
+            return EXIT_FAILURE;
+        }
+        interface_name = selected.interface.name;
     }
     if (transport_mode == "linux") {
         for (const skan::core::Host &host : target.resolved_hosts) {
@@ -1012,10 +1021,6 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: the linux packet transport is only available for TCP --method syn; Connect mode uses normal TCP sockets.\n";
         return EXIT_FAILURE;
     }
-    if (config.transport == skan::orchestrator::ScanTransport::Linux && !config.interface_name.has_value()) {
-        std::cerr << "Error: --transport linux requires an explicit --interface <name>.\n";
-        return EXIT_FAILURE;
-    }
     if (config.discovery_enabled && transport_mode.empty()) {
         std::cerr << "Error: --discovery requires --transport offline or --transport linux --interface <name>.\n";
         return EXIT_FAILURE;
@@ -1035,6 +1040,15 @@ int run_scan(int argc, char **argv)
                                                     : skan::core::IpAddress::from_ipv4(target.address);
         normalized_target.resolved_hosts.push_back(
             skan::core::Host{skan::target::format_ip_address(ip_address), target.source_hostname, false, ip_address});
+    }
+    if (config.transport == skan::orchestrator::ScanTransport::Linux && !config.interface_name.has_value()) {
+        const skan::net::InterfaceResult selected = skan::net::select_interface_for_target(normalized_target);
+        if (!selected.success()) {
+            std::cerr << "Error: raw interface selection failed: " << selected.message << " ("
+                      << skan::net::interface_status_name(selected.status) << ").\n";
+            return EXIT_FAILURE;
+        }
+        config.interface_name = selected.interface.name;
     }
     if (config.transport == skan::orchestrator::ScanTransport::Linux) {
         for (const skan::core::Host &host : normalized_target.resolved_hosts) {

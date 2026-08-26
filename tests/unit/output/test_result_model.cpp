@@ -20,10 +20,11 @@ int main()
     assert(summary.hosts == 2U);
     assert(summary.hosts_up == 1U);
     assert(summary.hosts_unknown == 1U);
-    assert(summary.ports_scanned == 3U);
+    assert(summary.ports_scanned == 4U);
     assert(summary.open_ports == 1U);
     assert(summary.closed_ports == 1U);
     assert(summary.filtered_ports == 1U);
+    assert(summary.unreachable_ports == 1U);
     assert(summary.services_detected == 1U);
     assert(summary.os_matches == 2U);
     assert(skan::output::validate_report(report) == skan::output::OutputStatus::Ok);

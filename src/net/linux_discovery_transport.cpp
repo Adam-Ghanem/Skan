@@ -294,6 +294,12 @@ core::StatusCode LinuxDiscoveryTransport::submit(const discovery::ProbeSubmissio
         return core::StatusCode::PermissionDenied;
     }
     effective.source_ip = *selected_source;
+    if (target_ip.is_ipv4()) {
+        effective.source_ipv4 = (static_cast<std::uint32_t>(selected_source->bytes[0]) << 24U) |
+                                (static_cast<std::uint32_t>(selected_source->bytes[1]) << 16U) |
+                                (static_cast<std::uint32_t>(selected_source->bytes[2]) << 8U) |
+                                static_cast<std::uint32_t>(selected_source->bytes[3]);
+    }
     if (target_ip.is_ipv6() && !destination_mac(target_ip).has_value()) {
         const auto solicitation = compose_neighbor_solicitation(effective);
         if (!solicitation.has_value()) {
@@ -499,7 +505,10 @@ void LinuxDiscoveryTransport::dispatch_observation(const PacketObservation &obse
             if (arp.has_value()) {
                 for (const auto &[id, pending] : pending_) {
                     if (pending.submission.type == discovery::ProbeType::Arp &&
+                        observation.ethernet->destination() == local_mac_ &&
+                        observation.ethernet->source() == arp->sender_mac &&
                         arp->sender_ipv4 == pending.submission.target_ipv4 &&
+                        arp->target_mac == local_mac_ &&
                         arp->target_ipv4 == pending.submission.source_ipv4 &&
                         arp->operation == 2U) {
                         matched_id = id;
@@ -542,10 +551,13 @@ std::optional<std::vector<std::uint8_t>> LinuxDiscoveryTransport::compose_frame(
         if (!target_ipv4.has_value() || submission.type != discovery::ProbeType::Arp) {
             return std::nullopt;
         }
-        const auto arp = discovery::ArpMessage::parse(submission.packet);
-        if (!arp.has_value()) {
+        auto arp = discovery::ArpMessage::parse(submission.packet);
+        if (!arp.has_value() || source_ipv4_ == 0U) {
             return std::nullopt;
         }
+        arp->sender_mac = local_mac_;
+        arp->sender_ipv4 = source_ipv4_;
+        arp->target_mac = {};
         packet::Ethernet ethernet(
             std::array<std::uint8_t, 6U>{0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU},
             local_mac_,

@@ -334,3 +334,12 @@ The Phase 0–20 repository was audited before editing. No TODO/FIXME/HACK marke
 Implemented changes include a reusable interface preflight contract; MTU and default-route evidence; Ethernet capture/injection facts; family-aware startup and submit checks in Linux TCP SYN, UDP, discovery, and OS transports; accurate IPv6 discovery family diagnostics; saturating Phase 21 metrics; and semantic output additions across normal, JSON, XML, and grepable serializers. No capability probe transmits traffic. No fallback is selected when Linux capability is absent.
 
 Offline validation passed for parser, scheduler, service, TLS-identification, OS-matching, metrics, output, correlation, benchmark, and CLI paths. Local Connect and loopback-safe tests run where the kernel permits them. AF_PACKET-dependent tests are `SKIPPED/UNAVAILABLE` in this sandbox because the kernel returns `Operation not permitted`; this is not claimed as live raw validation. Non-loopback IPv6 neighbor resolution, raw SYN/UDP/OS injection, and privileged ICMP/ICMPv6/NDP exchange remain capability-dependent and are reported explicitly.
+
+
+## Phase 22 Audit Record
+
+Phase 22 adds deterministic target-aware raw-interface selection, allowing omitted Linux interfaces to be derived from operational source and route evidence while preserving explicit user selection. Mixed-family targets must be satisfiable by one operational interface. Loopback selection is permitted for controlled local tests even when the kernel does not expose a conventional route entry for `lo`.
+
+The Linux ARP path now uses the selected interface MAC and source IPv4 address, and validates Ethernet and ARP identities before accepting replies. TCP Connect preserves routed-unreachable and local-source-address failures as explicit states and reasons. Raw UDP records target preflight and injection diagnostics in the shared session. Raw OS capability failures now terminate the live stage with a structured nonzero error rather than returning success with an unavailable identity.
+
+Unit, integration, offline, and controlled-loopback checks passed for the changed paths. The sandbox still denies AF_PACKET with `Operation not permitted`, so raw SYN, ARP, NDP, raw UDP, ICMP/ICMPv6, and raw OS exchange remain capability-dependent and are not claimed as live-validated. No public target traffic was used. The remaining gap is privileged private-lab execution, not a hidden fallback or fabricated result.

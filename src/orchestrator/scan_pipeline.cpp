@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <utility>
 
+#include "net/interface.hpp"
 #include "output/output_manager.hpp"
 
 namespace skan::orchestrator {
@@ -445,6 +446,17 @@ core::StatusCode ScanPipeline::run(std::ostream &output)
         return final_status_ == core::StatusCode::Ok ? core::StatusCode::InvalidArgument : final_status_;
     }
     active_target_ = aggregate_target();
+    if (config_.transport == ScanTransport::Linux && !config_.interface_name.has_value()) {
+        const net::InterfaceResult selected = net::select_interface_for_target(active_target_);
+        if (!selected.success()) {
+            fail("raw interface selection failed: " + selected.message, selected.status == net::InterfaceStatus::RoutingUnavailable
+                                                                            ? core::StatusCode::PermissionDenied
+                                                                            : core::StatusCode::NotFound);
+            (void)serialize_report(output);
+            return final_status_;
+        }
+        config_.interface_name = selected.interface.name;
+    }
     if (session_.cancelled()) {
         (void)serialize_report(output);
         return core::StatusCode::Ok;

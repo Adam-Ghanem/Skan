@@ -31,6 +31,25 @@ StageResult stage_cancelled()
     return {core::StatusCode::Ok, false, true, "stage cancelled"};
 }
 
+core::StatusCode network_failure_status(const net::NetworkScanResult &result) noexcept
+{
+    if (result.status == net::NetworkScanStatus::PermissionDenied ||
+        result.status == net::NetworkScanStatus::NotSupported ||
+        result.status == net::NetworkScanStatus::RoutingUnavailable) {
+        return core::StatusCode::PermissionDenied;
+    }
+    if (result.status == net::NetworkScanStatus::InterfaceNotFound) {
+        return core::StatusCode::NotFound;
+    }
+    return core::StatusCode::IoError;
+}
+
+std::string network_failure_message(std::string_view prefix, const net::NetworkScanResult &result)
+{
+    return std::string{prefix} + ": category=" + std::string{net::preflight_category_name(result.category)} +
+           " family=" + std::string{core::address_family_name(result.family)} + " message=" + result.message;
+}
+
 } // namespace
 
 DiscoveryStage::DiscoveryStage(io::IOEngine &engine, const ScanConfig &config, core::Target target,
@@ -62,7 +81,7 @@ StageResult DiscoveryStage::start()
         auto linux = std::make_unique<net::LinuxDiscoveryTransport>(engine_, *config_.interface_name);
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            result_ = stage_failure(core::StatusCode::PermissionDenied, opened.message);
+            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw discovery transport unavailable", opened));
             return result_;
         }
         linux_transport_ = linux.get();
@@ -179,7 +198,7 @@ StageResult PortScanStage::start()
         auto linux = std::make_unique<net::LinuxNetworkScanTransport>(engine_, std::move(linux_config));
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            result_ = stage_failure(core::StatusCode::PermissionDenied, opened.message);
+            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw TCP transport unavailable", opened));
             return result_;
         }
         transport_ = std::move(linux);
@@ -285,13 +304,7 @@ StageResult UdpScanStage::start()
             *config_.interface_name, 65535U, true, std::nullopt});
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            const core::StatusCode mapped = opened.status == net::NetworkScanStatus::PermissionDenied ||
-                                                    opened.status == net::NetworkScanStatus::RoutingUnavailable
-                                                 ? core::StatusCode::PermissionDenied
-                                                 : opened.status == net::NetworkScanStatus::InterfaceNotFound
-                                                       ? core::StatusCode::NotFound
-                                                       : core::StatusCode::IoError;
-            result_ = stage_failure(mapped, opened.message);
+            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw UDP transport unavailable", opened));
             return result_;
         }
         transport_ = std::move(linux);
@@ -462,24 +475,25 @@ StageResult OSDetectionStage::start(
         transport_ = std::make_unique<osdetect::RecordingOSProbeTransport>();
     } else if (config_.transport == ScanTransport::Linux) {
         if (!config_.interface_name.has_value()) {
-            unavailable_ = true;
-            result_ = stage_success();
+            result_ = stage_failure(
+                core::StatusCode::PermissionDenied,
+                "OS raw transport unavailable: category=CAPABILITY_UNAVAILABLE family=unknown interface was not selected");
             return result_;
         }
         auto linux = std::make_unique<net::LinuxOSProbeTransport>(
             engine_, net::NetworkScanConfig{*config_.interface_name, 65535U, true, std::nullopt});
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            unavailable_ = true;
-            osdetect::OSDetectionResult unavailable;
-            unavailable.target = target_.original_specification;
-            unavailable.state = osdetect::OSDetectionState::Unavailable;
-            unavailable.error = opened.status == net::NetworkScanStatus::PermissionDenied ||
-                                        opened.status == net::NetworkScanStatus::NotSupported
-                                    ? osdetect::OSDetectionError::CapabilityUnavailable
-                                    : osdetect::OSDetectionError::TransportFailure;
-            detection_result_ = std::move(unavailable);
-            result_ = stage_success();
+            const core::StatusCode status = opened.status == net::NetworkScanStatus::PermissionDenied ||
+                                                    opened.status == net::NetworkScanStatus::NotSupported
+                                                ? core::StatusCode::PermissionDenied
+                                                : core::StatusCode::IoError;
+            result_ = stage_failure(
+                status,
+                "OS raw transport unavailable: category=" +
+                    std::string{net::preflight_category_name(opened.category)} +
+                    " family=" + std::string{core::address_family_name(opened.family)} +
+                    " message=" + opened.message);
             return result_;
         }
         os_config.source_address = linux->local_source_address();

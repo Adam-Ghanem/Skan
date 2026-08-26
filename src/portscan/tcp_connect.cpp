@@ -25,6 +25,12 @@ std::optional<core::IpAddress> submission_address(const PortSubmission &submissi
                                         : parse_target_address(submission.target);
 }
 
+bool is_unreachable_error(int error) noexcept
+{
+    return error == ENETUNREACH || error == EHOSTUNREACH || error == ENETDOWN || error == EHOSTDOWN ||
+           error == ENETRESET;
+}
+
 } // namespace
 
 ScanProbeType TcpConnectProbe::type() const noexcept
@@ -90,6 +96,12 @@ core::StatusCode TcpConnectProbe::assess(
         if (response.system_error == ETIMEDOUT) {
             state = PortState::Filtered;
             reason = ScanReason::Timeout;
+        } else if (is_unreachable_error(response.system_error)) {
+            state = PortState::Unreachable;
+            reason = ScanReason::NetworkUnreachable;
+        } else if (response.system_error == EADDRNOTAVAIL) {
+            state = PortState::Unknown;
+            reason = ScanReason::LocalAddressUnavailable;
         } else {
             state = PortState::Unknown;
             reason = ScanReason::SocketError;

@@ -237,6 +237,10 @@ NetworkScanResult LinuxUDPScanTransport::open()
     session_.active = true;
     session_.transport_status = TransportStatus::Success;
     session_.capture_status = CaptureStatus::Success;
+    session_.last_preflight_category = PreflightCategory::Ready;
+    session_.last_preflight_family = startup_family;
+    session_.last_system_error = 0;
+    session_.last_error.clear();
     return {NetworkScanStatus::Success, 0, {}};
 }
 
@@ -279,14 +283,21 @@ core::StatusCode LinuxUDPScanTransport::submit(const portscan::UDPSubmission &su
         config_.interface_name, target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6, true, true);
     if (!target_preflight.success()) {
         ++session_.failed;
-        return target_preflight.category == PreflightCategory::NoRoute ? core::StatusCode::PermissionDenied
-                                                                        : core::StatusCode::PermissionDenied;
+        session_.last_preflight_category = target_preflight.category;
+        session_.last_preflight_family = target_preflight.family;
+        session_.last_system_error = target_preflight.system_error;
+        session_.last_error = target_preflight.message;
+        return core::StatusCode::PermissionDenied;
     }
     portscan::UDPSubmission effective = submission;
     effective.destination_ip = target_ip;
     const auto selected_source = source_address_for(target_ip);
     if (!selected_source.has_value()) {
         ++session_.failed;
+        session_.last_preflight_category = PreflightCategory::NoSourceAddress;
+        session_.last_preflight_family = target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6;
+        session_.last_system_error = 0;
+        session_.last_error = "no selected source address for target family";
         return core::StatusCode::PermissionDenied;
     }
     effective.source_ip = *selected_source;
@@ -299,6 +310,10 @@ core::StatusCode LinuxUDPScanTransport::submit(const portscan::UDPSubmission &su
     const auto frame = compose_frame(effective);
     if (!frame.has_value()) {
         ++session_.failed;
+        session_.last_preflight_category = PreflightCategory::InjectionUnavailable;
+        session_.last_preflight_family = target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6;
+        session_.last_system_error = 0;
+        session_.last_error = "unable to compose a valid Ethernet/IP/UDP frame for selected target";
         return core::StatusCode::PermissionDenied;
     }
     try {
@@ -312,6 +327,12 @@ core::StatusCode LinuxUDPScanTransport::submit(const portscan::UDPSubmission &su
         pending_.erase(submission.id);
         ++session_.failed;
         session_.transport_status = send_result.status;
+        session_.last_preflight_category = send_result.status == TransportStatus::PermissionDenied
+                                                ? PreflightCategory::InjectionUnavailable
+                                                : PreflightCategory::Ready;
+        session_.last_preflight_family = target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6;
+        session_.last_system_error = send_result.system_error;
+        session_.last_error = send_result.message;
         return send_result.status == TransportStatus::PermissionDenied ? core::StatusCode::PermissionDenied
                                                                         : core::StatusCode::IoError;
     }
