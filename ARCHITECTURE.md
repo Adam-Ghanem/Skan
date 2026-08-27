@@ -799,3 +799,9 @@ Build reliability is strengthened at the repository boundary: `make clean` now r
 The existing `PacketReceiver` now accepts one validated 802.1Q (`0x8100`) or 802.1ad/QinQ outer tag (`0x88A8`) before IPv4 or IPv6. It records the outer tag control information in `PacketObservation::vlan_tci`, preserves the base Ethernet header unchanged, and advances the existing parser offset by exactly four bytes. Truncated tags remain `TruncatedEthernet`; a second nested VLAN tag is not recursively parsed and remains an unsupported inner EtherType. All existing transport, checksum, IPv6-extension, and correlation paths continue to consume the same canonical observation and single reactor.
 
 This is an offline/injected parser capability. The current sandbox cannot open AF_PACKET, so no VLAN packet exchange or raw live scan is claimed as validated.
+
+## Phase 27 architecture update
+
+Phase 27 preserves the existing CLI → Target Engine → Scan Orchestrator → Discovery → Port Scan → Service Detection → OS Detection → Output pipeline and one epoll-based `io::IOEngine`. The bounded VLAN receive path is now regression-covered for tagged TCP, UDP, ICMP, and IPv6 frames, with exact four-byte advancement and truncated-tag rejection. The parser records one outer VLAN TCI and does not recursively expand nested tags.
+
+The benchmark driver now measures the VLAN receive parser alongside existing IPv4, IPv6, TCP, UDP, ICMP, ICMPv6, NDP, correlation, scheduler, detection, orchestration, and serialization workloads. This remains offline/injected validation; AF_PACKET-dependent transmit and receive behavior is still capability-dependent.

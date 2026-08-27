@@ -463,3 +463,10 @@ This behavior was validated offline through injected byte frames and the unit su
 
 
 The final audit also reproduced a build-mode boundary issue: invoking `make benchmark` directly after `make coverage` attempted to link coverage-instrumented objects without coverage runtime flags. The benchmark target now performs a serialized `make clean` followed by a normal benchmark rebuild, and CI executes that target immediately after coverage. This keeps benchmark validation independent of the preceding build mode without introducing a second build system.
+
+
+## Phase 27 Audit Record — Raw-path verification
+
+The Phase 27 audit rechecked the synchronized Phase 26 baseline and retained its raw Linux transport, route/source, ARP/NDP, correlation, timing, service, OS, output, and capability-diagnostic implementation. The concrete remaining verification gap was VLAN coverage breadth: the parser already handled one bounded outer 802.1Q/802.1ad tag, but unit coverage did not exercise tagged UDP and tagged ICMP. Those regressions are now present, including TCI assertions and valid checksum-aware parsing. The offline benchmark now includes a `vlan-receiver-parser` row.
+
+The test and benchmark additions do not claim live VLAN behavior. The current process remains unprivileged and AF_PACKET open still returns errno 1, `Operation not permitted`; no raw packet exchange, ARP/NDP exchange, or uncontrolled target traffic was performed.

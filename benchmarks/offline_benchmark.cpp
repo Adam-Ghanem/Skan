@@ -223,6 +223,20 @@ void benchmark_mixed_target_expansion(std::size_t count)
     });
 }
 
+std::vector<std::uint8_t> add_vlan_tag(
+    std::vector<std::uint8_t> frame,
+    std::uint16_t vlan_ethertype,
+    std::uint16_t vlan_tci)
+{
+    frame.insert(frame.begin() + 12, {
+        static_cast<std::uint8_t>(vlan_ethertype >> 8U),
+        static_cast<std::uint8_t>(vlan_ethertype & 0xFFU),
+        static_cast<std::uint8_t>(vlan_tci >> 8U),
+        static_cast<std::uint8_t>(vlan_tci & 0xFFU),
+    });
+    return frame;
+}
+
 std::vector<std::uint8_t> ipv4_udp_frame()
 {
     skan::packet::Ethernet ethernet(
@@ -264,6 +278,21 @@ void benchmark_ipv6_receiver(std::size_t count)
         std::size_t valid = 0U;
         for (std::size_t index = 0U; index < count; ++index) {
             if (skan::net::PacketReceiver::parse(frame).status == skan::net::ParseStatus::Valid) {
+                ++valid;
+            }
+        }
+        return valid;
+    });
+}
+
+void benchmark_vlan_receiver(std::size_t count)
+{
+    const std::vector<std::uint8_t> frame = add_vlan_tag(ipv4_udp_frame(), 0x8100U, 0x0123U);
+    measure("vlan-receiver-parser", count, [&frame, count]() {
+        std::size_t valid = 0U;
+        for (std::size_t index = 0U; index < count; ++index) {
+            const auto observation = skan::net::PacketReceiver::parse(frame);
+            if (observation.status == skan::net::ParseStatus::Valid && observation.vlan_tci == 0x0123U) {
                 ++valid;
             }
         }
@@ -784,6 +813,7 @@ int main(int argc, char **argv)
         benchmark_hostname_resolution(count);
         benchmark_ipv4_receiver(count);
         benchmark_ipv6_receiver(count);
+        benchmark_vlan_receiver(count);
         benchmark_packet_parser(count, "tcp-parser");
         benchmark_packet_parser(count, "udp-parser");
         benchmark_packet_parser(count, "icmp-parser");

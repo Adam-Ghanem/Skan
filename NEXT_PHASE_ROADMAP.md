@@ -125,3 +125,10 @@ The next meaningful raw-network milestone still requires an explicitly authorize
 A bounded single-tag VLAN parser path is now complete in the existing PacketReceiver. It accepts 802.1Q and 802.1ad outer tags, records the tag control information, validates truncation, and does not recursively parse unbounded nested encapsulation. The behavior is covered by offline IPv4/IPv6 regression fixtures.
 
 The next acceptance milestone remains environmental rather than a hidden implementation fallback: run the capability-gated raw SYN, UDP, discovery, ARP/NDP, service, and OS paths against explicitly owned private/lab targets with AF_PACKET permission and independent packet evidence. The present sandbox still reports `Operation not permitted`; no raw live success is claimed.
+
+
+## Phase 27 Status — Raw-path verification
+
+Phase 27 broadens offline/injected VLAN regression coverage to tagged TCP, UDP, ICMP, and IPv6 frames and adds a deterministic VLAN receive-parser benchmark. The existing raw Linux implementation remains the production path when OS capabilities, routes, source addresses, interfaces, and neighbors permit it; no hidden Connect/offline fallback is introduced.
+
+The current sandbox still denies AF_PACKET with `Operation not permitted`. Genuine raw IPv4/IPv6 SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service, raw OS, and live VLAN validation therefore remain capability-dependent and require an explicitly owned private/lab environment with independent packet evidence.

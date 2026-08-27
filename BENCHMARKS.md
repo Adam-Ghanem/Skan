@@ -224,3 +224,15 @@ Fresh Phase 27 offline runs completed after `make clean` removed prior coverage 
 | normal serialization | 0.080 / 0.090 | 1.115 / 1.122 | 8,971,788 | 244,744 |
 
 These measurements cover offline expansion, scheduling, parsing, correlation, matching, orchestration, and serialization. No remote or public target was contacted.
+
+
+## Phase 27 benchmark record
+
+The benchmark driver now includes `vlan-receiver-parser`, which repeatedly parses a valid single-tag 802.1Q IPv4/UDP frame and verifies the extracted TCI. Measurements were freshly collected with the existing five-sample median and maximum-of-five p95 methodology:
+
+| Stage | Targets | Median wall (ms) | p95 wall (ms) | Operations/s | Peak RSS (KiB) | Operations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| VLAN receiver parser | 1,000 | 0.065 | 0.065 | 15,490,186.967 | 4,984 | 1,000 |
+| VLAN receiver parser | 10,000 | 0.650 | 0.754 | 15,385,538.517 | 11,436 | 10,000 |
+
+These are deterministic offline/injected parser measurements. They do not represent raw packet transmission, capture, VLAN hardware behavior, or live-network throughput.

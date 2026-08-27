@@ -161,3 +161,8 @@ Nmap was not invoked against any target in this sandbox. No Nmap source code, si
 ## Phase 27 comparison note
 
 Phase 27 adds reproducible build cleanup and CI enforcement only; it does not copy or derive any Nmap source, signature, database, NSE script, CPE data, or behavioral implementation. No Nmap comparison was run in the sandbox because no controlled comparison target was authorized and raw AF_PACKET remained unavailable. Existing behavioral comparison limitations and capability-honest reporting remain unchanged.
+
+
+## Phase 27 comparison note
+
+Phase 27 adds VLAN parser regression coverage and an offline VLAN benchmark without copying or deriving any Nmap source, signature, database, NSE script, CPE data, or behavioral implementation. No Nmap comparison was run in the sandbox because no controlled comparison target was authorized and raw AF_PACKET remained unavailable. Existing behavioral comparison limitations and capability-honest reporting remain unchanged.

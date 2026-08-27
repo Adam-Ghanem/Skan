@@ -147,6 +147,12 @@ int main()
     assert(vlan_tcp.ethernet.has_value() && vlan_tcp.ethernet->ether_type() == 0x8100U);
     assert(vlan_tcp.tcp.has_value() && vlan_tcp.tcp->destination_port() == 80U);
 
+    const auto vlan_icmp_frame = add_vlan_tag(skan::test::test_icmp_frame(), 0x8100U, 0x0789U);
+    const skan::net::PacketObservation vlan_icmp = skan::net::PacketReceiver::parse(vlan_icmp_frame, timestamp);
+    assert(vlan_icmp.status == skan::net::ParseStatus::Valid);
+    assert(vlan_icmp.vlan_tci.has_value() && vlan_icmp.vlan_tci.value() == 0x0789U);
+    assert(vlan_icmp.icmp.has_value());
+
     auto truncated_vlan = tcp_frame;
     truncated_vlan.resize(16U);
     truncated_vlan[12U] = 0x81U;
@@ -159,6 +165,12 @@ int main()
     assert(udp.status == skan::net::ParseStatus::Valid);
     assert(udp.udp.has_value());
     assert(udp.udp->destination_port() == 53U);
+
+    const auto vlan_udp_frame = add_vlan_tag(udp_frame, 0x8100U, 0x0456U);
+    const skan::net::PacketObservation vlan_udp = skan::net::PacketReceiver::parse(vlan_udp_frame, timestamp);
+    assert(vlan_udp.status == skan::net::ParseStatus::Valid);
+    assert(vlan_udp.vlan_tci.has_value() && vlan_udp.vlan_tci.value() == 0x0456U);
+    assert(vlan_udp.udp.has_value() && vlan_udp.udp->destination_port() == 53U);
 
     auto padded_udp_frame = udp_frame;
     padded_udp_frame.insert(padded_udp_frame.end(), {0xAAU, 0xBBU, 0xCCU, 0xDDU});

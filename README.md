@@ -145,3 +145,6 @@ Real local TCP Connect validation remains available for IPv4 loopback and IPv6 `
 Phase 27 continues production hardening without changing Skan’s single pipeline or epoll reactor. The build clean target now removes coverage metadata as well as generated objects, preventing instrumented artifacts from contaminating later ordinary links. GitHub Actions now runs clean build/test, debug/release, sanitizers, coverage, fuzz capability handling, static checks, prohibited-API checks, and repository-clean verification.
 
 The environment remains capability-honest: IPv4/IPv6 Connect and deterministic offline/injected paths are locally testable, while raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service, and raw OS validation remain unavailable when AF_PACKET reports `Operation not permitted`.
+
+## Phase 27 Status — Raw-path verification
+Phase 27 extends the existing bounded VLAN receive coverage to tagged UDP and ICMP fixtures and adds a deterministic VLAN parser benchmark. The single epoll pipeline, explicit raw transport selection, capability-honest diagnostics, and no-fallback behavior remain unchanged. AF_PACKET still reports `Operation not permitted` in this sandbox, so raw packet exchange is not claimed as live-validated.
