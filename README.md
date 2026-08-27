@@ -2,6 +2,13 @@
 
 > **A modern, modular network reconnaissance engine built from scratch in C++20.**
 
+<p align="center">
+  <img src="https://img.shields.io/github/actions/workflow/status/Adam-Ghanem/Skan/ci.yml?label=CI" alt="CI">
+  <img src="https://img.shields.io/github/license/Adam-Ghanem/Skan" alt="License">
+  <img src="https://img.shields.io/github/stars/Adam-Ghanem/Skan" alt="GitHub stars">
+  <img src="https://img.shields.io/github/commit-activity/m/Adam-Ghanem/Skan" alt="Commit activity">
+</p>
+
 Skan is a Linux-first network scanner designed for **performance, modularity, deterministic behavior, and explicit capabilities**.
 
 It brings host discovery, TCP/UDP scanning, service detection, OS fingerprinting, adaptive scheduling, IPv4/IPv6 networking, and structured results together behind a clean architecture built to be understood and extended.
@@ -90,6 +97,12 @@ Service detection can be enabled when needed:
   --service-detect
 ```
 
+## 🏅 Security & Quality
+
+Skan uses automated **CI, CodeQL analysis, dependency/security checks, and secret scanning** as part of its engineering workflow.
+
+> **Security note:** Skan is a network reconnaissance tool. Only scan systems and networks you are authorized to test.
+
 ## 🧱 Built With
 
 - **C++20**
@@ -97,6 +110,10 @@ Service detection can be enabled when needed:
 - IPv4 / IPv6 sockets and packet handling
 - Project-owned protocol and detection data
 - Deterministic test transports
+
+## 📄 License
+
+Skan is released under the **MIT License**. See [`LICENSE`](LICENSE) for the full license text.
 
 ## 🔭 Vision
 
