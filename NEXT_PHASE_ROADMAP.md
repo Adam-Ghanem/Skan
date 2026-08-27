@@ -104,3 +104,10 @@ Local TCP Connect and offline/injected paths are testable here. AF_PACKET-depend
 Phase 25 extends Skan’s existing live boundary to explicit remote target specifications and explicit `connect|offline|linux` transport selection. Deterministic source/interface selection, family-correct SYN construction and checksum handling, strict correlation, bounded ARP/NDP prerequisites, typed failure semantics, and canonical reporting remain in the existing architecture.
 
 Local IPv4/IPv6 Connect validation is available in this environment. Raw remote SYN, UDP, ICMP/ICMPv6, ARP, NDP, service-over-raw, and OS-over-raw validation remains capability-dependent because AF_PACKET returns `Operation not permitted`. The next acceptance environment must be an explicitly authorized private lab or operator-owned network; no public-target automation, fallback, evasion, spoofing, exploitation, credentials, persistence, threads, polling, sleeps, or shell execution may be added.
+
+
+## Phase 26 Status
+
+Phase 26 adds evidence-backed raw-stage diagnostics and records the actual environment boundary. Linux failures identify the selected interface, family, operation, category, errno, and message while preserving terminal no-fallback semantics. The existing route/next-hop, source, ARP/NDP, packet, correlation, timing, service, OS, and output subsystems remain the single implementation path.
+
+The current sandbox exposes `lo` and `eth0`, but AF_PACKET capture is denied with `Operation not permitted`. IPv4 and IPv6 Connect paths remain locally testable; raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, service-over-raw, and OS-over-raw remain capability-dependent and are not marked live-validated. Future acceptance requires an explicitly authorized operator-owned private/lab network and independent packet evidence.

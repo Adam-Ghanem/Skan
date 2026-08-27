@@ -184,3 +184,23 @@ Fresh Phase 25 runs completed after a clean non-instrumented rebuild. Representa
 | normal serialization | 0.100 / 0.129 | 1.013 / 1.078 | 9,870,528 | 244,740 |
 
 These rows are offline-only and exclude AF_PACKET transmission/capture. No remote or public target was contacted.
+
+
+## Phase 26 Benchmark Record
+
+Phase 26 uses the existing offline benchmark driver and does not create a second measurement harness. The documented 1,000- and 10,000-target runs measure target expansion, packet parsing, correlation, timers, schedulers, orchestration, matching, and serialization offline. They are not live-network throughput measurements.
+
+The environment does not provide AF_PACKET permission, so no privileged raw-network timing is reported. Any future controlled private-lab benchmark must record target count, exact interface and source, family, transport, ports, retry/timing configuration, packet counts, median and p95 duration, throughput, peak RSS, active correlations, timeouts, retries, dropped packets, and per-stage durations separately from the offline baseline.
+
+
+Fresh Phase 26 runs completed after a clean non-instrumented rebuild. Representative final rows are below; these are machine-specific offline measurements.
+
+| Row | 1,000 targets p50 / p95 ms | 10,000 targets p50 / p95 ms | 10,000 operations/s | 10,000 RSS KiB |
+| --- | ---: | ---: | ---: | ---: |
+| mixed-orchestrator | 1,156.218 / 1,158.033 | 11,617.204 / 11,644.757 | 860.792 | 244,696 |
+| JSON serialization | 0.534 / 0.590 | 5.461 / 5.525 | 1,831,066 | 244,696 |
+| XML serialization | 0.241 / 0.251 | 2.649 / 2.658 | 3,775,299 | 244,696 |
+| grepable serialization | 0.099 / 0.130 | 1.176 / 1.219 | 8,503,626 | 244,696 |
+| normal serialization | 0.080 / 0.082 | 0.993 / 1.007 | 10,070,463 | 244,696 |
+
+These measurements exercise offline expansion, scheduling, parsing, correlation, matching, orchestration, and serialization only. They do not represent raw remote-network throughput, and no remote or public target was contacted.

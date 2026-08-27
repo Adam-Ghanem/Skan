@@ -129,3 +129,12 @@ Skan is an open-source engineering project. Contributions, experiments, ideas, a
   <strong>Skan</strong><br>
   <em>Understand the network.</em>
 </p>
+
+
+## Phase 26 Status — Privileged Real-Network Validation & Hardening
+
+Phase 26 audited and hardened the existing live path without adding a second pipeline, reactor, scheduler, packet framework, or output tree. Raw Linux failure messages now identify `transport`, `interface`, `family`, `operation`, typed `category`, numeric `errno`, and the exact human-readable system message.
+
+The observed sandbox has `lo` and `eth0`; `eth0` carries IPv4 `169.254.0.21/30`, IPv6 link-local `fe80::fc:ff:fe00:5/64`, a default IPv4 route through `169.254.0.22`, and a reachable neighbor entry for that gateway. The process is unprivileged (`uid=1000`) and AF_PACKET capture fails with `Operation not permitted`. This is reported as a capability failure rather than converted into a raw scan result.
+
+Real local TCP Connect validation remains available for IPv4 loopback and IPv6 `::1`. Raw IPv4/IPv6 SYN, UDP, ICMP/ICMPv6, ARP, NDP, service-over-raw, and OS-over-raw exchanges are implemented and remain explicitly selected, but are **not live-validated** in this environment because capture permission is unavailable. No packet evidence is fabricated and no public target is contacted.

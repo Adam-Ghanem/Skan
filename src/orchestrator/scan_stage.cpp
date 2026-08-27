@@ -44,10 +44,16 @@ core::StatusCode network_failure_status(const net::NetworkScanResult &result) no
     return core::StatusCode::IoError;
 }
 
-std::string network_failure_message(std::string_view prefix, const net::NetworkScanResult &result)
+std::string network_failure_message(
+    std::string_view prefix,
+    std::string_view operation,
+    std::string_view interface_name,
+    const net::NetworkScanResult &result)
 {
-    return std::string{prefix} + ": category=" + std::string{net::preflight_category_name(result.category)} +
-           " family=" + std::string{core::address_family_name(result.family)} + " message=" + result.message;
+    return std::string{prefix} + ": transport=linux interface=" + std::string{interface_name} +
+           " family=" + std::string{core::address_family_name(result.family)} + " operation=" +
+           std::string{operation} + " category=" + std::string{net::preflight_category_name(result.category)} +
+           " errno=" + std::to_string(result.system_error) + " message=" + result.message;
 }
 
 } // namespace
@@ -81,7 +87,7 @@ StageResult DiscoveryStage::start()
         auto linux = std::make_unique<net::LinuxDiscoveryTransport>(engine_, *config_.interface_name);
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw discovery transport unavailable", opened));
+            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw discovery transport unavailable", "af_packet_capture", *config_.interface_name, opened));
             return result_;
         }
         linux_transport_ = linux.get();
@@ -198,7 +204,7 @@ StageResult PortScanStage::start()
         auto linux = std::make_unique<net::LinuxNetworkScanTransport>(engine_, std::move(linux_config));
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw TCP transport unavailable", opened));
+            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw TCP transport unavailable", "af_packet_capture", *config_.interface_name, opened));
             return result_;
         }
         transport_ = std::move(linux);
@@ -304,7 +310,7 @@ StageResult UdpScanStage::start()
             *config_.interface_name, 65535U, true, std::nullopt});
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw UDP transport unavailable", opened));
+            result_ = stage_failure(network_failure_status(opened), network_failure_message("raw UDP transport unavailable", "af_packet_capture", *config_.interface_name, opened));
             return result_;
         }
         transport_ = std::move(linux);
@@ -490,10 +496,7 @@ StageResult OSDetectionStage::start(
                                                 : core::StatusCode::IoError;
             result_ = stage_failure(
                 status,
-                "OS raw transport unavailable: category=" +
-                    std::string{net::preflight_category_name(opened.category)} +
-                    " family=" + std::string{core::address_family_name(opened.family)} +
-                    " message=" + opened.message);
+                network_failure_message("OS raw transport unavailable", "af_packet_capture", *config_.interface_name, opened));
             return result_;
         }
         os_config.source_address = linux->local_source_address();

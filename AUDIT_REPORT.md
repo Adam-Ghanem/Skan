@@ -391,3 +391,46 @@ Phase 25 adds explicit `--transport connect` CLI compatibility and updates usage
 | Output and diagnostics | Canonical normal/JSON/XML/grepable output and stderr diagnostics remain deterministic and capability-honest. |
 
 No public or arbitrary external target was contacted. The remaining remote validation work requires explicitly authorized operator-owned IPv4/IPv6 infrastructure, suitable routes and neighbors, and AF_PACKET capture/injection permission. No raw live success is claimed without that environment.
+
+
+## Phase 26 Audit Record — Privileged Real-Network Validation & Hardening
+
+### Environment
+
+| Field | Observed evidence |
+| --- | --- |
+| Kernel | `Linux 305f57cac429 6.1.102 #1 SMP PREEMPT_DYNAMIC Apr 20 12:34:49 UTC 2026 x86_64` |
+| Privileges | `uid=1000(ubuntu) gid=1000(ubuntu)` with membership in `sudo`, but no privileged raw capability available to the running process. |
+| Interfaces | `lo` is up with `127.0.0.1/8` and `::1/128`; `eth0` is up with `02:fc:00:00:00:05`, IPv4 `169.254.0.21/30`, and IPv6 link-local `fe80::fc:ff:fe00:5/64`. |
+| IPv4 route | Default via `169.254.0.22` on `eth0`; directly connected `169.254.0.20/30` route. |
+| IPv6 route | Link-local `fe80::/64` on `eth0`; loopback `::1/128` on `lo`. |
+| Neighbor | `169.254.0.22` on `eth0` with MAC `be:80:97:07:c9:b1`, state `REACHABLE`. |
+| AF_PACKET | Capture open failed with exact `Operation not permitted`. |
+| Toolchain | GNU Make 4.3, g++ 13.3.0, no `clang++`. |
+
+### Implementation and diagnostics
+
+Phase 26 adds one shared raw-stage diagnostic formatter. Representative failure output is:
+
+`transport=linux interface=eth0 family=ipv4 operation=af_packet_capture category=CAPTURE_UNAVAILABLE errno=1 message=Operation not permitted`
+
+The failure remains terminal and is emitted on stderr. No raw failure is converted into a fabricated scan result, Connect result, offline result, or success state.
+
+### Controlled validation
+
+| Test | Target/interface | Observed result | Evidence |
+| --- | --- | --- | --- |
+| IPv4 TCP Connect | `127.0.0.1`, Connect | Validated; normal report and closed-port classification produced. | Existing local socket integration and CLI smoke. |
+| IPv6 TCP Connect | `::1`, Connect | Validated; JSON output parsed structurally. | Existing local socket integration and CLI smoke. |
+| Raw IPv4 SYN | `127.0.0.1`, `lo` and `eth0` | Not validated; terminal capability failure. | `CAPTURE_UNAVAILABLE`, errno 1, `Operation not permitted`. |
+| Raw IPv6/SYN, NDP, ICMPv6 | `::1`/link-local candidates | Not validated; AF_PACKET unavailable. | No packet evidence claimed. |
+| UDP/raw discovery/ARP | Controlled local invocation only | Not validated live; existing offline/injected and capability-gated tests remain available. | No public target or uncontrolled server contacted. |
+| Output and parser matrix | Loopback and bounded target specifications | Version/help, interface JSON, IPv4/IPv6 resolution, mixed targets, JSON parsing, and failure semantics passed. | CLI smoke logs and regression suite. |
+
+### Security and stability
+
+The production source audit found no prohibited thread, polling, sleeping, shell execution, duplicate-reactor, duplicate-scheduler, or hidden-fallback implementation. The clean build, complete tests, debug, release, ASan/LSan, UBSan, coverage, and fuzz capability checks passed. `clang++` is absent, so libFuzzer execution is recorded as skipped; no fuzz execution is claimed. Raw tests retain the exact capability skip diagnostic.
+
+### Limitations
+
+No packet-capture evidence for SYN/SYN-ACK, SYN/RST, ARP, NDP, UDP response, or ICMP unreachable is recorded because the sandbox cannot open AF_PACKET. A privileged, explicitly authorized operator-owned private IPv4/IPv6 lab is required for genuine raw live validation. No public or arbitrary external target was contacted.

@@ -140,3 +140,19 @@ Phase 25 adds explicit `connect|offline|linux` transport selection for remote ta
 | Nmap breadth, NSE, CPE, evasion, spoofing, exploitation | Not implemented and intentionally outside scope. |
 
 No Nmap code, probe database, OS database, NSE script, or CPE database was copied. A direct controlled Nmap comparison was not performed because raw AF_PACKET capability was unavailable and no public target was contacted.
+
+
+## Phase 26 capability comparison
+
+Phase 26 validates Skan’s existing independently implemented live boundary and strengthens the evidence model for raw capability failures. Skan retains its own bounded target, packet, correlation, timing, service, OS, metrics, and output implementations.
+
+| Nmap capability area | Phase 26 Skan evidence |
+| --- | --- |
+| TCP Connect | Local IPv4 and IPv6 Connect paths are available and exercised; no Nmap comparison was run because only controlled targets are permitted. |
+| TCP SYN/raw capture | Raw route/next-hop, source, checksum, ARP/NDP, capture, injection, and correlation paths remain implemented; AF_PACKET capture is unavailable with `Operation not permitted`, so no raw comparison is claimed. |
+| UDP/discovery | Existing bounded typed paths remain; raw UDP and ICMP/ICMPv6/ARP/NDP live exchange was not observed. |
+| Service and OS detection | Existing bounded project-owned implementations remain; live raw service/OS comparison requires an authorized capable lab. |
+| Timing, performance, and output | Offline benchmark records and deterministic output validation remain separate from unavailable live-network measurements. |
+| NSE, CPE, fingerprint/probe corpus, evasion, spoofing, exploitation | Not implemented and intentionally outside scope. |
+
+Nmap was not invoked against any target in this sandbox. No Nmap source code, signatures, databases, scripts, or CPE data was copied. A future behavioral comparison must use only explicitly operator-owned infrastructure and must record discrepancies separately from offline and loopback evidence.

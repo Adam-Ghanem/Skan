@@ -23,6 +23,9 @@ int main()
         io_engine, skan::net::NetworkScanConfig{"lo", 65535U, true, std::nullopt});
     const skan::net::NetworkScanResult opened = transport.open();
     if (!opened.success()) {
+        assert(opened.category != skan::net::PreflightCategory::Ready);
+        assert(opened.family == skan::core::AddressFamily::IPv4 || opened.family == skan::core::AddressFamily::IPv6);
+        assert(!opened.message.empty());
         std::cout << "SKIPPED: Linux network scan transport unavailable: " << opened.message << '\n';
         return 0;
     }

@@ -777,3 +777,12 @@ Phase 25 preserves the existing CLI → Target Engine → Scan Orchestrator → 
 The CLI now exposes explicit `connect`, `offline`, and `linux` transport names. `connect` routes to the existing nonblocking TCP transport, `offline` routes to the existing recording/injected transport, and `linux` routes to the existing AF_PACKET capture/injection adapters. This is an explicit mode distinction, not fallback behavior.
 
 For raw SYN transmission, final TCP pseudo-header checksums are calculated during frame composition from the selected source and destination addresses. Remote Ethernet delivery still requires the existing interface, route, MTU, capture, injection, and neighbor prerequisites. ARP and IPv6 NDP remain bounded, strictly correlated, and capability-gated; unavailable prerequisites terminate the selected raw path with typed diagnostics.
+
+
+## Phase 26 architecture update
+
+Phase 26 preserves the established CLI → Target Engine → Scan Orchestrator → Discovery → Port Scan → Service Detection → OS Detection → Output pipeline and one epoll-based `io::IOEngine`. No worker threads, duplicate reactor, duplicate scheduler, blocking receive loop, alternate output tree, or hidden transport fallback was introduced.
+
+Linux raw stage failures now pass through one shared orchestrator formatter that records `transport=linux`, the selected interface, address family, operation, typed preflight category, numeric `errno`, and exact system message. Status mapping remains unchanged: capability failures are terminal and are never substituted with Connect or offline behavior.
+
+The actual environment remains responsible for validating live packet paths. Existing route/next-hop, source-address, ARP, NDP, capture, injection, checksum, correlation, timer, and teardown logic is reused; unavailable AF_PACKET permission is represented as a structured failure at the stage boundary.
