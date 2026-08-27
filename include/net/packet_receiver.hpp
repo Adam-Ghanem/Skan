@@ -51,6 +51,7 @@ struct PacketObservation final {
     std::chrono::steady_clock::time_point received_at{};
     std::vector<std::uint8_t> raw_frame;
     std::optional<packet::Ethernet> ethernet;
+    std::optional<std::uint16_t> vlan_tci;
     std::optional<packet::IPv4> ipv4;
     std::optional<packet::IPv6> ipv6;
     packet::IPv6ExtensionParseResult ipv6_extensions;

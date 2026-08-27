@@ -118,3 +118,10 @@ The current sandbox exposes `lo` and `eth0`, but AF_PACKET capture is denied wit
 Phase 27 completes safe repository-level reliability work without privileged packet access. Coverage metadata cleanup prevents stale instrumented objects from contaminating ordinary builds, and CI now enforces clean build/test, debug/release, sanitizer, coverage, fuzz fallback, static-security, and clean-tree checks.
 
 The next meaningful raw-network milestone still requires an explicitly authorized private/lab environment with AF_PACKET permission and independent packet capture. Until then, raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service, and raw OS behavior remains capability-dependent and must not be reported as live validated.
+
+
+## Phase 26 completion follow-up — capture encapsulation
+
+A bounded single-tag VLAN parser path is now complete in the existing PacketReceiver. It accepts 802.1Q and 802.1ad outer tags, records the tag control information, validates truncation, and does not recursively parse unbounded nested encapsulation. The behavior is covered by offline IPv4/IPv6 regression fixtures.
+
+The next acceptance milestone remains environmental rather than a hidden implementation fallback: run the capability-gated raw SYN, UDP, discovery, ARP/NDP, service, and OS paths against explicitly owned private/lab targets with AF_PACKET permission and independent packet evidence. The present sandbox still reports `Operation not permitted`; no raw live success is claimed.

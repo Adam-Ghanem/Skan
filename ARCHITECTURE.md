@@ -793,3 +793,9 @@ The actual environment remains responsible for validating live packet paths. Exi
 Phase 27 adds no runtime architecture. The existing CLI → Target Engine → Scan Orchestrator → Discovery / Port Scan / Service Detection / OS Detection → IOEngine / packet layer → Linux transport → ScanReport / OutputManager ownership remains unchanged.
 
 Build reliability is strengthened at the repository boundary: `make clean` now removes coverage metadata in addition to generated objects and binaries, and the CI workflow exercises the same build, test, sanitizer, coverage, fuzz, and static-security boundaries used for local validation. Runtime waits remain event-driven through the existing epoll reactor and one-shot timers.
+
+## Phase 26 completion follow-up — VLAN-aware capture parsing
+
+The existing `PacketReceiver` now accepts one validated 802.1Q (`0x8100`) or 802.1ad/QinQ outer tag (`0x88A8`) before IPv4 or IPv6. It records the outer tag control information in `PacketObservation::vlan_tci`, preserves the base Ethernet header unchanged, and advances the existing parser offset by exactly four bytes. Truncated tags remain `TruncatedEthernet`; a second nested VLAN tag is not recursively parsed and remains an unsupported inner EtherType. All existing transport, checksum, IPv6-extension, and correlation paths continue to consume the same canonical observation and single reactor.
+
+This is an offline/injected parser capability. The current sandbox cannot open AF_PACKET, so no VLAN packet exchange or raw live scan is claimed as validated.

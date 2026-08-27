@@ -10,6 +10,8 @@ namespace {
 
 constexpr std::uint16_t kEtherTypeIpv4 = 0x0800U;
 constexpr std::uint16_t kEtherTypeIpv6 = 0x86DDU;
+constexpr std::uint16_t kEtherTypeVlan = 0x8100U;
+constexpr std::uint16_t kEtherTypeQinQ = 0x88A8U;
 constexpr std::size_t kMaximumFrameSize = 65535U;
 
 std::uint16_t read_u16(std::span<const std::uint8_t> input, std::size_t offset) noexcept
@@ -97,8 +99,20 @@ PacketObservation PacketReceiver::parse(
         observation.status = ParseStatus::MalformedEthernet;
         return observation;
     }
-    if (observation.ethernet->ether_type() == kEtherTypeIpv6) {
-        const std::span<const std::uint8_t> ip_input = frame.subspan(packet::Ethernet::kHeaderSize);
+    std::uint16_t ether_type = observation.ethernet->ether_type();
+    std::size_t l2_header_size = packet::Ethernet::kHeaderSize;
+    if (ether_type == kEtherTypeVlan || ether_type == kEtherTypeQinQ) {
+        constexpr std::size_t kVlanTagSize = 4U;
+        if (frame.size() < packet::Ethernet::kHeaderSize + kVlanTagSize) {
+            observation.status = ParseStatus::TruncatedEthernet;
+            return observation;
+        }
+        observation.vlan_tci = read_u16(frame, packet::Ethernet::kHeaderSize);
+        ether_type = read_u16(frame, packet::Ethernet::kHeaderSize + 2U);
+        l2_header_size += kVlanTagSize;
+    }
+    if (ether_type == kEtherTypeIpv6) {
+        const std::span<const std::uint8_t> ip_input = frame.subspan(l2_header_size);
         if (ip_input.size() < packet::IPv6::kHeaderSize) {
             observation.status = ParseStatus::TruncatedIPv6;
             return observation;
@@ -185,12 +199,12 @@ PacketObservation PacketReceiver::parse(
         observation.status = ParseStatus::Valid;
         return observation;
     }
-    if (observation.ethernet->ether_type() != kEtherTypeIpv4) {
+    if (ether_type != kEtherTypeIpv4) {
         observation.status = ParseStatus::UnsupportedEtherType;
         return observation;
     }
 
-    const std::span<const std::uint8_t> ip_input = frame.subspan(packet::Ethernet::kHeaderSize);
+    const std::span<const std::uint8_t> ip_input = frame.subspan(l2_header_size);
     if (ip_input.size() < packet::IPv4::kMinimumHeaderSize) {
         observation.status = ParseStatus::TruncatedIPv4;
         return observation;

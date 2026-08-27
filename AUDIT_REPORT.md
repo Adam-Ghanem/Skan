@@ -453,3 +453,13 @@ The production audit found no `std::thread`, `pthread_create`, `std::async`, `po
 ### Remaining capability boundary
 
 The sandbox exposes `lo` and `eth0`, with an IPv4 default route via `169.254.0.22`, but AF_PACKET capture is denied for the unprivileged process with `Operation not permitted`. IPv4 and IPv6 Connect plus offline/injected validation remain available. Raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service detection, and raw OS detection remain capability-dependent and are not live-validated.
+
+
+## Phase 26 completion follow-up — bounded VLAN parsing
+
+The packet-capture parser was audited against the requirement to handle common Ethernet encapsulation without weakening bounds checks. It now supports exactly one 802.1Q or 802.1ad outer tag, records the tag control information, preserves the original Ethernet header metadata, and advances the IP offset by four bytes. Truncated tags are rejected as `TruncatedEthernet`, and nested tags are not recursively expanded. IPv4 TCP and IPv6 ICMPv6 tagged fixtures pass checksum and protocol validation; regression coverage also exercises a truncated tag path.
+
+This behavior was validated offline through injected byte frames and the unit suite. The environment remains raw-capability limited: AF_PACKET open still returns errno 1, `Operation not permitted`. No VLAN, SYN, ARP, NDP, UDP, ICMP, or OS raw exchange is claimed as live-validated, and no public or uncontrolled target was contacted.
+
+
+The final audit also reproduced a build-mode boundary issue: invoking `make benchmark` directly after `make coverage` attempted to link coverage-instrumented objects without coverage runtime flags. The benchmark target now performs a serialized `make clean` followed by a normal benchmark rebuild, and CI executes that target immediately after coverage. This keeps benchmark validation independent of the preceding build mode without introducing a second build system.

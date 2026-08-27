@@ -100,6 +100,21 @@ std::vector<std::uint8_t> test_ipv6_frame()
     return packet.serialize();
 }
 
+std::vector<std::uint8_t> add_vlan_tag(
+    std::span<const std::uint8_t> frame,
+    std::uint16_t vlan_ethertype,
+    std::uint16_t vlan_tci)
+{
+    std::vector<std::uint8_t> tagged(frame.begin(), frame.end());
+    tagged.insert(tagged.begin() + 12, {
+        static_cast<std::uint8_t>(vlan_ethertype >> 8U),
+        static_cast<std::uint8_t>(vlan_ethertype & 0xFFU),
+        static_cast<std::uint8_t>(vlan_tci >> 8U),
+        static_cast<std::uint8_t>(vlan_tci & 0xFFU),
+    });
+    return tagged;
+}
+
 void set_ipv4_total_length(std::vector<std::uint8_t> &frame, std::uint16_t total_length)
 {
     frame[16] = static_cast<std::uint8_t>(total_length >> 8U);
@@ -124,6 +139,20 @@ int main()
     assert(tcp.tcp.has_value());
     assert(tcp.tcp->source_port() == 12345U);
     assert(tcp.received_at == timestamp);
+
+    const auto vlan_tcp_frame = add_vlan_tag(tcp_frame, 0x8100U, 0x0123U);
+    const skan::net::PacketObservation vlan_tcp = skan::net::PacketReceiver::parse(vlan_tcp_frame, timestamp);
+    assert(vlan_tcp.status == skan::net::ParseStatus::Valid);
+    assert(vlan_tcp.vlan_tci.has_value() && vlan_tcp.vlan_tci.value() == 0x0123U);
+    assert(vlan_tcp.ethernet.has_value() && vlan_tcp.ethernet->ether_type() == 0x8100U);
+    assert(vlan_tcp.tcp.has_value() && vlan_tcp.tcp->destination_port() == 80U);
+
+    auto truncated_vlan = tcp_frame;
+    truncated_vlan.resize(16U);
+    truncated_vlan[12U] = 0x81U;
+    truncated_vlan[13U] = 0x00U;
+    assert(skan::net::PacketReceiver::parse(truncated_vlan).status ==
+           skan::net::ParseStatus::TruncatedEthernet);
 
     const auto udp_frame = skan::test::test_udp_frame();
     const skan::net::PacketObservation udp = skan::net::PacketReceiver::parse(udp_frame, timestamp);
@@ -189,6 +218,11 @@ int main()
     assert(skan::net::PacketReceiver::parse(malformed_icmp).status == skan::net::ParseStatus::MalformedICMP);
 
     const auto ipv6_frame = test_ipv6_frame();
+    const auto vlan_ipv6_frame = add_vlan_tag(ipv6_frame, 0x88A8U, 0x0A55U);
+    const skan::net::PacketObservation vlan_ipv6 = skan::net::PacketReceiver::parse(vlan_ipv6_frame, timestamp);
+    assert(vlan_ipv6.status == skan::net::ParseStatus::Valid);
+    assert(vlan_ipv6.vlan_tci.has_value() && vlan_ipv6.vlan_tci.value() == 0x0A55U);
+    assert(vlan_ipv6.ipv6.has_value());
     const skan::net::PacketObservation ipv6 = skan::net::PacketReceiver::parse(ipv6_frame, timestamp);
     assert(ipv6.status == skan::net::ParseStatus::Valid);
     assert(ipv6.ipv6.has_value());

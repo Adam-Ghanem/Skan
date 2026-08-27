@@ -39,6 +39,12 @@ jobs:
           make ubsan
           make coverage
 
+      - name: Benchmark isolation after coverage
+        run: |
+          make benchmark
+          ./build/benchmark_offline >/tmp/skan-benchmark.csv
+          test -s /tmp/skan-benchmark.csv
+
       - name: Fuzz target or capability-aware fallback
         run: |
           make fuzz

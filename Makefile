@@ -314,7 +314,9 @@ all: $(TARGET)
 $(TARGET): $(CPP_OBJECTS) $(C_OBJECTS) | bin
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-benchmark: $(BUILD_DIR)/benchmark_offline
+benchmark:
+	$(MAKE) clean
+	$(MAKE) $(BUILD_DIR)/benchmark_offline
 
 $(BUILD_DIR)/benchmark_offline: $(BUILD_DIR)/benchmarks/offline_benchmark.o $(LIB_CPP_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
