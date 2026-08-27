@@ -132,3 +132,10 @@ The next acceptance milestone remains environmental rather than a hidden impleme
 Phase 27 broadens offline/injected VLAN regression coverage to tagged TCP, UDP, ICMP, and IPv6 frames and adds a deterministic VLAN receive-parser benchmark. The existing raw Linux implementation remains the production path when OS capabilities, routes, source addresses, interfaces, and neighbors permit it; no hidden Connect/offline fallback is introduced.
 
 The current sandbox still denies AF_PACKET with `Operation not permitted`. Genuine raw IPv4/IPv6 SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service, raw OS, and live VLAN validation therefore remain capability-dependent and require an explicitly owned private/lab environment with independent packet evidence.
+
+
+## Phase 28 status — raw parser hardening
+
+Phase 28 adds typed `FragmentedIPv6` rejection to the existing bounded PacketReceiver. IPv6 Fragment-header observations are retained as parsed metadata but are not interpreted as transport responses because Skan does not reassemble fragments in its raw correlation path. This closes a concrete false-correlation risk without adding another pipeline or reactor.
+
+The remaining raw IPv6 gaps are environmental and architectural boundaries already identified by the audit: non-loopback Linux TCP/UDP adapters still require a usable destination MAC or an explicitly provided neighbor path, and generalized routed IPv6 next-hop/NDP sharing across stages is not claimed. Acceptance requires AF_PACKET permission and an explicitly owned private/lab target with independent packet evidence.

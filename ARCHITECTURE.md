@@ -805,3 +805,10 @@ This is an offline/injected parser capability. The current sandbox cannot open A
 Phase 27 preserves the existing CLI → Target Engine → Scan Orchestrator → Discovery → Port Scan → Service Detection → OS Detection → Output pipeline and one epoll-based `io::IOEngine`. The bounded VLAN receive path is now regression-covered for tagged TCP, UDP, ICMP, and IPv6 frames, with exact four-byte advancement and truncated-tag rejection. The parser records one outer VLAN TCI and does not recursively expand nested tags.
 
 The benchmark driver now measures the VLAN receive parser alongside existing IPv4, IPv6, TCP, UDP, ICMP, ICMPv6, NDP, correlation, scheduler, detection, orchestration, and serialization workloads. This remains offline/injected validation; AF_PACKET-dependent transmit and receive behavior is still capability-dependent.
+
+
+## Phase 28 parser-hardening update
+
+Phase 28 retains the single existing pipeline and epoll reactor. `PacketReceiver` now treats every parsed IPv6 Fragment header as a typed `FragmentedIPv6` result and stops before TCP, UDP, or ICMPv6 interpretation. Skan does not perform fragment reassembly in the raw correlation path; rejecting fragmented observations prevents bytes from a non-initial fragment from being mistaken for a transport header or correlated probe. Existing limits of eight extension headers and 2,048 extension bytes remain enforced.
+
+This decision is consistent with the project’s bounded-parser policy: malformed, unsupported, over-limit, and fragmented IPv6 inputs produce deterministic non-success statuses rather than speculative protocol results. The behavior is validated with an injected fragment fixture and remains separate from live raw capability validation.

@@ -115,6 +115,30 @@ std::vector<std::uint8_t> add_vlan_tag(
     return tagged;
 }
 
+std::vector<std::uint8_t> add_ipv6_fragment_header(
+    std::span<const std::uint8_t> frame,
+    std::uint16_t fragment_field)
+{
+    std::vector<std::uint8_t> fragmented(frame.begin(), frame.end());
+    fragmented.insert(fragmented.begin() + 14U + 40U, {
+        58U,
+        0U,
+        static_cast<std::uint8_t>(fragment_field >> 8U),
+        static_cast<std::uint8_t>(fragment_field & 0xFFU),
+        0x12U,
+        0x34U,
+        0x56U,
+        0x78U,
+    });
+    fragmented[14U + 6U] = 44U;
+    const std::uint16_t payload_length = static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(fragmented[14U + 4U]) << 8U) | fragmented[14U + 5U]);
+    const std::uint16_t updated_length = static_cast<std::uint16_t>(payload_length + 8U);
+    fragmented[14U + 4U] = static_cast<std::uint8_t>(updated_length >> 8U);
+    fragmented[14U + 5U] = static_cast<std::uint8_t>(updated_length & 0xFFU);
+    return fragmented;
+}
+
 void set_ipv4_total_length(std::vector<std::uint8_t> &frame, std::uint16_t total_length)
 {
     frame[16] = static_cast<std::uint8_t>(total_length >> 8U);
@@ -240,6 +264,12 @@ int main()
     assert(ipv6.ipv6.has_value());
     assert(ipv6.icmpv6.has_value());
     assert(ipv6.icmpv6->sequence() == 8U);
+
+    const auto fragmented_ipv6 = add_ipv6_fragment_header(ipv6_frame, 0x0008U);
+    const skan::net::PacketObservation fragmented = skan::net::PacketReceiver::parse(fragmented_ipv6, timestamp);
+    assert(fragmented.status == skan::net::ParseStatus::FragmentedIPv6);
+    assert(std::string_view{skan::net::parse_status_name(fragmented.status)} == "fragmented-ipv6");
+    assert(fragmented.ipv6_extensions.headers.size() == 1U);
 
     const auto ipv6_tcp_frame = skan::test::test_ipv6_tcp_frame();
     assert(skan::net::PacketReceiver::parse(ipv6_tcp_frame).status == skan::net::ParseStatus::Valid);

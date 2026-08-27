@@ -166,3 +166,8 @@ Phase 27 adds reproducible build cleanup and CI enforcement only; it does not co
 ## Phase 27 comparison note
 
 Phase 27 adds VLAN parser regression coverage and an offline VLAN benchmark without copying or deriving any Nmap source, signature, database, NSE script, CPE data, or behavioral implementation. No Nmap comparison was run in the sandbox because no controlled comparison target was authorized and raw AF_PACKET remained unavailable. Existing behavioral comparison limitations and capability-honest reporting remain unchanged.
+
+
+## Phase 28 comparison note
+
+Phase 28 adds an original bounded-parser safety decision for IPv6 Fragment headers; it does not copy or derive any Nmap source, probe database, OS fingerprint, NSE script, CPE data, or behavior. No Nmap comparison was performed because raw AF_PACKET capability was unavailable and no controlled comparison target was present. The result is not presented as Nmap parity.

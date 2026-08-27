@@ -148,3 +148,6 @@ The environment remains capability-honest: IPv4/IPv6 Connect and deterministic o
 
 ## Phase 27 Status — Raw-path verification
 Phase 27 extends the existing bounded VLAN receive coverage to tagged UDP and ICMP fixtures and adds a deterministic VLAN parser benchmark. The single epoll pipeline, explicit raw transport selection, capability-honest diagnostics, and no-fallback behavior remain unchanged. AF_PACKET still reports `Operation not permitted` in this sandbox, so raw packet exchange is not claimed as live-validated.
+
+## Phase 28 Status — Raw parser hardening
+Phase 28 preserves the existing raw-scanning pipeline and adds typed rejection for IPv6 Fragment-header frames that cannot be safely correlated without reassembly. The bounded PacketReceiver now reports `fragmented-ipv6` instead of interpreting fragment payload bytes as TCP, UDP, or ICMP. AF_PACKET remains capability-dependent and no raw live success is claimed in this sandbox.

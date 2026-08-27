@@ -51,6 +51,8 @@ const char *parse_status_name(ParseStatus status) noexcept
         return "malformed-ipv6-extension";
     case ParseStatus::IPv6ExtensionLimitExceeded:
         return "ipv6-extension-limit-exceeded";
+    case ParseStatus::FragmentedIPv6:
+        return "fragmented-ipv6";
     case ParseStatus::UnsupportedIpProtocol:
         return "unsupported-ip-protocol";
     case ParseStatus::TruncatedTCP:
@@ -142,6 +144,12 @@ PacketObservation PacketReceiver::parse(
             return observation;
         case packet::IPv6ExtensionParseStatus::Complete:
             break;
+        }
+        for (const packet::IPv6ExtensionHeader &extension : observation.ipv6_extensions.headers) {
+            if (extension.kind == packet::IPv6ExtensionKind::Fragment) {
+                observation.status = ParseStatus::FragmentedIPv6;
+                return observation;
+            }
         }
         const std::span<const std::uint8_t> transport = ipv6_payload.subspan(observation.ipv6_extensions.consumed_bytes);
         switch (observation.ipv6_extensions.terminal_next_header) {

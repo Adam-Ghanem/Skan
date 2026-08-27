@@ -236,3 +236,19 @@ The benchmark driver now includes `vlan-receiver-parser`, which repeatedly parse
 | VLAN receiver parser | 10,000 | 0.650 | 0.754 | 15,385,538.517 | 11,436 | 10,000 |
 
 These are deterministic offline/injected parser measurements. They do not represent raw packet transmission, capture, VLAN hardware behavior, or live-network throughput.
+
+
+## Phase 28 benchmark record — parser hardening
+
+Fresh five-sample offline measurements were collected after adding typed IPv6 fragment rejection. The existing IPv4, IPv6, and VLAN receiver-parser rows remain deterministic and in-process:
+
+| Stage | Targets | Median wall (ms) | p95 wall (ms) | Operations/s | Peak RSS (KiB) | Operations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| IPv4 receiver parser | 1,000 | 0.068 | 0.070 | 14,619,241.846 | 4,964 | 1,000 |
+| IPv6 receiver parser | 1,000 | 0.075 | 0.088 | 13,347,214.436 | 4,964 | 1,000 |
+| VLAN receiver parser | 1,000 | 0.067 | 0.068 | 14,832,173.952 | 4,964 | 1,000 |
+| IPv4 receiver parser | 10,000 | 0.657 | 2.342 | 15,217,758.515 | 11,496 | 10,000 |
+| IPv6 receiver parser | 10,000 | 0.729 | 0.745 | 13,719,415.992 | 11,496 | 10,000 |
+| VLAN receiver parser | 10,000 | 0.672 | 3.141 | 14,873,205.920 | 11,496 | 10,000 |
+
+These values measure offline parsing only. They are not raw packet throughput and do not constitute live IPv4/IPv6/VLAN performance validation.

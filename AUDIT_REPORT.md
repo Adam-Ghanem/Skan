@@ -470,3 +470,10 @@ The final audit also reproduced a build-mode boundary issue: invoking `make benc
 The Phase 27 audit rechecked the synchronized Phase 26 baseline and retained its raw Linux transport, route/source, ARP/NDP, correlation, timing, service, OS, output, and capability-diagnostic implementation. The concrete remaining verification gap was VLAN coverage breadth: the parser already handled one bounded outer 802.1Q/802.1ad tag, but unit coverage did not exercise tagged UDP and tagged ICMP. Those regressions are now present, including TCI assertions and valid checksum-aware parsing. The offline benchmark now includes a `vlan-receiver-parser` row.
 
 The test and benchmark additions do not claim live VLAN behavior. The current process remains unprivileged and AF_PACKET open still returns errno 1, `Operation not permitted`; no raw packet exchange, ARP/NDP exchange, or uncontrolled target traffic was performed.
+
+
+## Phase 28 audit record — IPv6 fragment safety
+
+The Phase 28 source audit confirmed that the raw transports, route/source selection, bounded ARP/NDP state, schedulers, timers, correlation, output model, and explicit transport semantics remain in the existing architecture. A concrete parser correctness gap was identified: `PacketReceiver` accepted a valid IPv6 Fragment header and then attempted to interpret the following bytes as TCP, UDP, or ICMPv6 without reassembly. Phase 28 adds the typed `FragmentedIPv6` status and stops transport parsing whenever a Fragment header is present. A regression fixture verifies the status name and retained extension metadata.
+
+The complete validation sequence passed after the fix, including clean build, full tests, debug/release, ASan/LSan, UBSan, coverage, benchmark, fuzz fallback handling, final clean rebuild, CLI smoke checks, JSON parsing, and static audits. Raw Linux tests continue to report `SKIPPED` with the exact AF_PACKET diagnostic `Operation not permitted`; no raw live exchange or uncontrolled target traffic was performed.

@@ -34,6 +34,7 @@ enum class ParseStatus {
     UnsupportedIPv6Extension,
     MalformedIPv6Extension,
     IPv6ExtensionLimitExceeded,
+    FragmentedIPv6,
     UnsupportedIpProtocol,
     TruncatedTCP,
     MalformedTCP,
