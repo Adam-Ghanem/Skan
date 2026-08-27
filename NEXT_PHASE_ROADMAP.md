@@ -111,3 +111,10 @@ Local IPv4/IPv6 Connect validation is available in this environment. Raw remote 
 Phase 26 adds evidence-backed raw-stage diagnostics and records the actual environment boundary. Linux failures identify the selected interface, family, operation, category, errno, and message while preserving terminal no-fallback semantics. The existing route/next-hop, source, ARP/NDP, packet, correlation, timing, service, OS, and output subsystems remain the single implementation path.
 
 The current sandbox exposes `lo` and `eth0`, but AF_PACKET capture is denied with `Operation not permitted`. IPv4 and IPv6 Connect paths remain locally testable; raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, service-over-raw, and OS-over-raw remain capability-dependent and are not marked live-validated. Future acceptance requires an explicitly authorized operator-owned private/lab network and independent packet evidence.
+
+
+## Phase 27 Status — Reliability and CI
+
+Phase 27 completes safe repository-level reliability work without privileged packet access. Coverage metadata cleanup prevents stale instrumented objects from contaminating ordinary builds, and CI now enforces clean build/test, debug/release, sanitizer, coverage, fuzz fallback, static-security, and clean-tree checks.
+
+The next meaningful raw-network milestone still requires an explicitly authorized private/lab environment with AF_PACKET permission and independent packet capture. Until then, raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service, and raw OS behavior remains capability-dependent and must not be reported as live validated.

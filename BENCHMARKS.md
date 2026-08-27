@@ -204,3 +204,23 @@ Fresh Phase 26 runs completed after a clean non-instrumented rebuild. Representa
 | normal serialization | 0.080 / 0.082 | 0.993 / 1.007 | 10,070,463 | 244,696 |
 
 These measurements exercise offline expansion, scheduling, parsing, correlation, matching, orchestration, and serialization only. They do not represent raw remote-network throughput, and no remote or public target was contacted.
+
+
+## Phase 27 Benchmark and Reproducibility Record
+
+Phase 27 does not introduce a second benchmark harness or reinterpret prior results. Existing 1,000- and 10,000-target offline measurements remain offline algorithmic-scaling data. The primary performance-related improvement is reproducible cleanup: coverage metadata is removed by `make clean`, so ordinary builds no longer depend on prior instrumentation state.
+
+CI intentionally validates build and test reproducibility separately from network performance. No raw-network benchmark is reported because AF_PACKET remains unavailable with `Operation not permitted`.
+
+
+Fresh Phase 27 offline runs completed after `make clean` removed prior coverage metadata. Representative rows are machine-specific and are not raw network throughput.
+
+| Row | 1,000 targets p50 / p95 ms | 10,000 targets p50 / p95 ms | 10,000 operations/s | 10,000 RSS KiB |
+| --- | ---: | ---: | ---: | ---: |
+| mixed-orchestrator | 1,169.994 / 1,178.539 | 11,831.277 / 11,844.206 | 845.217 | 244,744 |
+| JSON serialization | 0.542 / 0.717 | 6.200 / 6.719 | 1,612,890 | 244,744 |
+| XML serialization | 0.240 / 0.259 | 2.854 / 2.976 | 3,504,086 | 244,744 |
+| grepable serialization | 0.097 / 0.119 | 1.365 / 1.437 | 7,323,362 | 244,744 |
+| normal serialization | 0.080 / 0.090 | 1.115 / 1.122 | 8,971,788 | 244,744 |
+
+These measurements cover offline expansion, scheduling, parsing, correlation, matching, orchestration, and serialization. No remote or public target was contacted.

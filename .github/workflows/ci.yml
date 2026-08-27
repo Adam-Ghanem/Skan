@@ -1,0 +1,68 @@
+name: Skan CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          make --version | head -1
+          g++ --version | head -1
+          clang++ --version || true
+
+      - name: Clean production build and tests
+        run: |
+          make clean
+          make -j2
+          make test
+
+      - name: Debug and release builds
+        run: |
+          make debug
+          make release
+
+      - name: Sanitizers and coverage
+        run: |
+          make asan
+          make ubsan
+          make coverage
+
+      - name: Fuzz target or capability-aware fallback
+        run: |
+          make fuzz
+          if ! command -v clang++ >/dev/null 2>&1; then
+            g++ -Iinclude -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 \
+              -O2 -c tests/fuzz/fuzz_packet_parsers.cpp -o /tmp/fuzz_packet_parsers.o
+          fi
+
+      - name: Static and security audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git diff --check)"
+          if grep -RInE '#include[[:space:]]*[<\"](thread|pthread)|std::thread|std::async|pthread_|\b(poll|select|sleep|usleep|system|popen)[[:space:]]*\(' src include; then
+            echo "prohibited production API found" >&2
+            exit 1
+          fi
+          if grep -RInE 'AuthorizationGate|loopback[-_ ]only|private[-_ ]range|allowlist' src include; then
+            echo "artificial production restriction found" >&2
+            exit 1
+          fi
+          git status --short
+
+      - name: Repository clean
+        run: |
+          make clean
+          test -z "$(git status --porcelain)"

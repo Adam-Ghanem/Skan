@@ -692,5 +692,6 @@ test: $(TEST_BINARIES)
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
+	find . -type f \( -name '*.gcda' -o -name '*.gcno' -o -name '*.gcov' \) -delete
 
 -include $(CPP_OBJECTS:.o=.d) $(C_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d)

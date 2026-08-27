@@ -786,3 +786,10 @@ Phase 26 preserves the established CLI → Target Engine → Scan Orchestrator �
 Linux raw stage failures now pass through one shared orchestrator formatter that records `transport=linux`, the selected interface, address family, operation, typed preflight category, numeric `errno`, and exact system message. Status mapping remains unchanged: capability failures are terminal and are never substituted with Connect or offline behavior.
 
 The actual environment remains responsible for validating live packet paths. Existing route/next-hop, source-address, ARP, NDP, capture, injection, checksum, correlation, timer, and teardown logic is reused; unavailable AF_PACKET permission is represented as a structured failure at the stage boundary.
+
+
+## Phase 27 architecture update
+
+Phase 27 adds no runtime architecture. The existing CLI → Target Engine → Scan Orchestrator → Discovery / Port Scan / Service Detection / OS Detection → IOEngine / packet layer → Linux transport → ScanReport / OutputManager ownership remains unchanged.
+
+Build reliability is strengthened at the repository boundary: `make clean` now removes coverage metadata in addition to generated objects and binaries, and the CI workflow exercises the same build, test, sanitizer, coverage, fuzz, and static-security boundaries used for local validation. Runtime waits remain event-driven through the existing epoll reactor and one-shot timers.

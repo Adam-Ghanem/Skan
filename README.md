@@ -138,3 +138,10 @@ Phase 26 audited and hardened the existing live path without adding a second pip
 The observed sandbox has `lo` and `eth0`; `eth0` carries IPv4 `169.254.0.21/30`, IPv6 link-local `fe80::fc:ff:fe00:5/64`, a default IPv4 route through `169.254.0.22`, and a reachable neighbor entry for that gateway. The process is unprivileged (`uid=1000`) and AF_PACKET capture fails with `Operation not permitted`. This is reported as a capability failure rather than converted into a raw scan result.
 
 Real local TCP Connect validation remains available for IPv4 loopback and IPv6 `::1`. Raw IPv4/IPv6 SYN, UDP, ICMP/ICMPv6, ARP, NDP, service-over-raw, and OS-over-raw exchanges are implemented and remain explicitly selected, but are **not live-validated** in this environment because capture permission is unavailable. No packet evidence is fabricated and no public target is contacted.
+
+
+## Phase 27 Status — Reliability and Reproducible CI
+
+Phase 27 continues production hardening without changing Skan’s single pipeline or epoll reactor. The build clean target now removes coverage metadata as well as generated objects, preventing instrumented artifacts from contaminating later ordinary links. GitHub Actions now runs clean build/test, debug/release, sanitizers, coverage, fuzz capability handling, static checks, prohibited-API checks, and repository-clean verification.
+
+The environment remains capability-honest: IPv4/IPv6 Connect and deterministic offline/injected paths are locally testable, while raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service, and raw OS validation remain unavailable when AF_PACKET reports `Operation not permitted`.

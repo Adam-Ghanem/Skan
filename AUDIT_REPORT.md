@@ -434,3 +434,22 @@ The production source audit found no prohibited thread, polling, sleeping, shell
 ### Limitations
 
 No packet-capture evidence for SYN/SYN-ACK, SYN/RST, ARP, NDP, UDP response, or ICMP unreachable is recorded because the sandbox cannot open AF_PACKET. A privileged, explicitly authorized operator-owned private IPv4/IPv6 lab is required for genuine raw live validation. No public or arbitrary external target was contacted.
+
+
+## Phase 27 Audit Record — Safe Reliability Work Without Raw Privilege
+
+Phase 27 reviewed the clean Phase 26 baseline, the complete source/test inventory, the Makefile, CI configuration, runtime environment, and prohibited production APIs. The repository was synchronized at the Phase 26 commit before changes.
+
+### Concrete fixes
+
+The baseline exposed a reproducibility hazard: after coverage builds, a subsequent ordinary link could encounter stale instrumented objects and fail with unresolved `__gcov_*` symbols. `make clean` now removes `.gcda`, `.gcno`, and `.gcov` metadata in addition to `build/` and `bin/`. A new `.github/workflows/ci.yml` runs clean production build/tests, debug/release, ASan/LSan, UBSan, coverage, fuzz capability handling, g++ fallback compilation when clang is absent, whitespace checks, prohibited-API checks, artificial-restriction checks, and clean-tree verification.
+
+### Validation
+
+After the changes, `make clean && make -j2 && make test` passed. The workflow syntax and referenced files were checked locally, and the new raw-stage diagnostic regression remains green. The existing complete sanitizer, coverage, and capability-aware fuzz procedure remains applicable; raw Linux tests retain the exact `Operation not permitted` skip rather than fabricating packet success.
+
+The production audit found no `std::thread`, `pthread_create`, `std::async`, `poll`, `select`, `sleep`, `usleep`, `system`, or `popen` usage, and no artificial authorization restriction, hidden fallback, duplicate reactor, shell execution, evasion, spoofing, exploitation, credential harvesting, or persistence path.
+
+### Remaining capability boundary
+
+The sandbox exposes `lo` and `eth0`, with an IPv4 default route via `169.254.0.22`, but AF_PACKET capture is denied for the unprivileged process with `Operation not permitted`. IPv4 and IPv6 Connect plus offline/injected validation remain available. Raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service detection, and raw OS detection remain capability-dependent and are not live-validated.

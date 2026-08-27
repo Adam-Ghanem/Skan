@@ -156,3 +156,8 @@ Phase 26 validates Skan’s existing independently implemented live boundary and
 | NSE, CPE, fingerprint/probe corpus, evasion, spoofing, exploitation | Not implemented and intentionally outside scope. |
 
 Nmap was not invoked against any target in this sandbox. No Nmap source code, signatures, databases, scripts, or CPE data was copied. A future behavioral comparison must use only explicitly operator-owned infrastructure and must record discrepancies separately from offline and loopback evidence.
+
+
+## Phase 27 comparison note
+
+Phase 27 adds reproducible build cleanup and CI enforcement only; it does not copy or derive any Nmap source, signature, database, NSE script, CPE data, or behavioral implementation. No Nmap comparison was run in the sandbox because no controlled comparison target was authorized and raw AF_PACKET remained unavailable. Existing behavioral comparison limitations and capability-honest reporting remain unchanged.
