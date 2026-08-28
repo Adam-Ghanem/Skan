@@ -125,6 +125,10 @@ PacketObservation PacketReceiver::parse(
             return observation;
         }
         const std::size_t ipv6_payload_size = static_cast<std::size_t>(observation.ipv6->payload_length());
+        if (ipv6_payload_size > ip_input.size() - packet::IPv6::kHeaderSize) {
+            observation.status = ParseStatus::TruncatedIPv6;
+            return observation;
+        }
         const std::span<const std::uint8_t> ip_packet = ip_input.first(packet::IPv6::kHeaderSize + ipv6_payload_size);
         const std::span<const std::uint8_t> ipv6_payload = ip_packet.subspan(packet::IPv6::kHeaderSize);
         observation.ipv6_extensions = packet::parse_ipv6_extensions(

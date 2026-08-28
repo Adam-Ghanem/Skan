@@ -151,6 +151,13 @@ void set_ipv4_total_length(std::vector<std::uint8_t> &frame, std::uint16_t total
     frame[25] = static_cast<std::uint8_t>(checksum & 0xFFU);
 }
 
+void set_ipv6_payload_length(std::vector<std::uint8_t> &frame, std::uint16_t payload_length)
+{
+    constexpr std::size_t kIpv6Offset = 14U;
+    frame[kIpv6Offset + 4U] = static_cast<std::uint8_t>(payload_length >> 8U);
+    frame[kIpv6Offset + 5U] = static_cast<std::uint8_t>(payload_length & 0xFFU);
+}
+
 } // namespace
 
 int main()
@@ -264,6 +271,50 @@ int main()
     assert(ipv6.ipv6.has_value());
     assert(ipv6.icmpv6.has_value());
     assert(ipv6.icmpv6->sequence() == 8U);
+
+    auto ipv6_zero_payload = ipv6_frame;
+    ipv6_zero_payload.resize(14U + 40U);
+    set_ipv6_payload_length(ipv6_zero_payload, 0U);
+    ipv6_zero_payload[14U + 6U] = 59U;
+    assert(skan::net::PacketReceiver::parse(ipv6_zero_payload, timestamp).status ==
+           skan::net::ParseStatus::UnsupportedIpProtocol);
+
+    auto ipv6_truncated = ipv6_frame;
+    ipv6_truncated.resize(14U + 40U - 1U);
+    assert(skan::net::PacketReceiver::parse(ipv6_truncated, timestamp).status ==
+           skan::net::ParseStatus::TruncatedIPv6);
+
+    auto ipv6_advertised_truncated = ipv6_frame;
+    ipv6_advertised_truncated.resize(14U + 40U + 1U);
+    set_ipv6_payload_length(ipv6_advertised_truncated, 2U);
+    assert(skan::net::PacketReceiver::parse(ipv6_advertised_truncated, timestamp).status ==
+           skan::net::ParseStatus::TruncatedIPv6);
+
+    auto ipv6_advertised_one_byte_short = ipv6_frame;
+    const std::size_t advertised_payload = ipv6_advertised_one_byte_short.size() - (14U + 40U);
+    set_ipv6_payload_length(ipv6_advertised_one_byte_short, static_cast<std::uint16_t>(advertised_payload + 1U));
+    ipv6_advertised_one_byte_short.pop_back();
+    assert(skan::net::PacketReceiver::parse(ipv6_advertised_one_byte_short, timestamp).status ==
+           skan::net::ParseStatus::TruncatedIPv6);
+
+    auto ipv6_max_advertised = ipv6_frame;
+    ipv6_max_advertised.resize(14U + 40U + 1U);
+    set_ipv6_payload_length(ipv6_max_advertised, 0xFFFFU);
+    assert(skan::net::PacketReceiver::parse(ipv6_max_advertised, timestamp).status ==
+           skan::net::ParseStatus::TruncatedIPv6);
+
+    auto vlan_ipv6_truncated = vlan_ipv6_frame;
+    vlan_ipv6_truncated.resize(14U + 4U + 40U + 1U);
+    set_ipv6_payload_length(vlan_ipv6_truncated, 2U);
+    assert(skan::net::PacketReceiver::parse(vlan_ipv6_truncated, timestamp).status ==
+           skan::net::ParseStatus::TruncatedIPv6);
+
+    auto qinq_ipv6_truncated = ipv6_frame;
+    qinq_ipv6_truncated = add_vlan_tag(qinq_ipv6_truncated, 0x88A8U, 0x0101U);
+    qinq_ipv6_truncated.resize(14U + 4U + 40U + 1U);
+    set_ipv6_payload_length(qinq_ipv6_truncated, 2U);
+    assert(skan::net::PacketReceiver::parse(qinq_ipv6_truncated, timestamp).status ==
+           skan::net::ParseStatus::TruncatedIPv6);
 
     const auto fragmented_ipv6 = add_ipv6_fragment_header(ipv6_frame, 0x0008U);
     const skan::net::PacketObservation fragmented = skan::net::PacketReceiver::parse(fragmented_ipv6, timestamp);
