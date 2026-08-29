@@ -154,3 +154,11 @@ Phase 30 adds a dedicated GitHub Actions private lab built from one temporary ne
 Phase 31 adds direct target-final invocation and aliases for `-sT`, `-sS`, `-sU`, `-sn`, `-Pn`, `-sV`, `-O`, `-T0` through `-T5`, `-e`, `-oN`, `-oX`, `-oG`, and `-oA`. It also adds a deterministic Skan-owned 100-port TCP corpus for `--top-ports`. Native commands remain supported, aliases reuse the existing orchestrator and transports, and unavailable capabilities never silently fall back.
 
 The next breadth milestones are larger project-owned service and OS fingerprint corpora, traceroute, resume/progress state, additional explicitly reviewed scan families, and a sandboxed scripting design. These are not represented as already implemented.
+
+## Phase 32 Status — Nmap target and port selection
+
+Phase 32 expands the scoped compatibility layer without introducing another resolver, scheduler, or transport. Nmap-style invocation accepts multiple positional target specifications in any option-relative position and combines them through the existing bounded Target Engine. Mutually exclusive `-4` and `-6` filters apply to resolved typed addresses. Repeatable `--exclude` specifications use the same bounded resolver and remove exact resolved identities before scheduling.
+
+Nmap `-p` and `-p-` are now protocol-aware: they select TCP normally and UDP under `-sU`. `--exclude-ports` removes ports from the active TCP or UDP selection after explicit ports, defaults, or the project-owned top-port corpus. Empty selections and ambiguous combinations fail visibly. Offline CLI regression covers multiple targets, IPv6 filtering, target exclusion, UDP `-p`, default-port exclusion, and conflict rejection.
+
+The next breadth candidates remain traceroute, resumable/progress state, additional reviewed scan families, and larger project-owned service/OS corpora. NSE-equivalent scripting still requires a separately reviewed sandbox and resource contract.
