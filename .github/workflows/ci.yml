@@ -146,11 +146,15 @@ jobs:
 
       - name: Validate raw IPv4 against Nmap
         run: |
+          mkdir -p validation_runs/ipv4
+          sudo timeout 8 tcpdump -U -i skan-lab -nn -e -vvv -w validation_runs/ipv4/packet-evidence.pcap &
           sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv4"             ./scripts/privileged_validation.sh 192.0.2.2 8080,8082 skan-lab
           skan_output=$(find validation_runs/ipv4 -name '*_skan.txt' -print -quit)
           nmap_output=$(find validation_runs/ipv4 -name '*_nmap.txt' -print -quit)
+          sudo tcpdump -nn -e -vvv -r validation_runs/ipv4/packet-evidence.pcap             >validation_runs/ipv4/packet-evidence.txt
           cat "$skan_output"
           cat "$nmap_output"
+          cat validation_runs/ipv4/packet-evidence.txt
           grep -F "Port 8080/tcp OPEN" "$skan_output"
           grep -E '8080/tcp[[:space:]]+open' "$nmap_output"
           grep -F "Port 8082/tcp CLOSED" "$skan_output"
