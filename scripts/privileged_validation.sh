@@ -56,6 +56,9 @@ meta_out="${base}_meta.txt"
 
 skan_cmd=("$skan_bin" scan "$target" --tcp-ports "$port_range" --method syn --transport linux --service-detect)
 nmap_cmd=(nmap -Pn -sS -sV -p "$port_range")
+if [[ "$target" == *:* ]]; then
+  nmap_cmd+=(-6)
+fi
 if [[ -n "$interface_name" ]]; then
   skan_cmd+=(--interface "$interface_name")
   nmap_cmd+=(-e "$interface_name")
