@@ -97,9 +97,54 @@ Service detection can be enabled when needed:
   --service-detect
 ```
 
+## 🔧 Build
+
+Skan currently targets Linux and requires a C++20 compiler and GNU Make.
+
+```bash
+sudo apt-get install build-essential
+make -j2
+make test
+```
+
+Optional validation tooling:
+
+```bash
+sudo apt-get install clang nmap
+make asan
+make ubsan
+make coverage
+make fuzz
+```
+
+## 🧭 Nmap-style usage
+
+The native `skan scan <target>` interface remains supported. A scoped Nmap-compatible mode also accepts one target specification as the final argument:
+
+```bash
+./bin/skan -sT -p 22,80,443 127.0.0.1
+./bin/skan -sS -sV --top-ports 100 192.0.2.2
+./bin/skan -sU --udp-ports 53 --transport linux 192.0.2.2
+./bin/skan -sn 192.0.2.0/24
+./bin/skan -sS -p 1-1024 -T4 -oA scan-result 192.0.2.2
+```
+
+| Nmap-style option | Skan behavior |
+| --- | --- |
+| `-sT` | TCP Connect scan |
+| `-sS` | Capability-gated Linux SYN scan |
+| `-sU` | Capability-gated Linux UDP scan |
+| `-sn` / `-Pn` | Discovery-only / skip discovery |
+| `-sV` / `-O` | Service/version / OS detection |
+| `-T0`…`-T5` | Adaptive timing profile |
+| `-oN`, `-oX`, `-oG`, `-oA` | Normal, XML, grepable, or aggregate output |
+| `--top-ports 1..100` | Deterministic Skan-owned common TCP corpus |
+
+See [Nmap compatibility](docs/NMAP_COMPATIBILITY.md) for exact boundaries.
+
 ## 🏅 Security & Quality
 
-Skan uses automated **CI, CodeQL analysis, dependency/security checks, and secret scanning** as part of its engineering workflow.
+Skan CI enforces clean builds, the complete registered test suite, debug/release builds, ASan/LSan, UBSan, coverage, fuzz capability handling, static safety checks, Nmap-compatible CLI regressions, and isolated privileged dual-stack validation.
 
 > **Security note:** Skan is a network reconnaissance tool. Only scan systems and networks you are authorized to test.
 
@@ -131,23 +176,14 @@ Skan is an open-source engineering project. Contributions, experiments, ideas, a
 </p>
 
 
-## Phase 26 Status — Privileged Real-Network Validation & Hardening
+## Development status
 
-Phase 26 audited and hardened the existing live path without adding a second pipeline, reactor, scheduler, packet framework, or output tree. Raw Linux failure messages now identify `transport`, `interface`, `family`, `operation`, typed `category`, numeric `errno`, and the exact human-readable system message.
+Phases 29.1–31 establish the current release baseline:
 
-The observed sandbox has `lo` and `eth0`; `eth0` carries IPv4 `169.254.0.21/30`, IPv6 link-local `fe80::fc:ff:fe00:5/64`, a default IPv4 route through `169.254.0.22`, and a reachable neighbor entry for that gateway. The process is unprivileged (`uid=1000`) and AF_PACKET capture fails with `Operation not permitted`. This is reported as a capability failure rather than converted into a raw scan result.
+- IPv6 advertised-length truncation is classified before structural parsing, including VLAN fixtures.
+- The privileged harness is authorization-gated, executable, auditable, and forced onto the explicit Linux transport.
+- CI creates an isolated dual-stack network namespace, validates raw IPv4/IPv6 open and closed ports, and compares Skan with Nmap.
+- Nmap-style aliases cover the implemented Connect, SYN, UDP, discovery, service, OS, timing, port, interface, and output capabilities.
+- The project is MIT licensed.
 
-Real local TCP Connect validation remains available for IPv4 loopback and IPv6 `::1`. Raw IPv4/IPv6 SYN, UDP, ICMP/ICMPv6, ARP, NDP, service-over-raw, and OS-over-raw exchanges are implemented and remain explicitly selected, but are **not live-validated** in this environment because capture permission is unavailable. No packet evidence is fabricated and no public target is contacted.
-
-
-## Phase 27 Status — Reliability and Reproducible CI
-
-Phase 27 continues production hardening without changing Skan’s single pipeline or epoll reactor. The build clean target now removes coverage metadata as well as generated objects, preventing instrumented artifacts from contaminating later ordinary links. GitHub Actions now runs clean build/test, debug/release, sanitizers, coverage, fuzz capability handling, static checks, prohibited-API checks, and repository-clean verification.
-
-The environment remains capability-honest: IPv4/IPv6 Connect and deterministic offline/injected paths are locally testable, while raw SYN, UDP, ICMP/ICMPv6, ARP, NDP, raw service, and raw OS validation remain unavailable when AF_PACKET reports `Operation not permitted`.
-
-## Phase 27 Status — Raw-path verification
-Phase 27 extends the existing bounded VLAN receive coverage to tagged UDP and ICMP fixtures and adds a deterministic VLAN parser benchmark. The single epoll pipeline, explicit raw transport selection, capability-honest diagnostics, and no-fallback behavior remain unchanged. AF_PACKET still reports `Operation not permitted` in this sandbox, so raw packet exchange is not claimed as live-validated.
-
-## Phase 28 Status — Raw parser hardening
-Phase 28 preserves the existing raw-scanning pipeline and adds typed rejection for IPv6 Fragment-header frames that cannot be safely correlated without reassembly. The bounded PacketReceiver now reports `fragmented-ipv6` instead of interpreting fragment payload bytes as TCP, UDP, or ICMP. AF_PACKET remains capability-dependent and no raw live success is claimed in this sandbox.
+Skan is not a complete Nmap replacement yet. NSE, traceroute, advanced scan families, broad fingerprint corpora, and cross-platform raw transports remain future work. The project does not silently emulate unsupported features.
