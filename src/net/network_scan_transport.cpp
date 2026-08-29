@@ -791,7 +791,8 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
             source_address,
             tcp.destination_port(),
             tcp.source_port(),
-            tcp.acknowledgment_number() - 1U};
+            tcp.acknowledgment_number() - 1U,
+            core::IpAddress::from_ipv4(source_address)};
         const CorrelationResult found = correlation_.lookup(key, std::chrono::steady_clock::now());
         if (found.status == CorrelationStatus::Found && found.entry.has_value()) {
             matched_id = static_cast<portscan::PortProbeId>(found.entry->token);
