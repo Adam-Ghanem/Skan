@@ -111,11 +111,11 @@ jobs:
           sudo ip link add skan-lab type veth peer name target0
           sudo ip link set target0 netns skan-target
           sudo ip address add 192.0.2.1/30 dev skan-lab
-          sudo ip -6 address add 2001:db8:29::1/64 dev skan-lab
+          sudo ip -6 address add 2001:db8:29::1/64 dev skan-lab nodad
           sudo ip link set skan-lab up
           sudo ip netns exec skan-target ip link set lo up
           sudo ip netns exec skan-target ip address add 192.0.2.2/30 dev target0
-          sudo ip netns exec skan-target ip -6 address add 2001:db8:29::2/64 dev target0
+          sudo ip netns exec skan-target ip -6 address add 2001:db8:29::2/64 dev target0 nodad
           sudo ip netns exec skan-target ip link set target0 up
           sudo ip netns exec skan-target sh -c 'nohup python3 -m http.server 8080 --bind 192.0.2.2 >/tmp/skan-http4.log 2>&1 &'
           sudo ip netns exec skan-target sh -c 'nohup python3 -m http.server 8081 --bind 2001:db8:29::2 >/tmp/skan-http6.log 2>&1 &'
@@ -124,18 +124,22 @@ jobs:
               break
             fi
             if [[ "$attempt" == "50" ]]; then
+              sudo cat /tmp/skan-http4.log >&2 || true
               echo "IPv4 lab service did not become ready" >&2
               exit 1
             fi
+            sleep 0.1
           done
           for attempt in {1..50}; do
             if curl --noproxy '*' --fail --silent --max-time 1 --globoff 'http://[2001:db8:29::2]:8081/' >/dev/null; then
               break
             fi
             if [[ "$attempt" == "50" ]]; then
+              sudo cat /tmp/skan-http6.log >&2 || true
               echo "IPv6 lab service did not become ready" >&2
               exit 1
             fi
+            sleep 0.1
           done
 
       - name: Validate raw IPv4 against Nmap
