@@ -714,23 +714,6 @@ int run_os_detect(int argc, char **argv)
             }
         } else if (argument == "--json") {
             output_format = skan::output::OutputFormat::Json;
-        } else if ((argument == "-oN" || argument == "-oX" || argument == "-oG") && index + 1 < argc) {
-            const char *format = argument == "-oN" ? "normal" : (argument == "-oX" ? "xml" : "grepable");
-            if (skan::output::parse_output_format(format, config.output_format) != skan::output::OutputStatus::Ok) {
-                std::cerr << "Error: invalid Nmap-style output format.\n";
-                return EXIT_FAILURE;
-            }
-            config.output_file = argv[++index];
-            if (config.output_file->empty()) {
-                std::cerr << "Error: output file path cannot be empty.\n";
-                return EXIT_FAILURE;
-            }
-        } else if (argument == "-oA" && index + 1 < argc) {
-            output_all_prefix = argv[++index];
-            if (output_all_prefix->empty()) {
-                std::cerr << "Error: -oA prefix cannot be empty.\n";
-                return EXIT_FAILURE;
-            }
         } else if (argument == "--output" && index + 1 < argc) {
             if (skan::output::parse_output_format(argv[++index], output_format) != skan::output::OutputStatus::Ok) {
                 std::cerr << "Error: output format must be normal, json, xml, or grepable.\n";
@@ -1011,7 +994,7 @@ int run_scan(int argc, char **argv)
             } else {
                 target_limits.max_hostname_results = static_cast<std::size_t>(value);
             }
-        } else if (argument == "--interface" && index + 1 < argc) {
+        } else if ((argument == "--interface" || argument == "-e") && index + 1 < argc) {
             config.interface_name = argv[++index];
             if (config.interface_name->empty()) {
                 std::cerr << "Error: interface name cannot be empty.\n";
@@ -1025,6 +1008,23 @@ int run_scan(int argc, char **argv)
             config.service_detection_enabled = true;
         } else if (argument == "--os-detect") {
             config.os_detection_enabled = true;
+        } else if ((argument == "-oN" || argument == "-oX" || argument == "-oG") && index + 1 < argc) {
+            const char *format = argument == "-oN" ? "normal" : (argument == "-oX" ? "xml" : "grepable");
+            if (skan::output::parse_output_format(format, config.output_format) != skan::output::OutputStatus::Ok) {
+                std::cerr << "Error: invalid Nmap-style output format.\n";
+                return EXIT_FAILURE;
+            }
+            config.output_file = argv[++index];
+            if (config.output_file->empty()) {
+                std::cerr << "Error: output file path cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argument == "-oA" && index + 1 < argc) {
+            output_all_prefix = argv[++index];
+            if (output_all_prefix->empty()) {
+                std::cerr << "Error: -oA prefix cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
         } else if (argument == "--output" && index + 1 < argc) {
             if (skan::output::parse_output_format(argv[++index], config.output_format) !=
                 skan::output::OutputStatus::Ok) {
