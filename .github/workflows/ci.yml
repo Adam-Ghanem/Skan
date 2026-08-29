@@ -37,6 +37,10 @@ jobs:
           make -j2
           make test
 
+      - name: Nmap-compatible CLI regression
+        run: |
+          bash tests/integration/cli/test_nmap_compat.sh
+
       - name: Debug and release builds
         run: |
           make debug
