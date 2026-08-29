@@ -29,3 +29,66 @@ if "$skan_bin" -sU --transport offline --top-ports 10 192.0.2.1 >/dev/null 2>&1;
   echo "TCP-only --top-ports unexpectedly accepted for UDP" >&2
   exit 1
 fi
+
+"$skan_bin" -sS --transport offline -p 80 --output json \
+  192.0.2.1 192.0.2.2 >"$tmp_dir/multiple-targets.json"
+python3 - "$tmp_dir/multiple-targets.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+addresses = [host["address"] for host in report["hosts"]]
+assert addresses == ["192.0.2.1", "192.0.2.2"], addresses
+PY
+
+"$skan_bin" -sS --transport offline -6 -p 80 --output json \
+  192.0.2.1 ::1 ::2 --exclude ::2 >"$tmp_dir/ipv6-filter.json"
+python3 - "$tmp_dir/ipv6-filter.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+hosts = report["hosts"]
+assert [(host["address"], host["family"]) for host in hosts] == [("::1", "ipv6")], hosts
+PY
+
+"$skan_bin" -sU --transport offline -p 53,123 --exclude-ports 123 \
+  --output json 192.0.2.1 >"$tmp_dir/udp-port-selection.json"
+python3 - "$tmp_dir/udp-port-selection.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+ports = [(port["port"], port["protocol"]) for host in report["hosts"] for port in host["ports"]]
+assert ports == [(53, "udp")], ports
+PY
+
+"$skan_bin" -sS --transport offline --exclude-ports 80 \
+  --output json 192.0.2.1 >"$tmp_dir/default-excluded-port.json"
+python3 - "$tmp_dir/default-excluded-port.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+ports = [port["port"] for host in report["hosts"] for port in host["ports"]]
+assert ports == [22, 443], ports
+PY
+
+if "$skan_bin" -sS --transport offline -4 -6 -p 80 192.0.2.1 >/dev/null 2>&1; then
+  echo "-4 and -6 unexpectedly accepted together" >&2
+  exit 1
+fi
+
+if "$skan_bin" -sS --transport offline -p 80 --exclude 192.0.2.1 192.0.2.1 >/dev/null 2>&1; then
+  echo "scan unexpectedly accepted after every target was excluded" >&2
+  exit 1
+fi
+
+if "$skan_bin" -sU --transport offline -p 53 --udp-ports 53 192.0.2.1 >/dev/null 2>&1; then
+  echo "ambiguous UDP port selection unexpectedly accepted" >&2
+  exit 1
+fi
