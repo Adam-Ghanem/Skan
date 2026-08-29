@@ -16,7 +16,7 @@ Nmap-style form:
 skan [supported-options] <target-spec>
 ```
 
-The compatibility form currently accepts one Skan target specification as the final argument. A specification may itself contain the IPv4, IPv6, CIDR, range, hostname, or comma-separated forms supported by the Target Engine.
+The compatibility form accepts one or more positional target specifications before, between, or after supported options. IPv4, IPv6, CIDR, range, hostname, and comma-separated forms are combined through the existing bounded Target Engine. Resolved targets are deduplicated before scheduling.
 
 ## Supported mappings
 
@@ -24,20 +24,23 @@ The compatibility form currently accepts one Skan target specification as the fi
 | --- | --- | --- |
 | `-sT` | `--method connect --transport connect` | Normal nonblocking TCP sockets. |
 | `-sS` | `--method syn --transport linux` | Requires usable raw capabilities. |
-| `-sU` | `--udp --transport linux` | Use `--udp-ports` for explicit UDP ports. |
+| `-sU` | `--udp --transport linux` | `-p` selects UDP ports in this mode; `--udp-ports` remains available. |
 | `-sn` | discovery enabled, port scan disabled | Uses the explicit Linux transport unless overridden for deterministic offline testing. |
 | `-Pn` | discovery disabled | Discovery is already off by default for scan mode. |
 | `-sV` | `--service-detect` | Uses the bounded project-owned probe database. |
 | `-O` | `--os-detect` | Reports unavailable when reliable evidence cannot be collected. |
 | `-T0`…`-T5` | `--timing T0`…`T5` | Reuses the adaptive timing engine. |
 | `-e` | `--interface` | Raw scans may still derive a route-consistent interface when omitted. |
+| `-4` / `-6` | address-family filter | Mutually exclusive; applied after bounded resolution. |
+| `--exclude SPEC` | resolved-target exclusion | Repeatable and accepts the Target Engine's bounded forms. |
+| `--exclude-ports SPEC` | active-protocol port exclusion | Applies to TCP or UDP after `-p`, defaults, or `--top-ports`. |
 | `-oN` | normal output file | Replaces the selected file. |
 | `-oX` | XML output file | Replaces the selected file. |
 | `-oG` | grepable output file | Replaces the selected file. |
 | `-oA` | normal + XML + grepable | Writes `.nmap`, `.xml`, and `.gnmap`. |
 | `--top-ports N` | first N Skan common TCP ports | Deterministic, TCP-only, and currently bounded to 100. |
 
-Existing `-p`, `-p-`, IPv4/IPv6 targets, output formats, service/OS databases, timing bounds, and target ceilings remain available.
+`-p` and `-p-` are protocol-aware: TCP is selected by default, while `-sU` makes the same syntax select UDP ports. Ambiguous combinations such as UDP `-p` plus `--udp-ports`, `-p` plus `--top-ports`, or `-4` plus `-6` fail explicitly. IPv4/IPv6 targets, output formats, service/OS databases, timing bounds, and target ceilings remain available.
 
 ## Explicit differences
 
