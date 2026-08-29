@@ -9,6 +9,8 @@
 #include <memory>
 #include <optional>
 #include <algorithm>
+#include <array>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -34,6 +36,10 @@
 
 namespace {
 
+constexpr std::array<std::uint16_t, 100U> kTopTcpPorts{
+    80U, 443U, 22U, 21U, 25U, 53U, 110U, 445U, 139U, 143U, 23U, 3389U, 3306U, 8080U, 1723U, 111U, 995U, 993U, 5900U, 1025U, 587U, 8888U, 199U, 1720U, 465U, 548U, 113U, 81U, 6001U, 10000U, 514U, 5060U, 179U, 1026U, 2000U, 8443U, 8000U, 32768U, 554U, 26U, 1433U, 49152U, 2001U, 515U, 8008U, 49154U, 1027U, 5666U, 646U, 5000U, 5631U, 631U, 49153U, 8081U, 2049U, 88U, 79U, 5800U, 106U, 2121U, 1110U, 49155U, 6000U, 513U, 990U, 5357U, 427U, 49156U, 543U, 544U, 5101U, 144U, 7U, 389U, 8009U, 3128U, 444U, 9999U, 5009U, 7070U, 5190U, 3000U, 5432U, 1900U, 3986U, 13U, 1029U, 9U, 5051U, 6646U, 49157U, 1028U, 873U, 1755U, 2717U, 4899U, 9100U, 119U, 37U, 1000U
+};
+
 void print_help()
 {
     std::cout << skan::core::constants::SKAN_VERSION_STRING << '\n'
@@ -57,6 +63,12 @@ void print_help()
               << "  --udp                  Run the explicit bounded UDP scan mode\n"
               << "  --udp-ports <spec>     UDP ports: single, list, or range\n"
               << "  --method <connect|syn> TCP Connect or capability-gated SYN (not with --udp)\n"
+              << "  -sT / -sS / -sU      Nmap-style Connect, SYN, or UDP scan aliases\n"
+              << "  -sn / -Pn            Discovery-only or skip-discovery aliases\n"
+              << "  -sV / -O             Service/version or OS detection aliases\n"
+              << "  --top-ports <1-100>  Scan the deterministic Skan-owned common TCP corpus\n"
+              << "  -oN/-oX/-oG <file>   Normal, XML, or grepable output aliases\n"
+              << "  -oA <prefix>          Write .nmap, .xml, and .gnmap outputs\n"
               << "  --transport <mode>     connect, offline, or explicit Linux raw-packet transport\n"
               << "  --max-outstanding <n>  Bound concurrent TCP probes\n"
               << "  --udp-max-outstanding <n> Bound concurrent UDP probes (default 64)\n"
@@ -192,7 +204,7 @@ int run_discover(int argc, char **argv)
                 std::cerr << "Error: transport must be offline or linux.\n";
                 return EXIT_FAILURE;
             }
-        } else if (argument == "--interface" && index + 1 < argc) {
+        } else if ((argument == "--interface" || argument == "-e") && index + 1 < argc) {
             interface_name = argv[++index];
             if (interface_name.empty()) {
                 std::cerr << "Error: interface name cannot be empty.\n";
@@ -799,7 +811,7 @@ int run_os_detect(int argc, char **argv)
 int run_scan(int argc, char **argv)
 {
     if (argc < 3) {
-        std::cerr << "Error: scan requires an explicit IPv4 target. Use --help for usage.\n";
+        std::cerr << "Error: scan requires an explicit IPv4 or IPv6 target. Use --help for usage.\n";
         return EXIT_FAILURE;
     }
     skan::orchestrator::ScanConfig config;
@@ -809,9 +821,48 @@ int run_scan(int argc, char **argv)
     bool explicit_method = false;
     bool adaptive_timing = false;
     std::string transport_mode;
+    std::optional<unsigned int> top_ports_count;
+    std::optional<std::string> output_all_prefix;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
-        if (argument == "--udp") {
+        if (argument == "-sT") {
+            config.port_method = skan::portscan::ScanProbeType::TcpConnect;
+            transport_mode = "connect";
+            explicit_method = true;
+        } else if (argument == "-sS") {
+            config.port_method = skan::portscan::ScanProbeType::TcpSyn;
+            transport_mode = "linux";
+            explicit_method = true;
+        } else if (argument == "-sU") {
+            config.udp_enabled = true;
+            config.port_scan_enabled = false;
+            transport_mode = "linux";
+        } else if (argument == "-sn") {
+            config.discovery_enabled = true;
+            config.port_scan_enabled = false;
+            transport_mode = "linux";
+        } else if (argument == "-Pn") {
+            config.discovery_enabled = false;
+        } else if (argument == "-sV") {
+            config.service_detection_enabled = true;
+        } else if (argument == "-O") {
+            config.os_detection_enabled = true;
+        } else if (argument.size() == 3U && argument[0] == '-' && argument[1] == 'T' &&
+                   argument[2] >= '0' && argument[2] <= '5') {
+            if (skan::scanengine::TimingProfile::parse(argument.substr(1U), config.timing_profile) !=
+                skan::core::StatusCode::Ok) {
+                std::cerr << "Error: invalid Nmap-style timing profile.\n";
+                return EXIT_FAILURE;
+            }
+            adaptive_timing = true;
+        } else if (argument == "--top-ports" && index + 1 < argc) {
+            unsigned int value = 0U;
+            if (!parse_unsigned(argv[++index], value) || value == 0U || value > kTopTcpPorts.size()) {
+                std::cerr << "Error: --top-ports must be between 1 and " << kTopTcpPorts.size() << ".\n";
+                return EXIT_FAILURE;
+            }
+            top_ports_count = value;
+        } else if (argument == "--udp") {
             config.udp_enabled = true;
             config.port_scan_enabled = false;
         } else if (argument == "--udp-ports" && index + 1 < argc) {
@@ -943,7 +994,7 @@ int run_scan(int argc, char **argv)
             } else {
                 target_limits.max_hostname_results = static_cast<std::size_t>(value);
             }
-        } else if (argument == "--interface" && index + 1 < argc) {
+        } else if ((argument == "--interface" || argument == "-e") && index + 1 < argc) {
             config.interface_name = argv[++index];
             if (config.interface_name->empty()) {
                 std::cerr << "Error: interface name cannot be empty.\n";
@@ -957,6 +1008,23 @@ int run_scan(int argc, char **argv)
             config.service_detection_enabled = true;
         } else if (argument == "--os-detect") {
             config.os_detection_enabled = true;
+        } else if ((argument == "-oN" || argument == "-oX" || argument == "-oG") && index + 1 < argc) {
+            const char *format = argument == "-oN" ? "normal" : (argument == "-oX" ? "xml" : "grepable");
+            if (skan::output::parse_output_format(format, config.output_format) != skan::output::OutputStatus::Ok) {
+                std::cerr << "Error: invalid Nmap-style output format.\n";
+                return EXIT_FAILURE;
+            }
+            config.output_file = argv[++index];
+            if (config.output_file->empty()) {
+                std::cerr << "Error: output file path cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argument == "-oA" && index + 1 < argc) {
+            output_all_prefix = argv[++index];
+            if (output_all_prefix->empty()) {
+                std::cerr << "Error: -oA prefix cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
         } else if (argument == "--output" && index + 1 < argc) {
             if (skan::output::parse_output_format(argv[++index], config.output_format) !=
                 skan::output::OutputStatus::Ok) {
@@ -994,8 +1062,20 @@ int run_scan(int argc, char **argv)
             return EXIT_FAILURE;
         }
     }
+    if (top_ports_count.has_value()) {
+        if (config.udp_enabled) {
+            std::cerr << "Error: the current Skan-owned --top-ports corpus is TCP-only.\n";
+            return EXIT_FAILURE;
+        }
+        config.ports.assign(kTopTcpPorts.begin(), kTopTcpPorts.begin() + *top_ports_count);
+        explicit_ports = true;
+    }
     if (!explicit_ports) {
         config.ports.clear();
+    }
+    if (output_all_prefix.has_value() && config.output_file.has_value()) {
+        std::cerr << "Error: -oA cannot be combined with another output file option.\n";
+        return EXIT_FAILURE;
     }
     if (adaptive_timing) {
         config.timing_profile.maximum_timeout = config.timeout;
@@ -1074,7 +1154,11 @@ int run_scan(int argc, char **argv)
     }
     config.targets.push_back(std::move(normalized_target));
     skan::orchestrator::ScanOrchestrator orchestrator(config);
-    const skan::core::StatusCode status = orchestrator.run(std::cout);
+    std::ostringstream suppressed_primary_output;
+    std::ostream &primary_output = output_all_prefix.has_value()
+                                       ? static_cast<std::ostream &>(suppressed_primary_output)
+                                       : static_cast<std::ostream &>(std::cout);
+    const skan::core::StatusCode status = orchestrator.run(primary_output);
     if (status != skan::core::StatusCode::Ok) {
         std::cerr << "Error: scan orchestration failed: " << skan::core::status_to_string(status);
         if (!orchestrator.session().error_message().empty()) {
@@ -1083,7 +1167,56 @@ int run_scan(int argc, char **argv)
         std::cerr << '\n';
         return EXIT_FAILURE;
     }
+    if (output_all_prefix.has_value()) {
+        if (!orchestrator.report().has_value()) {
+            std::cerr << "Error: scan completed without a report for -oA serialization.\n";
+            return EXIT_FAILURE;
+        }
+        const auto write_aggregate = [&](skan::output::OutputFormat format, std::string_view suffix) {
+            const std::string path = *output_all_prefix + std::string(suffix);
+            std::ofstream output(path, std::ios::out | std::ios::trunc);
+            if (!output.is_open()) {
+                return false;
+            }
+            return skan::output::OutputManager::write(format, *orchestrator.report(), output) ==
+                   skan::output::OutputStatus::Ok && output.good();
+        };
+        if (!write_aggregate(skan::output::OutputFormat::Normal, ".nmap") ||
+            !write_aggregate(skan::output::OutputFormat::Xml, ".xml") ||
+            !write_aggregate(skan::output::OutputFormat::Grepable, ".gnmap")) {
+            std::cerr << "Error: failed to write one or more -oA output files.\n";
+            return EXIT_FAILURE;
+        }
+    }
     return EXIT_SUCCESS;
+}
+
+int run_nmap_compatible(int argc, char **argv)
+{
+    if (argc < 2) {
+        return EXIT_FAILURE;
+    }
+    const std::string target_specification = argv[argc - 1];
+    if (target_specification.empty() || target_specification.front() == '-') {
+        std::cerr << "Error: Nmap-compatible mode requires one target specification as the final argument.\n";
+        return EXIT_FAILURE;
+    }
+
+    std::vector<std::string> normalized;
+    normalized.reserve(static_cast<std::size_t>(argc) + 1U);
+    normalized.emplace_back(argv[0]);
+    normalized.emplace_back("scan");
+    normalized.push_back(target_specification);
+    for (int index = 1; index < argc - 1; ++index) {
+        normalized.emplace_back(argv[index]);
+    }
+
+    std::vector<char *> normalized_argv;
+    normalized_argv.reserve(normalized.size());
+    for (std::string &argument : normalized) {
+        normalized_argv.push_back(argument.data());
+    }
+    return run_scan(static_cast<int>(normalized_argv.size()), normalized_argv.data());
 }
 
 } // namespace
@@ -1118,6 +1251,10 @@ int main(int argc, char **argv)
 
     if (argc >= 2 && std::string_view(argv[1]) == "interfaces") {
         return run_interfaces(argc, argv);
+    }
+
+    if (argc >= 2) {
+        return run_nmap_compatible(argc, argv);
     }
 
     std::cerr << "Error: unknown or missing argument. Use --help for usage.\n";

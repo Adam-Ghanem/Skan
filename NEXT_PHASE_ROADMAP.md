@@ -1,7 +1,7 @@
 # Skan Next-Phase Roadmap
 
 **Author:** Manus AI
-**Status:** Phase 16 implementation complete; future work remains explicitly scoped and capability-gated.
+**Status:** Phase 31 scoped Nmap-core compatibility implemented. Earlier phase records are retained as historical context and are superseded by later status sections.
 
 ## Completed Phase 16 boundary
 
@@ -139,3 +139,18 @@ The current sandbox still denies AF_PACKET with `Operation not permitted`. Genui
 Phase 28 adds typed `FragmentedIPv6` rejection to the existing bounded PacketReceiver. IPv6 Fragment-header observations are retained as parsed metadata but are not interpreted as transport responses because Skan does not reassemble fragments in its raw correlation path. This closes a concrete false-correlation risk without adding another pipeline or reactor.
 
 The remaining raw IPv6 gaps are environmental and architectural boundaries already identified by the audit: non-loopback Linux TCP/UDP adapters still require a usable destination MAC or an explicitly provided neighbor path, and generalized routed IPv6 next-hop/NDP sharing across stages is not claimed. Acceptance requires AF_PACKET permission and an explicitly owned private/lab target with independent packet evidence.
+
+
+## Phase 29.1 Status — Stabilized validation baseline
+
+Phase 29.1 restores parser and release correctness. PacketReceiver classifies an IPv6 payload advertised beyond the captured frame as `TruncatedIPv6` before structural IPv6 parsing, and VLAN-aware fixtures update the correct payload-length field. The capability-gated validation harness now selects the Linux transport explicitly, requires an authorization acknowledgement, records exit evidence, supports IPv6 Nmap comparison, and is syntax/executable-checked by CI. The placeholder license is replaced by MIT.
+
+## Phase 30 Status — Isolated privileged dual-stack validation
+
+Phase 30 adds a dedicated GitHub Actions private lab built from one temporary network namespace and veth pair. Documentation-only IPv4 and IPv6 addresses host local HTTP fixtures. Skan exercises AF_PACKET injection/capture, ARP/NDP prerequisites, SYN correlation, closed-port evidence, and service detection, while Nmap independently supplies the tested port-state ground truth. Evidence is retained as a workflow artifact. No public route or public target is used.
+
+## Phase 31 Status — Scoped Nmap-core CLI compatibility
+
+Phase 31 adds direct target-final invocation and aliases for `-sT`, `-sS`, `-sU`, `-sn`, `-Pn`, `-sV`, `-O`, `-T0` through `-T5`, `-e`, `-oN`, `-oX`, `-oG`, and `-oA`. It also adds a deterministic Skan-owned 100-port TCP corpus for `--top-ports`. Native commands remain supported, aliases reuse the existing orchestrator and transports, and unavailable capabilities never silently fall back.
+
+The next breadth milestones are larger project-owned service and OS fingerprint corpora, traceroute, resume/progress state, additional explicitly reviewed scan families, and a sandboxed scripting design. These are not represented as already implemented.

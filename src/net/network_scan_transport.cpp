@@ -9,6 +9,9 @@
 #include <iomanip>
 #include <new>
 #include <utility>
+#include <linux/neighbour.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <sstream>
@@ -27,6 +30,7 @@ namespace {
 
 constexpr std::uint16_t kEtherTypeIpv4 = 0x0800U;
 constexpr std::uint8_t kTcpProtocol = 6U;
+constexpr std::size_t kMaximumCaptureBatch = 256U;
 
 std::uint32_t route_word_to_host(unsigned long value) noexcept
 {
@@ -183,6 +187,108 @@ std::optional<std::array<std::uint8_t, 6U>> neighbor_mac_for(
         return parse_mac(hardware_address);
     }
     return std::nullopt;
+}
+
+std::optional<std::array<std::uint8_t, 6U>> ipv6_neighbor_mac_for(
+    std::string_view interface_name,
+    const std::array<std::uint8_t, 16U> &target_ipv6)
+{
+    const unsigned int interface_index = ::if_nametoindex(std::string(interface_name).c_str());
+    if (interface_index == 0U) {
+        return std::nullopt;
+    }
+    const int descriptor = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+    if (descriptor < 0) {
+        return std::nullopt;
+    }
+
+    sockaddr_nl local{};
+    local.nl_family = AF_NETLINK;
+    if (::bind(descriptor, reinterpret_cast<const sockaddr *>(&local), sizeof(local)) != 0) {
+        (void)::close(descriptor);
+        return std::nullopt;
+    }
+
+    struct NeighborRequest {
+        nlmsghdr header;
+        ndmsg neighbor;
+    } request{};
+    request.header.nlmsg_len = NLMSG_LENGTH(sizeof(ndmsg));
+    request.header.nlmsg_type = RTM_GETNEIGH;
+    request.header.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+    request.header.nlmsg_seq = 1U;
+    request.neighbor.ndm_family = AF_INET6;
+
+    sockaddr_nl kernel{};
+    kernel.nl_family = AF_NETLINK;
+    const ssize_t sent = ::sendto(
+        descriptor,
+        &request,
+        request.header.nlmsg_len,
+        0,
+        reinterpret_cast<const sockaddr *>(&kernel),
+        sizeof(kernel));
+    if (sent != static_cast<ssize_t>(request.header.nlmsg_len)) {
+        (void)::close(descriptor);
+        return std::nullopt;
+    }
+
+    std::optional<std::array<std::uint8_t, 6U>> result;
+    std::array<std::uint8_t, 8192U> buffer{};
+    bool finished = false;
+    while (!finished) {
+        const ssize_t received = ::recv(descriptor, buffer.data(), buffer.size(), 0);
+        if (received <= 0) {
+            break;
+        }
+        int remaining = static_cast<int>(received);
+        for (nlmsghdr *header = reinterpret_cast<nlmsghdr *>(buffer.data());
+             NLMSG_OK(header, remaining);
+             header = NLMSG_NEXT(header, remaining)) {
+            if (header->nlmsg_seq != request.header.nlmsg_seq) {
+                continue;
+            }
+            if (header->nlmsg_type == NLMSG_DONE || header->nlmsg_type == NLMSG_ERROR) {
+                finished = true;
+                break;
+            }
+            if (header->nlmsg_type != RTM_NEWNEIGH) {
+                continue;
+            }
+            const auto *neighbor = static_cast<const ndmsg *>(NLMSG_DATA(header));
+            if (neighbor->ndm_family != AF_INET6 ||
+                neighbor->ndm_ifindex != static_cast<int>(interface_index) ||
+                (neighbor->ndm_state & (NUD_INCOMPLETE | NUD_FAILED)) != 0U) {
+                continue;
+            }
+
+            std::optional<std::array<std::uint8_t, 16U>> destination;
+            std::optional<std::array<std::uint8_t, 6U>> mac;
+            int attribute_length = static_cast<int>(header->nlmsg_len) -
+                                   static_cast<int>(NLMSG_LENGTH(sizeof(ndmsg)));
+            for (const rtattr *attribute = RTM_RTA(neighbor);
+                 RTA_OK(attribute, attribute_length);
+                 attribute = RTA_NEXT(attribute, attribute_length)) {
+                const std::size_t payload_size = static_cast<std::size_t>(RTA_PAYLOAD(attribute));
+                if (attribute->rta_type == NDA_DST && payload_size == target_ipv6.size()) {
+                    std::array<std::uint8_t, 16U> value{};
+                    std::memcpy(value.data(), RTA_DATA(attribute), value.size());
+                    destination = value;
+                } else if (attribute->rta_type == NDA_LLADDR && payload_size >= 6U) {
+                    std::array<std::uint8_t, 6U> value{};
+                    std::memcpy(value.data(), RTA_DATA(attribute), value.size());
+                    mac = value;
+                }
+            }
+            if (destination.has_value() && *destination == target_ipv6 && mac.has_value()) {
+                result = mac;
+                finished = true;
+                break;
+            }
+        }
+    }
+    (void)::close(descriptor);
+    return result;
 }
 
 std::optional<std::uint32_t> ipv4_next_hop_for(std::string_view interface_name, std::uint32_t target_ipv4)
@@ -530,12 +636,21 @@ void LinuxNetworkScanTransport::on_capture_event(io::Event &event) noexcept
         return;
     }
     try {
-        const ReceiverResult received = receiver_.receive();
-        if (received.capture.status != CaptureStatus::Success || !received.observation.has_value()) {
-            session_.capture_status = received.capture.status;
-            return;
+        for (std::size_t index = 0U; index < kMaximumCaptureBatch && is_open(); ++index) {
+            const ReceiverResult received = receiver_.receive();
+            if (received.capture.status == CaptureStatus::WouldBlock) {
+                session_.capture_status = CaptureStatus::Success;
+                return;
+            }
+            if (received.capture.status != CaptureStatus::Success) {
+                session_.capture_status = received.capture.status;
+                return;
+            }
+            session_.capture_status = CaptureStatus::Success;
+            if (received.observation.has_value()) {
+                dispatch_observation(*received.observation);
+            }
         }
-        dispatch_observation(*received.observation);
     } catch (...) {
         session_.capture_status = CaptureStatus::ReceiveFailed;
     }
@@ -676,7 +791,8 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
             source_address,
             tcp.destination_port(),
             tcp.source_port(),
-            tcp.acknowledgment_number() - 1U};
+            tcp.acknowledgment_number() - 1U,
+            core::IpAddress::from_ipv4(source_address)};
         const CorrelationResult found = correlation_.lookup(key, std::chrono::steady_clock::now());
         if (found.status == CorrelationStatus::Found && found.entry.has_value()) {
             matched_id = static_cast<portscan::PortProbeId>(found.entry->token);
@@ -818,7 +934,7 @@ std::optional<std::array<std::uint8_t, 6U>> LinuxNetworkScanTransport::destinati
     if (config_.interface_name == "lo") {
         return std::array<std::uint8_t, 6U>{};
     }
-    return std::nullopt;
+    return ipv6_neighbor_mac_for(config_.interface_name, target_ip.bytes);
 }
 
 std::optional<core::IpAddress> LinuxNetworkScanTransport::source_address_for(

@@ -1,0 +1,50 @@
+# Nmap-Core Compatibility
+
+Skan provides a scoped compatibility surface for common Nmap workflows while retaining its own architecture, evidence model, and safety boundaries.
+
+## Invocation
+
+Native form:
+
+```bash
+skan scan <target-spec> [options]
+```
+
+Nmap-style form:
+
+```bash
+skan [supported-options] <target-spec>
+```
+
+The compatibility form currently accepts one Skan target specification as the final argument. A specification may itself contain the IPv4, IPv6, CIDR, range, hostname, or comma-separated forms supported by the Target Engine.
+
+## Supported mappings
+
+| Alias | Native Skan mapping | Notes |
+| --- | --- | --- |
+| `-sT` | `--method connect --transport connect` | Normal nonblocking TCP sockets. |
+| `-sS` | `--method syn --transport linux` | Requires usable raw capabilities. |
+| `-sU` | `--udp --transport linux` | Use `--udp-ports` for explicit UDP ports. |
+| `-sn` | discovery enabled, port scan disabled | Uses the explicit Linux transport unless overridden for deterministic offline testing. |
+| `-Pn` | discovery disabled | Discovery is already off by default for scan mode. |
+| `-sV` | `--service-detect` | Uses the bounded project-owned probe database. |
+| `-O` | `--os-detect` | Reports unavailable when reliable evidence cannot be collected. |
+| `-T0`…`-T5` | `--timing T0`…`T5` | Reuses the adaptive timing engine. |
+| `-e` | `--interface` | Raw scans may still derive a route-consistent interface when omitted. |
+| `-oN` | normal output file | Replaces the selected file. |
+| `-oX` | XML output file | Replaces the selected file. |
+| `-oG` | grepable output file | Replaces the selected file. |
+| `-oA` | normal + XML + grepable | Writes `.nmap`, `.xml`, and `.gnmap`. |
+| `--top-ports N` | first N Skan common TCP ports | Deterministic, TCP-only, and currently bounded to 100. |
+
+Existing `-p`, `-p-`, IPv4/IPv6 targets, output formats, service/OS databases, timing bounds, and target ceilings remain available.
+
+## Explicit differences
+
+Skan does not claim byte-for-byte output compatibility, Nmap database compatibility, or complete feature parity. The current scope excludes NSE, traceroute, resume files, decoys, spoofing, idle scanning, fragmentation/evasion behavior, Internet-wide automation, and unsupported protocol families.
+
+The Skan top-port corpus is project-owned and is not represented as Nmap's frequency ranking. Fingerprint data must be added with clear provenance and compatible licensing.
+
+## Privileged behavior
+
+`-sS`, `-sU`, and live `-sn` select the Linux raw path. Missing permission, route, source address, neighbor evidence, or interface capability is terminal and visible. Skan does not silently downgrade a raw request to Connect or offline observations.

@@ -26,11 +26,20 @@ jobs:
           g++ --version | head -1
           clang++ --version || true
 
+      - name: Validate privileged harness
+        run: |
+          bash -n scripts/privileged_validation.sh
+          test -x scripts/privileged_validation.sh
+
       - name: Clean production build and tests
         run: |
           make clean
           make -j2
           make test
+
+      - name: Nmap-compatible CLI regression
+        run: |
+          bash tests/integration/cli/test_nmap_compat.sh
 
       - name: Debug and release builds
         run: |
@@ -76,3 +85,102 @@ jobs:
         run: |
           make clean
           test -z "$(git status --porcelain)"
+
+  privileged-private-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install isolated-lab tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ethtool nmap tcpdump
+
+      - name: Build Skan
+        run: |
+          make clean
+          make -j2
+
+      - name: Create isolated dual-stack namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ip netns add skan-target
+          sudo ip link add skan-lab type veth peer name target0
+          sudo ip link set target0 netns skan-target
+          sudo ip address add 192.0.2.1/30 dev skan-lab
+          sudo ip -6 address add 2001:db8:29::1/64 dev skan-lab nodad
+          sudo ip link set skan-lab up
+          sudo ip netns exec skan-target ip link set lo up
+          sudo ip netns exec skan-target ip address add 192.0.2.2/30 dev target0
+          sudo ip netns exec skan-target ip -6 address add 2001:db8:29::2/64 dev target0 nodad
+          sudo ip netns exec skan-target ip link set target0 up
+          sudo ethtool -K skan-lab tx off rx off tso off gso off gro off
+          sudo ip netns exec skan-target ethtool -K target0 tx off rx off tso off gso off gro off
+          sudo ip netns exec skan-target sh -c 'nohup python3 -m http.server 8080 --bind 192.0.2.2 >/tmp/skan-http4.log 2>&1 &'
+          sudo ip netns exec skan-target sh -c 'nohup python3 -m http.server 8081 --bind 2001:db8:29::2 >/tmp/skan-http6.log 2>&1 &'
+          for attempt in {1..50}; do
+            if curl --noproxy '*' --fail --silent --max-time 1 http://192.0.2.2:8080/ >/dev/null; then
+              break
+            fi
+            if [[ "$attempt" == "50" ]]; then
+              sudo cat /tmp/skan-http4.log >&2 || true
+              echo "IPv4 lab service did not become ready" >&2
+              exit 1
+            fi
+            sleep 0.1
+          done
+          for attempt in {1..50}; do
+            if curl --noproxy '*' --fail --silent --max-time 1 --globoff 'http://[2001:db8:29::2]:8081/' >/dev/null; then
+              break
+            fi
+            if [[ "$attempt" == "50" ]]; then
+              sudo cat /tmp/skan-http6.log >&2 || true
+              echo "IPv6 lab service did not become ready" >&2
+              exit 1
+            fi
+            sleep 0.1
+          done
+
+      - name: Validate raw IPv4 against Nmap
+        run: |
+          mkdir -p validation_runs/ipv4
+          sudo timeout 8 tcpdump -U -i skan-lab -nn -e -vvv -w validation_runs/ipv4/packet-evidence.pcap &
+          sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv4"             ./scripts/privileged_validation.sh 192.0.2.2 8080,8082 skan-lab
+          skan_output=$(find validation_runs/ipv4 -name '*_skan.txt' -print -quit)
+          nmap_output=$(find validation_runs/ipv4 -name '*_nmap.txt' -print -quit)
+          sudo tcpdump -nn -e -vvv -r validation_runs/ipv4/packet-evidence.pcap             >validation_runs/ipv4/packet-evidence.txt
+          cat "$skan_output"
+          cat "$nmap_output"
+          cat validation_runs/ipv4/packet-evidence.txt
+          grep -F "Port 8080/tcp OPEN" "$skan_output"
+          grep -E '8080/tcp[[:space:]]+open' "$nmap_output"
+          grep -F "Port 8082/tcp CLOSED" "$skan_output"
+          grep -E '8082/tcp[[:space:]]+closed' "$nmap_output"
+
+      - name: Validate raw IPv6 against Nmap
+        run: |
+          sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv6"             ./scripts/privileged_validation.sh 2001:db8:29::2 8081,8083 skan-lab
+          skan_output=$(find validation_runs/ipv6 -name '*_skan.txt' -print -quit)
+          nmap_output=$(find validation_runs/ipv6 -name '*_nmap.txt' -print -quit)
+          cat "$skan_output"
+          cat "$nmap_output"
+          grep -F "Port 8081/tcp OPEN" "$skan_output"
+          grep -E '8081/tcp[[:space:]]+open' "$nmap_output"
+          grep -F "Port 8083/tcp CLOSED" "$skan_output"
+          grep -E '8083/tcp[[:space:]]+closed' "$nmap_output"
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: privileged-private-lab-evidence
+          path: validation_runs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Remove isolated namespace
+        if: always()
+        run: sudo ip netns delete skan-target || true

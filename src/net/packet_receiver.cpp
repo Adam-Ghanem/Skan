@@ -119,17 +119,22 @@ PacketObservation PacketReceiver::parse(
             observation.status = ParseStatus::TruncatedIPv6;
             return observation;
         }
-        observation.ipv6 = packet::IPv6::parse(ip_input);
-        if (!observation.ipv6.has_value()) {
+        if ((ip_input[0] >> 4U) != 6U) {
             observation.status = ParseStatus::MalformedIPv6;
             return observation;
         }
-        const std::size_t ipv6_payload_size = static_cast<std::size_t>(observation.ipv6->payload_length());
+        const std::size_t ipv6_payload_size = static_cast<std::size_t>(read_u16(ip_input, 4U));
         if (ipv6_payload_size > ip_input.size() - packet::IPv6::kHeaderSize) {
             observation.status = ParseStatus::TruncatedIPv6;
             return observation;
         }
-        const std::span<const std::uint8_t> ip_packet = ip_input.first(packet::IPv6::kHeaderSize + ipv6_payload_size);
+        const std::span<const std::uint8_t> ip_packet =
+            ip_input.first(packet::IPv6::kHeaderSize + ipv6_payload_size);
+        observation.ipv6 = packet::IPv6::parse(ip_packet);
+        if (!observation.ipv6.has_value()) {
+            observation.status = ParseStatus::MalformedIPv6;
+            return observation;
+        }
         const std::span<const std::uint8_t> ipv6_payload = ip_packet.subspan(packet::IPv6::kHeaderSize);
         observation.ipv6_extensions = packet::parse_ipv6_extensions(
             ipv6_payload, observation.ipv6->next_header(), 8U, 2048U);
