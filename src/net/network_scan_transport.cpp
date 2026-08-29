@@ -27,6 +27,7 @@ namespace {
 
 constexpr std::uint16_t kEtherTypeIpv4 = 0x0800U;
 constexpr std::uint8_t kTcpProtocol = 6U;
+constexpr std::size_t kMaximumCaptureBatch = 256U;
 
 std::uint32_t route_word_to_host(unsigned long value) noexcept
 {
@@ -530,12 +531,21 @@ void LinuxNetworkScanTransport::on_capture_event(io::Event &event) noexcept
         return;
     }
     try {
-        const ReceiverResult received = receiver_.receive();
-        if (received.capture.status != CaptureStatus::Success || !received.observation.has_value()) {
-            session_.capture_status = received.capture.status;
-            return;
+        for (std::size_t index = 0U; index < kMaximumCaptureBatch && is_open(); ++index) {
+            const ReceiverResult received = receiver_.receive();
+            if (received.capture.status == CaptureStatus::WouldBlock) {
+                session_.capture_status = CaptureStatus::Success;
+                return;
+            }
+            if (received.capture.status != CaptureStatus::Success) {
+                session_.capture_status = received.capture.status;
+                return;
+            }
+            session_.capture_status = CaptureStatus::Success;
+            if (received.observation.has_value()) {
+                dispatch_observation(*received.observation);
+            }
         }
-        dispatch_observation(*received.observation);
     } catch (...) {
         session_.capture_status = CaptureStatus::ReceiveFailed;
     }
