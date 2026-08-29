@@ -26,6 +26,11 @@ jobs:
           g++ --version | head -1
           clang++ --version || true
 
+      - name: Validate privileged harness
+        run: |
+          bash -n scripts/privileged_validation.sh
+          test -x scripts/privileged_validation.sh
+
       - name: Clean production build and tests
         run: |
           make clean

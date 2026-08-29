@@ -153,9 +153,18 @@ void set_ipv4_total_length(std::vector<std::uint8_t> &frame, std::uint16_t total
 
 void set_ipv6_payload_length(std::vector<std::uint8_t> &frame, std::uint16_t payload_length)
 {
-    constexpr std::size_t kIpv6Offset = 14U;
-    frame[kIpv6Offset + 4U] = static_cast<std::uint8_t>(payload_length >> 8U);
-    frame[kIpv6Offset + 5U] = static_cast<std::uint8_t>(payload_length & 0xFFU);
+    constexpr std::size_t kEthernetHeaderSize = 14U;
+    constexpr std::size_t kVlanTagSize = 4U;
+    std::size_t ipv6_offset = kEthernetHeaderSize;
+    assert(frame.size() >= kEthernetHeaderSize);
+    const std::uint16_t ether_type = static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(frame[12U]) << 8U) | frame[13U]);
+    if (ether_type == 0x8100U || ether_type == 0x88A8U) {
+        ipv6_offset += kVlanTagSize;
+    }
+    assert(frame.size() >= ipv6_offset + 6U);
+    frame[ipv6_offset + 4U] = static_cast<std::uint8_t>(payload_length >> 8U);
+    frame[ipv6_offset + 5U] = static_cast<std::uint8_t>(payload_length & 0xFFU);
 }
 
 } // namespace
