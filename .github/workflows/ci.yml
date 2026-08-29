@@ -96,7 +96,7 @@ jobs:
       - name: Install isolated-lab tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y nmap
+          sudo apt-get install -y ethtool nmap tcpdump
 
       - name: Build Skan
         run: |
@@ -117,6 +117,8 @@ jobs:
           sudo ip netns exec skan-target ip address add 192.0.2.2/30 dev target0
           sudo ip netns exec skan-target ip -6 address add 2001:db8:29::2/64 dev target0 nodad
           sudo ip netns exec skan-target ip link set target0 up
+          sudo ethtool -K skan-lab tx off rx off tso off gso off gro off
+          sudo ip netns exec skan-target ethtool -K target0 tx off rx off tso off gso off gro off
           sudo ip netns exec skan-target sh -c 'nohup python3 -m http.server 8080 --bind 192.0.2.2 >/tmp/skan-http4.log 2>&1 &'
           sudo ip netns exec skan-target sh -c 'nohup python3 -m http.server 8081 --bind 2001:db8:29::2 >/tmp/skan-http6.log 2>&1 &'
           for attempt in {1..50}; do
@@ -147,6 +149,8 @@ jobs:
           sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv4"             ./scripts/privileged_validation.sh 192.0.2.2 8080,8082 skan-lab
           skan_output=$(find validation_runs/ipv4 -name '*_skan.txt' -print -quit)
           nmap_output=$(find validation_runs/ipv4 -name '*_nmap.txt' -print -quit)
+          cat "$skan_output"
+          cat "$nmap_output"
           grep -F "Port 8080/tcp OPEN" "$skan_output"
           grep -E '8080/tcp[[:space:]]+open' "$nmap_output"
           grep -F "Port 8082/tcp CLOSED" "$skan_output"
@@ -157,6 +161,8 @@ jobs:
           sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv6"             ./scripts/privileged_validation.sh 2001:db8:29::2 8081,8083 skan-lab
           skan_output=$(find validation_runs/ipv6 -name '*_skan.txt' -print -quit)
           nmap_output=$(find validation_runs/ipv6 -name '*_nmap.txt' -print -quit)
+          cat "$skan_output"
+          cat "$nmap_output"
           grep -F "Port 8081/tcp OPEN" "$skan_output"
           grep -E '8081/tcp[[:space:]]+open' "$nmap_output"
           grep -F "Port 8083/tcp CLOSED" "$skan_output"
