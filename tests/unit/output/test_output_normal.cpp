@@ -22,6 +22,7 @@ int main()
     assert(first.str() == second.str());
     assert(first.str().find("Host 192.0.2.10") < first.str().find("Host 192.0.2.20"));
     assert(first.str().find("Port 22/tcp CLOSED") < first.str().find("Port 80/tcp OPEN"));
+    assert(first.str().find(" reason=") == std::string::npos);
     assert(first.str().find("service=http") != std::string::npos);
     assert(first.str().find("hostname=www.example.test tunnel=tls tls=yes tls_version=TLS 1.3") != std::string::npos);
     assert(first.str().find("SkanLinuxGeneric") < first.str().find("SkanWindowsGeneric"));
@@ -38,6 +39,22 @@ int main()
     assert(writer.write(report, filtered_output, filtered) == skan::output::OutputStatus::Ok);
     assert(filtered_output.str().find("Port 22/tcp CLOSED") == std::string::npos);
     assert(filtered_output.str().find("Port 443/tcp FILTERED") == std::string::npos);
+
+    skan::output::OutputContext reasons;
+    reasons.include_reasons = true;
+    std::ostringstream reason_output;
+    assert(writer.write(report, reason_output, reasons) == skan::output::OutputStatus::Ok);
+    assert(reason_output.str().find("Port 22/tcp CLOSED reason=CONNECTION_REFUSED") != std::string::npos);
+    assert(reason_output.str().find("Port 80/tcp OPEN reason=IMMEDIATE_SUCCESS") != std::string::npos);
+
+    skan::output::OutputContext open_only;
+    open_only.open_only = true;
+    std::ostringstream open_output;
+    assert(writer.write(report, open_output, open_only) == skan::output::OutputStatus::Ok);
+    assert(open_output.str().find("Port 80/tcp OPEN") != std::string::npos);
+    assert(open_output.str().find("Port 22/tcp CLOSED") == std::string::npos);
+    assert(open_output.str().find("Port 443/tcp FILTERED") == std::string::npos);
+    assert(open_output.str().find("Port 8443/tcp UNREACHABLE") == std::string::npos);
 
     return 0;
 }
