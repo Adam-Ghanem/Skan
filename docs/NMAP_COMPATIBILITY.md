@@ -34,6 +34,8 @@ The compatibility form accepts one or more positional target specifications befo
 | `-4` / `-6` | address-family filter | Mutually exclusive; applied after bounded resolution. |
 | `--exclude SPEC` | resolved-target exclusion | Repeatable and accepts the Target Engine's bounded forms. |
 | `--exclude-ports SPEC` | active-protocol port exclusion | Applies to TCP or UDP after `-p`, defaults, or `--top-ports`. |
+| `--open` | output-state filter | Emits only `OPEN` and `OPEN_OR_FILTERED` port rows; scan evidence and summary counts are unchanged. |
+| `--reason` | normal-output detail | Adds the canonical port-state reason to normal output; structured formats already retain reason fields. |
 | `-oN` | normal output file | Replaces the selected file. |
 | `-oX` | XML output file | Replaces the selected file. |
 | `-oG` | grepable output file | Replaces the selected file. |
@@ -47,6 +49,8 @@ The compatibility form accepts one or more positional target specifications befo
 Skan does not claim byte-for-byte output compatibility, Nmap database compatibility, or complete feature parity. The current scope excludes NSE, traceroute, resume files, decoys, spoofing, idle scanning, fragmentation/evasion behavior, Internet-wide automation, and unsupported protocol families.
 
 Service coverage is intentionally smaller than Nmap's. TLS certificate fields are available when the peer exposes parseable unencrypted handshake records; TLS 1.3 certificate messages are encrypted and therefore remain unavailable to the current raw probe. See [Service fingerprinting](SERVICE_FINGERPRINTS.md).
+
+`--open` affects serialized port rows only. It does not skip probes, discard canonical results, or rewrite summary counters. `--reason` is additive in normal output, while JSON, XML, and grepable output continue to expose their existing structured evidence.
 
 The Skan top-port corpus is project-owned and is not represented as Nmap's frequency ranking. Fingerprint data must be added with clear provenance and compatible licensing.
 
