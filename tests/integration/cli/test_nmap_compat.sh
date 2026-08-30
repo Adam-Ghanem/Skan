@@ -92,3 +92,15 @@ if "$skan_bin" -sU --transport offline -p 53 --udp-ports 53 192.0.2.1 >/dev/null
   echo "ambiguous UDP port selection unexpectedly accepted" >&2
   exit 1
 fi
+
+"$skan_bin" -sS --transport offline -p 80 --reason --output normal \
+  192.0.2.1 >"$tmp_dir/reason.nmap"
+grep -q "Port 80/tcp FILTERED reason=TIMEOUT" "$tmp_dir/reason.nmap"
+
+"$skan_bin" -sS --transport offline -p 80 --open --output normal \
+  192.0.2.1 >"$tmp_dir/open-only.nmap"
+if grep -q "Port 80/tcp" "$tmp_dir/open-only.nmap"; then
+  echo "--open unexpectedly emitted a filtered port" >&2
+  exit 1
+fi
+grep -q "filtered=1" "$tmp_dir/open-only.nmap"
