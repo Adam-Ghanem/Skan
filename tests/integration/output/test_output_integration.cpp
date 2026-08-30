@@ -1,10 +1,95 @@
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 
 #include "output/output_manager.hpp"
 #include "../../unit/output/output_test_fixture.hpp"
+
+namespace {
+
+skan::output::ScanReport make_port_state_report()
+{
+    skan::output::ScanReport report;
+    skan::output::HostResult host;
+    host.address = "192.0.2.33";
+    host.state = skan::discovery::HostState::Up;
+
+    const auto add_port = [&](std::uint16_t number,
+                              skan::portscan::Protocol protocol,
+                              skan::portscan::PortState state) {
+        host.ports.push_back(skan::portscan::PortResult{
+            host.address,
+            skan::portscan::Port{number, protocol},
+            state,
+            protocol == skan::portscan::Protocol::Udp ? skan::portscan::ScanProbeType::Udp
+                                                       : skan::portscan::ScanProbeType::TcpConnect,
+            skan::portscan::ScanReason::InternalError,
+            std::nullopt,
+            {},
+            0U,
+            std::nullopt});
+    };
+
+    add_port(10U, skan::portscan::Protocol::Tcp, skan::portscan::PortState::Open);
+    add_port(11U, skan::portscan::Protocol::Udp, skan::portscan::PortState::OpenOrFiltered);
+    add_port(12U, skan::portscan::Protocol::Tcp, skan::portscan::PortState::Closed);
+    add_port(13U, skan::portscan::Protocol::Tcp, skan::portscan::PortState::Filtered);
+    add_port(14U, skan::portscan::Protocol::Tcp, skan::portscan::PortState::Unknown);
+    add_port(15U, skan::portscan::Protocol::Tcp, skan::portscan::PortState::Unfiltered);
+    add_port(16U, skan::portscan::Protocol::Tcp, skan::portscan::PortState::Error);
+    add_port(17U, skan::portscan::Protocol::Tcp, skan::portscan::PortState::Unreachable);
+    report.hosts.push_back(std::move(host));
+    return report;
+}
+
+void assert_open_only_writer_parity()
+{
+    const skan::output::ScanReport report = make_port_state_report();
+    skan::output::OutputContext context;
+    context.open_only = true;
+
+    struct WriterExpectation final {
+        skan::output::OutputFormat format;
+        const char *open;
+        const char *open_or_filtered;
+        const char *excluded_ports[6];
+    };
+    const WriterExpectation expectations[] = {
+        {skan::output::OutputFormat::Normal,
+         "Port 10/tcp OPEN",
+         "Port 11/udp OPEN_OR_FILTERED",
+         {"Port 12/", "Port 13/", "Port 14/", "Port 15/", "Port 16/", "Port 17/"}},
+        {skan::output::OutputFormat::Json,
+         "\"port\": 10",
+         "\"port\": 11",
+         {"\"port\": 12", "\"port\": 13", "\"port\": 14", "\"port\": 15", "\"port\": 16", "\"port\": 17"}},
+        {skan::output::OutputFormat::Xml,
+         "number=\"10\" protocol=\"tcp\" state=\"OPEN\"",
+         "number=\"11\" protocol=\"udp\" state=\"OPEN_OR_FILTERED\"",
+         {"number=\"12\"", "number=\"13\"", "number=\"14\"", "number=\"15\"", "number=\"16\"", "number=\"17\""}},
+        {skan::output::OutputFormat::Grepable,
+         "number=10 protocol=tcp state=OPEN",
+         "number=11 protocol=udp state=OPEN_OR_FILTERED",
+         {"number=12 ", "number=13 ", "number=14 ", "number=15 ", "number=16 ", "number=17 "}}};
+
+    for (const WriterExpectation &expectation : expectations) {
+        std::ostringstream output;
+        assert(skan::output::OutputManager::write(expectation.format, report, output, context) ==
+               skan::output::OutputStatus::Ok);
+        const std::string serialized = output.str();
+        assert(serialized.find(expectation.open) != std::string::npos);
+        assert(serialized.find(expectation.open_or_filtered) != std::string::npos);
+        for (const char *excluded : expectation.excluded_ports) {
+            assert(serialized.find(excluded) == std::string::npos);
+        }
+    }
+}
+
+} // namespace
 
 int main()
 {
@@ -55,5 +140,6 @@ int main()
            skan::output::OutputStatus::Ok);
     assert(large_json.str().find("\"hosts\"") != std::string::npos);
     assert(large_xml.str().find("<host") != std::string::npos);
+    assert_open_only_writer_parity();
     return 0;
 }

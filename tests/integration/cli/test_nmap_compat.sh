@@ -104,3 +104,47 @@ if grep -q "Port 80/tcp" "$tmp_dir/open-only.nmap"; then
   exit 1
 fi
 grep -q "filtered=1" "$tmp_dir/open-only.nmap"
+
+"$skan_bin" -sU --transport offline -p 53 --open --output json \
+  --output-file "$tmp_dir/open-only.json" 192.0.2.1
+python3 - "$tmp_dir/open-only.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+ports = [port for host in report["hosts"] for port in host["ports"]]
+assert [(port["port"], port["protocol"], port["state"]) for port in ports] == [
+    (53, "udp", "OPEN_OR_FILTERED")
+], ports
+PY
+
+"$skan_bin" -sS --transport offline -p 80 --open --output json \
+  --output-file "$tmp_dir/filtered-open-only.json" 192.0.2.1
+python3 - "$tmp_dir/filtered-open-only.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+assert [port for host in report["hosts"] for port in host["ports"]] == [], report
+assert report["summary"]["filtered_ports"] == 1, report["summary"]
+PY
+
+"$skan_bin" -sU --transport offline -p 53 --open -oA \
+  "$tmp_dir/open-only-aggregate" 192.0.2.1
+grep -q "Port 53/udp OPEN_OR_FILTERED" "$tmp_dir/open-only-aggregate.nmap"
+grep -q 'number="53" protocol="udp" state="OPEN_OR_FILTERED"' \
+  "$tmp_dir/open-only-aggregate.xml"
+grep -q 'number=53 protocol=udp state=OPEN_OR_FILTERED' \
+  "$tmp_dir/open-only-aggregate.gnmap"
+
+"$skan_bin" -sS --transport offline -p 80 --open -oA \
+  "$tmp_dir/filtered-open-only-aggregate" 192.0.2.1
+if grep -qE 'Port 80/|number="80"|number=80 ' \
+  "$tmp_dir/filtered-open-only-aggregate.nmap" \
+  "$tmp_dir/filtered-open-only-aggregate.xml" \
+  "$tmp_dir/filtered-open-only-aggregate.gnmap"; then
+  echo "--open output aggregate unexpectedly emitted a filtered port" >&2
+  exit 1
+fi
