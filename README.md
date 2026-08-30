@@ -125,9 +125,11 @@ The native `skan scan <target>` interface remains supported. A scoped Nmap-compa
 ```bash
 ./bin/skan -sT -p 22,80,443 127.0.0.1
 ./bin/skan -sS -sV --top-ports 100 192.0.2.2
-./bin/skan -sU --udp-ports 53 --transport linux 192.0.2.2
+./bin/skan -sU -p 53 --transport linux 192.0.2.2
 ./bin/skan -sn 192.0.2.0/24
 ./bin/skan -sS -p 1-1024 -T4 -oA scan-result 192.0.2.2
+./bin/skan -sS -6 -p 22,443 --exclude 2001:db8::10 2001:db8::/120
+./bin/skan -sT -p 22,80,443 --exclude-ports 80 192.0.2.10 192.0.2.11
 ```
 
 | Nmap-style option | Skan behavior |
@@ -138,6 +140,9 @@ The native `skan scan <target>` interface remains supported. A scoped Nmap-compa
 | `-sn` / `-Pn` | Discovery-only / skip discovery |
 | `-sV` / `-O` | Service/version / OS detection |
 | `-T0`…`-T5` | Adaptive timing profile |
+| `-4` / `-6` | IPv4-only / IPv6-only resolved targets |
+| `--exclude`, `--exclude-ports` | Bounded target and active-protocol port exclusions |
+| Multiple positional targets | Combined and deduplicated by the Target Engine |
 | `-oN`, `-oX`, `-oG`, `-oA` | Normal, XML, grepable, or aggregate output |
 | `--top-ports 1..100` | Deterministic Skan-owned common TCP corpus |
 
@@ -185,7 +190,8 @@ Phases 29.1–32 establish the current release baseline:
 - IPv6 advertised-length truncation is classified before structural parsing, including VLAN fixtures.
 - The privileged harness is authorization-gated, executable, auditable, and forced onto the explicit Linux transport.
 - CI creates an isolated dual-stack network namespace, validates raw IPv4/IPv6 open and closed ports, and compares Skan with Nmap.
-- Nmap-style aliases cover the implemented Connect, SYN, UDP, discovery, service, OS, timing, port, interface, and output capabilities.
+- Nmap-style aliases cover the implemented Connect, SYN, UDP, discovery, service, OS, timing, interface, and output capabilities.
+- Phase 32 adds multiple positional targets, `-4`/`-6`, resolved target exclusions, active-protocol port exclusions, and protocol-aware `-p`/`-p-`.
 - The project is MIT licensed.
 - Phase 32 adds prioritized probes, per-probe timeouts, explicit fallbacks, soft/hard matches, a broader project-owned corpus, and bounded TLS certificate/ALPN metadata.
 
