@@ -15,6 +15,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <unistd.h>
 
 #include "core/constants.hpp"
 #include "core/status.hpp"
@@ -87,6 +88,8 @@ void print_help()
               << "  --max-response-bytes <n> Bound service response bytes\n"
               << "  --max-probes <n>       Bound probes per OPEN port\n"
               << "  --output <format>      normal, json, xml, or grepable\n"
+              << "  --no-color             Disable ANSI colors in normal terminal output\n"
+              << "  --debug                Enable diagnostic engine logging\n"
               << "  -o, --output-file <path> Write serialized output to a file (replace)\n"
               << "  --os-db <path>         Use a project-owned OS fingerprint database\n"
               << "  --json                 Emit structured output for resolve, os-detect, or interfaces\n"
@@ -823,6 +826,7 @@ int run_scan(int argc, char **argv)
     std::string transport_mode;
     std::optional<unsigned int> top_ports_count;
     std::optional<std::string> output_all_prefix;
+    bool no_color = false;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "-sT") {
@@ -1037,6 +1041,10 @@ int run_scan(int argc, char **argv)
                 std::cerr << "Error: output file path cannot be empty.\n";
                 return EXIT_FAILURE;
             }
+        } else if (argument == "--no-color") {
+            no_color = true;
+        } else if (argument == "--debug") {
+            (void)::setenv("SKAN_LOG", "debug", 1);
         } else if (argument == "--service-db" && index + 1 < argc) {
             config.service_db_path = argv[++index];
             if (config.service_db_path.empty()) {
@@ -1118,6 +1126,9 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: --discovery requires --transport offline or --transport linux --interface <name>.\n";
         return EXIT_FAILURE;
     }
+    config.output_context.color_enabled =
+        !no_color && config.output_format == skan::output::OutputFormat::Normal &&
+        !config.output_file.has_value() && !output_all_prefix.has_value() && ::isatty(STDOUT_FILENO) != 0;
     const skan::target::TargetResolutionResult resolved =
         skan::target::TargetEngine::resolve(target_specification, target_limits);
     if (!resolved.success()) {

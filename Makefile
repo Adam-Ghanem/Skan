@@ -154,6 +154,7 @@ TEST_SOURCES := \
 	tests/unit/core/test_types.cpp \
 	tests/unit/core/test_status.cpp \
 	tests/unit/core/test_constants.cpp \
+	tests/unit/core/test_log.cpp \
 	tests/unit/io/test_event.cpp \
 	tests/unit/io/test_io_engine.cpp \
 	tests/unit/io/test_timer.cpp \
@@ -235,6 +236,7 @@ TEST_BINARIES := \
 	$(BUILD_DIR)/test_types \
 	$(BUILD_DIR)/test_status \
 	$(BUILD_DIR)/test_constants \
+	$(BUILD_DIR)/test_log \
 	$(BUILD_DIR)/test_event \
 	$(BUILD_DIR)/test_io_engine \
 	$(BUILD_DIR)/test_timer \
@@ -333,6 +335,9 @@ $(BUILD_DIR)/test_status: $(BUILD_DIR)/tests/unit/core/test_status.o $(BUILD_DIR
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_constants: $(BUILD_DIR)/tests/unit/core/test_constants.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_log: $(BUILD_DIR)/tests/unit/core/test_log.o $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_event: $(BUILD_DIR)/tests/unit/io/test_event.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
@@ -628,6 +633,7 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_types
 	./$(BUILD_DIR)/test_status
 	./$(BUILD_DIR)/test_constants
+	./$(BUILD_DIR)/test_log
 	./$(BUILD_DIR)/test_event
 	./$(BUILD_DIR)/test_io_engine
 	./$(BUILD_DIR)/test_timer
