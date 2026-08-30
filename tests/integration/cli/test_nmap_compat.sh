@@ -95,12 +95,21 @@ fi
 
 "$skan_bin" -sS --transport offline -p 80 --reason --output normal \
   192.0.2.1 >"$tmp_dir/reason.nmap"
-grep -q "Port 80/tcp FILTERED reason=TIMEOUT" "$tmp_dir/reason.nmap"
+grep -Eq "^[[:space:]]*80/tcp[[:space:]]+FILTERED[[:space:]]+.*TIMEOUT$" "$tmp_dir/reason.nmap"
 
 "$skan_bin" -sS --transport offline -p 80 --open --output normal \
   192.0.2.1 >"$tmp_dir/open-only.nmap"
-if grep -q "Port 80/tcp" "$tmp_dir/open-only.nmap"; then
+if grep -Eq "^[[:space:]]*80/tcp[[:space:]]" "$tmp_dir/open-only.nmap"; then
   echo "--open unexpectedly emitted a filtered port" >&2
   exit 1
 fi
-grep -q "filtered=1" "$tmp_dir/open-only.nmap"
+grep -q "1 filtered" "$tmp_dir/open-only.nmap"
+
+"$skan_bin" -sS --transport offline -p 80 --output normal \
+  192.0.2.1 >"$tmp_dir/redirected-normal.nmap"
+if grep -Eq '╭|╰|◈|●|○|\x1b' "$tmp_dir/redirected-normal.nmap"; then
+  echo "redirected normal output unexpectedly contains terminal decoration" >&2
+  exit 1
+fi
+grep -q '^SKAN v' "$tmp_dir/redirected-normal.nmap"
+grep -Eq '^[[:space:]]*80/tcp[[:space:]]+FILTERED' "$tmp_dir/redirected-normal.nmap"
