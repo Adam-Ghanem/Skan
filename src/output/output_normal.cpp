@@ -44,6 +44,9 @@ OutputStatus NormalOutputWriter::write(
             output << "  Port " << port->port.number << '/'
                    << portscan::protocol_name(port->port.protocol)
                    << " " << portscan::port_state_name(port->state);
+            if (context.include_reasons) {
+                output << " reason=" << portscan::scan_reason_name(port->reason);
+            }
             if (!port->rtt_ms.has_value()) {
                 // No RTT field is printed when the source result did not provide one.
             } else {
