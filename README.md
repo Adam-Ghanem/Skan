@@ -120,7 +120,7 @@ make fuzz
 
 ## 🧭 Nmap-style usage
 
-The native `skan scan <target>` interface remains supported. A scoped Nmap-compatible mode also accepts one target specification as the final argument:
+The native `skan scan <target>` interface remains supported. A scoped Nmap-compatible mode accepts one or more positional target specifications before, between, or after supported options:
 
 ```bash
 ./bin/skan -sT -p 22,80,443 127.0.0.1
