@@ -8,6 +8,8 @@ struct OutputContext final {
     bool include_closed_ports{true};
     bool include_filtered_ports{true};
     bool include_unknown{true};
+    bool open_only{false};
+    bool include_reasons{false};
     bool pretty_json{true};
     bool pretty_xml{true};
     bool color_enabled{false};
