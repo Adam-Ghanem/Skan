@@ -1,7 +1,7 @@
 # Skan Next-Phase Roadmap
 
 **Author:** Manus AI
-**Status:** Phase 31 scoped Nmap-core compatibility implemented. Earlier phase records are retained as historical context and are superseded by later status sections.
+**Status:** Phase 33 scoped Nmap-core compatibility implemented. Earlier phase records are retained as historical context and are superseded by later status sections.
 
 ## Completed Phase 16 boundary
 
@@ -162,3 +162,13 @@ Phase 32 expands the scoped compatibility layer without introducing another reso
 Nmap `-p` and `-p-` are now protocol-aware: they select TCP normally and UDP under `-sU`. `--exclude-ports` removes ports from the active TCP or UDP selection after explicit ports, defaults, or the project-owned top-port corpus. Empty selections and ambiguous combinations fail visibly. Offline CLI regression covers multiple targets, IPv6 filtering, target exclusion, UDP `-p`, default-port exclusion, and conflict rejection.
 
 The next breadth candidates remain traceroute, resumable/progress state, additional reviewed scan families, and larger project-owned service/OS corpora. NSE-equivalent scripting still requires a separately reviewed sandbox and resource contract.
+
+## Service fingerprint expansion status
+
+The project-owned service corpus now includes prioritized TCP/UDP probes, per-probe timeouts, ordered fallbacks, hard and soft matches, bounded regex rules, and deterministic metadata extraction. TLS evidence can include protocol, certificate, SAN, and ALPN fields when they are present in parseable unencrypted records. TLS 1.3 encrypted certificate messages remain explicitly unavailable rather than guessed.
+
+## Phase 33 Status — Nmap output controls
+
+Phase 33 adds `--open` and `--reason` through the existing `OutputContext` and canonical writers. `--open` serializes only `OPEN` and `OPEN_OR_FILTERED` port rows across normal, JSON, XML, grepable, file, and `-oA` output while retaining the full canonical report and summary counters. `--reason` adds canonical state reasons to normal output; structured formats keep their existing evidence fields.
+
+Offline CLI regression and writer tests cover the aliases. The phase does not alter probing, classification, scheduling, transport, service detection, or OS detection.
