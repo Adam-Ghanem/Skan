@@ -81,7 +81,7 @@ void print_help()
               << "  --adaptive-timing      Enable adaptive timing controls\n"
               << "  --discovery            Run host discovery before port scanning\n"
               << "  --no-discovery         Skip host discovery (default)\n"
-              << "  --service-detect       Detect services on OPEN TCP ports\n"
+              << "  --service-detect       Detect services on supported OPEN TCP/UDP ports\n"
               << "  --os-detect            Run capability-honest OS detection\n"
               << "  --service-db <path>    Use a project-owned service probe database\n"
               << "  --max-response-bytes <n> Bound service response bytes\n"

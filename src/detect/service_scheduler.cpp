@@ -249,13 +249,20 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
         return;
     }
     if (match.matched) {
-        complete_pending(
-            response.id,
-            DetectionState::Detected,
-            DetectionError::None,
-            &match,
-            response.received_at == DetectionTimePoint{} ? DetectionClock::now() : response.received_at);
-        return;
+        if (match.strength == ServiceMatchStrength::Hard) {
+            complete_pending(
+                response.id,
+                DetectionState::Detected,
+                DetectionError::None,
+                &match,
+                response.received_at == DetectionTimePoint{} ? DetectionClock::now() : response.received_at);
+            return;
+        }
+        if (!pending.work.best_soft_match.has_value() ||
+            match.confidence >= pending.work.best_soft_match->confidence) {
+            pending.work.best_soft_match = match;
+            pending.work.best_soft_probe_index = active_probe_index;
+        }
     }
     if (response.kind != ServiceResponseKind::Closed) {
         return;
@@ -281,13 +288,20 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
     if (rtt_ms < 0.0) {
         rtt_ms = 0.0;
     }
-    append_result(
-        finished.work.port_result,
-        &database_.probes()[active_probe_index],
-        DetectionState::Unknown,
-        finished.response.empty() ? DetectionError::ConnectionClosed : DetectionError::NoMatch,
-        nullptr,
-        rtt_ms);
+    if (finished.work.best_soft_match.has_value()) {
+        append_result(finished.work.port_result,
+                      &database_.probes()[finished.work.best_soft_probe_index],
+                      DetectionState::Detected, DetectionError::None,
+                      &*finished.work.best_soft_match, rtt_ms);
+    } else {
+        append_result(
+            finished.work.port_result,
+            &database_.probes()[active_probe_index],
+            DetectionState::Unknown,
+            finished.response.empty() ? DetectionError::ConnectionClosed : DetectionError::NoMatch,
+            nullptr,
+            rtt_ms);
+    }
     pump();
 }
 
@@ -376,7 +390,11 @@ void ServiceScheduler::start_or_retry(WorkItem work) noexcept
     pending.started_at = DetectionClock::now();
     io::TimerId timer_id = 0U;
     try {
-        const std::chrono::milliseconds timeout = timing_ == nullptr ? config_.timeout : timing_->timeout();
+        const std::chrono::milliseconds adaptive_timeout =
+            timing_ == nullptr ? config_.timeout : timing_->timeout();
+        const std::chrono::milliseconds timeout = definition.timeout.has_value()
+                                                      ? std::min(*definition.timeout, adaptive_timeout)
+                                                      : adaptive_timeout;
         timer_id = engine_.schedule(timeout, [this, id]() { on_timeout(id); });
         if (timer_id == 0U) {
             status_ = core::StatusCode::InternalError;
@@ -483,12 +501,27 @@ void ServiceScheduler::on_timeout(ServiceProbeId id) noexcept
         }
         timing_->metrics().set_parallelism(pending_.size(), pending_.size());
     }
-    append_result(
-        pending.work.port_result,
-        &database_.probes()[pending.probe_index],
-        DetectionState::Timeout,
-        DetectionError::Timeout,
-        nullptr);
+    if (pending.work.next_probe + 1U < pending.work.probe_indices.size()) {
+        ++pending.work.next_probe;
+        pending.work.retry_count = 0U;
+        try {
+            queue_.push_front(std::move(pending.work));
+        } catch (const std::bad_alloc &) {
+            status_ = core::StatusCode::MemoryError;
+        }
+    } else if (pending.work.best_soft_match.has_value()) {
+        append_result(pending.work.port_result,
+                      &database_.probes()[pending.work.best_soft_probe_index],
+                      DetectionState::Detected, DetectionError::None,
+                      &*pending.work.best_soft_match);
+    } else {
+        append_result(
+            pending.work.port_result,
+            &database_.probes()[pending.probe_index],
+            DetectionState::Timeout,
+            DetectionError::Timeout,
+            nullptr);
+    }
     pump();
 }
 
@@ -530,6 +563,16 @@ void ServiceScheduler::append_result(
             result.product = match->product;
             result.version = match->version;
             result.extra = match->extra;
+            result.hostname = match->hostname;
+            result.tunnel = match->tunnel;
+            result.tls_detected = match->tls.detected;
+            result.tls_version = match->tls.protocol_version;
+            result.certificate_subject = match->tls.certificate_subject;
+            result.certificate_issuer = match->tls.certificate_issuer;
+            result.certificate_san_names = match->tls.certificate_san_names;
+            result.certificate_not_before = match->tls.certificate_not_before;
+            result.certificate_not_after = match->tls.certificate_not_after;
+            result.alpn = match->tls.alpn;
             result.confidence = match->confidence;
         }
         results_.push_back(std::move(result));

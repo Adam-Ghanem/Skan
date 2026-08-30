@@ -23,7 +23,7 @@ skan::detect::ServiceProbeDatabase demo_database()
 {
     skan::core::StatusCode status = skan::core::StatusCode::InternalError;
     const auto database = skan::detect::ServiceProbeDatabase::parse(
-        "Probe TCP First rarity=1 ports=80\n"
+        "Probe TCP First rarity=1 ports=80 fallback=Second\n"
         "send \"PING\"\n"
         "match type=prefix pattern=\"AAA\" service=first product=First confidence=0.7\n"
         "Probe TCP Second rarity=2\n"
@@ -39,6 +39,40 @@ skan::detect::ServiceProbeDatabase demo_database()
 int main()
 {
     using namespace skan::detect;
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP First rarity=1 timeout=25 ports=80 fallback=Second\n"
+            "send \"ONE\"\n"
+            "softmatch type=prefix pattern=\"220\" service=banner product=Generic confidence=0.5\n"
+            "Probe TCP Second rarity=2\n"
+            "send \"TWO\"\n"
+            "match type=prefix pattern=\"SSH-\" service=ssh product=SSH confidence=0.9\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 32U, 2U});
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, ServiceResponseKind::Data, 0, {'2', '2', '0'}, false,
+                           DetectionClock::now()});
+        assert(!scheduler.complete());
+        transport.deliver({first.id, first.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(transport.submissions().size() == 2U);
+        const auto second = transport.submissions().back();
+        transport.deliver({second.id, second.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == DetectionState::Detected);
+        assert(scheduler.results().front().service == "banner");
+        assert(scheduler.results().front().probe_name == "First");
+    }
 
     {
         skan::io::IOEngine engine;

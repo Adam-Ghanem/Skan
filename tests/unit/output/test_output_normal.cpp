@@ -23,6 +23,7 @@ int main()
     assert(first.str().find("Host 192.0.2.10") < first.str().find("Host 192.0.2.20"));
     assert(first.str().find("Port 22/tcp CLOSED") < first.str().find("Port 80/tcp OPEN"));
     assert(first.str().find("service=http") != std::string::npos);
+    assert(first.str().find("hostname=www.example.test tunnel=tls tls=yes tls_version=TLS 1.3") != std::string::npos);
     assert(first.str().find("SkanLinuxGeneric") < first.str().find("SkanWindowsGeneric"));
     assert(first.str().find("OS family=ipv4 status=complete error=none") != std::string::npos);
     assert(first.str().find("OS family=ipv4 status=complete error=none confidence=0.91") != std::string::npos);

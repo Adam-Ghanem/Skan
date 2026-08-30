@@ -8,6 +8,8 @@
 #include <new>
 #include <sstream>
 #include <system_error>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace skan::detect {
 namespace {
@@ -17,6 +19,9 @@ constexpr std::size_t kMaximumLineBytes = 16U << 10U;
 constexpr std::size_t kMaximumProbeCount = 256U;
 constexpr std::size_t kMaximumRulesPerProbe = 256U;
 constexpr std::size_t kMaximumPatternBytes = 4096U;
+constexpr std::size_t kMaximumRegexPatternBytes = 512U;
+constexpr std::size_t kMaximumFallbacksPerProbe = 16U;
+constexpr unsigned int kMaximumProbeTimeoutMs = 60000U;
 
 constexpr std::string_view kBuiltInDatabase = R"DB(
 # Skan-owned compact service probe database. This is not the Nmap database.
@@ -248,6 +253,8 @@ bool parse_match_type(std::string_view value, ServiceMatchType &type) noexcept
         type = ServiceMatchType::Exact;
     } else if (value == "prefix") {
         type = ServiceMatchType::Prefix;
+    } else if (value == "suffix") {
+        type = ServiceMatchType::Suffix;
     } else if (value == "substring") {
         type = ServiceMatchType::Substring;
     } else if (value == "regex") {
@@ -258,12 +265,77 @@ bool parse_match_type(std::string_view value, ServiceMatchType &type) noexcept
     return true;
 }
 
+bool parse_name_list(std::string_view value, std::vector<std::string> &names)
+{
+    std::size_t offset = 0U;
+    while (offset < value.size()) {
+        const std::size_t comma = value.find(',', offset);
+        const std::string_view name = value.substr(
+            offset, comma == std::string_view::npos ? value.size() - offset : comma - offset);
+        if (name.empty() || names.size() >= kMaximumFallbacksPerProbe ||
+            !std::all_of(name.begin(), name.end(), [](char character) {
+                return std::isalnum(static_cast<unsigned char>(character)) != 0 || character == '_' ||
+                       character == '-';
+            })) {
+            return false;
+        }
+        names.emplace_back(name);
+        if (comma == std::string_view::npos) break;
+        offset = comma + 1U;
+    }
+    return !names.empty();
+}
+
+bool regex_is_bounded(std::string_view pattern) noexcept
+{
+    if (pattern.size() > kMaximumRegexPatternBytes) return false;
+    unsigned int captures = 0U;
+    bool escaped = false;
+    for (std::size_t index = 0U; index < pattern.size(); ++index) {
+        const char character = pattern[index];
+        if (escaped) {
+            // Backreferences and ambiguous word-boundary extensions are deliberately unsupported.
+            if (character >= '1' && character <= '9') return false;
+            escaped = false;
+            continue;
+        }
+        if (character == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (character == '(') {
+            ++captures;
+            if (captures > 16U) return false;
+        }
+        // Reject the common catastrophic forms (.*)+, (.+)*, and their bounded variants.
+        if ((character == '*' || character == '+') && index + 2U < pattern.size() &&
+            pattern[index + 1U] == ')' &&
+            (pattern[index + 2U] == '*' || pattern[index + 2U] == '+' || pattern[index + 2U] == '{')) {
+            return false;
+        }
+    }
+    return !escaped;
+}
+
 } // namespace
 
 ServiceProbeDatabase ServiceProbeDatabase::built_in()
 {
-    core::StatusCode status = core::StatusCode::Ok;
-    return parse(kBuiltInDatabase, status);
+    static constexpr std::array<const char *, 4U> candidates{
+        "data/service-probes.db",
+        "../data/service-probes.db",
+        "/usr/local/share/skan/service-probes.db",
+        "/usr/share/skan/service-probes.db"};
+    for (const char *path : candidates) {
+        core::StatusCode file_status = core::StatusCode::Ok;
+        ServiceProbeDatabase database = load_file(path, file_status);
+        if (file_status == core::StatusCode::Ok) return database;
+        if (file_status != core::StatusCode::NotFound) return database;
+    }
+    // A compact recovery corpus keeps library-only embedding useful. The maintained,
+    // comprehensive project-owned corpus lives in data/service-probes.db.
+    core::StatusCode fallback_status = core::StatusCode::Ok;
+    return parse(kBuiltInDatabase, fallback_status);
 }
 
 ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::StatusCode &status)
@@ -327,6 +399,25 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                             database.status_ = status;
                             return database;
                         }
+                    } else if (key == "priority") {
+                        if (!parse_unsigned(value, definition.priority) || definition.priority == 0U ||
+                            definition.priority > 100U) {
+                            status = core::StatusCode::ParseError;
+                            return fail(status);
+                        }
+                    } else if (key == "timeout") {
+                        unsigned int timeout_ms = 0U;
+                        if (!parse_unsigned(value, timeout_ms) || timeout_ms == 0U ||
+                            timeout_ms > kMaximumProbeTimeoutMs) {
+                            status = core::StatusCode::ParseError;
+                            return fail(status);
+                        }
+                        definition.timeout = std::chrono::milliseconds{timeout_ms};
+                    } else if (key == "fallback") {
+                        if (!parse_name_list(value, definition.fallback_probe_names)) {
+                            status = core::StatusCode::ParseError;
+                            return fail(status);
+                        }
                     } else if (key == "ports") {
                         const portscan::PortSelection selection = definition.protocol == TransportProtocol::Udp
                                                                         ? portscan::parse_udp_ports(value)
@@ -358,12 +449,14 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                     return fail(status);
                 }
                 current->payload = tokens[1];
-            } else if (tokens[0] == "match") {
+            } else if (tokens[0] == "match" || tokens[0] == "softmatch") {
                 if (current == nullptr) {
                     status = core::StatusCode::ParseError;
                     return fail(status);
                 }
                 ServiceMatchRule rule;
+                rule.strength = tokens[0] == "softmatch" ? ServiceMatchStrength::Soft
+                                                           : ServiceMatchStrength::Hard;
                 bool has_pattern = false;
                 bool has_service = false;
                 bool has_confidence = false;
@@ -396,6 +489,10 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                         rule.version = value;
                     } else if (key == "extra") {
                         rule.extra = value;
+                    } else if (key == "hostname") {
+                        rule.hostname = value;
+                    } else if (key == "tunnel") {
+                        rule.tunnel = value;
                     } else if (key == "confidence") {
                         if (!parse_confidence(value, rule.confidence)) {
                             status = core::StatusCode::ParseError;
@@ -414,6 +511,10 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
                     return fail(status);
                 }
                 if (rule.type == ServiceMatchType::Regex) {
+                    if (!regex_is_bounded(rule.pattern)) {
+                        status = core::StatusCode::ParseError;
+                        return fail(status);
+                    }
                     try {
                         rule.compiled_regex.emplace(rule.pattern, std::regex::ECMAScript);
                     } catch (const std::regex_error &) {
@@ -435,6 +536,30 @@ ServiceProbeDatabase ServiceProbeDatabase::parse(std::string_view text, core::St
         }
         if (database.probes_.empty()) {
             status = core::StatusCode::ParseError;
+        } else {
+            std::unordered_map<std::string, std::size_t> names;
+            for (std::size_t index = 0U; index < database.probes_.size(); ++index) {
+                if (database.probes_[index].id.empty() ||
+                    !names.emplace(database.probes_[index].name, index).second) {
+                    status = core::StatusCode::ParseError;
+                    break;
+                }
+            }
+            if (status == core::StatusCode::Ok) {
+                for (const ServiceProbeDefinition &probe : database.probes_) {
+                    std::unordered_set<std::string> unique;
+                    for (const std::string &fallback : probe.fallback_probe_names) {
+                        const auto found = names.find(fallback);
+                        if (fallback == probe.name || found == names.end() ||
+                            database.probes_[found->second].protocol != probe.protocol ||
+                            !unique.emplace(fallback).second) {
+                            status = core::StatusCode::ParseError;
+                            break;
+                        }
+                    }
+                    if (status != core::StatusCode::Ok) break;
+                }
+            }
         }
     } catch (const std::bad_alloc &) {
         status = core::StatusCode::MemoryError;
@@ -520,6 +645,9 @@ std::vector<std::size_t> ServiceProbeDatabase::ordered_probe_indices(
                 return left_generic > right_generic;
             }
         }
+        if (probes_[left].priority != probes_[right].priority) {
+            return probes_[left].priority > probes_[right].priority;
+        }
         if (probes_[left].rarity != probes_[right].rarity) {
             return probes_[left].rarity < probes_[right].rarity;
         }
@@ -528,10 +656,42 @@ std::vector<std::size_t> ServiceProbeDatabase::ordered_probe_indices(
         }
         return left < right;
     });
-    if (indices.size() > max_count) {
-        indices.resize(max_count);
+    std::vector<std::size_t> ordered;
+    ordered.reserve(std::min(max_count, indices.size()));
+    const auto append_unique = [&ordered, max_count](std::size_t index) {
+        if (ordered.size() < max_count &&
+            std::find(ordered.begin(), ordered.end(), index) == ordered.end()) {
+            ordered.push_back(index);
+        }
+    };
+    const auto find_named = [this](const std::string &name) -> std::optional<std::size_t> {
+        for (std::size_t index = 0U; index < probes_.size(); ++index) {
+            if (probes_[index].name == name) return index;
+        }
+        return std::nullopt;
+    };
+    if (any_matching_hint) {
+        for (const std::size_t index : indices) {
+            if (has_hint(index)) append_unique(index);
+        }
+        for (const std::size_t index : indices) {
+            if (!has_hint(index)) continue;
+            for (const std::string &fallback : probes_[index].fallback_probe_names) {
+                const std::optional<std::size_t> fallback_index = find_named(fallback);
+                if (fallback_index.has_value()) append_unique(*fallback_index);
+            }
+        }
     }
-    return indices;
+    for (const std::size_t index : indices) {
+        append_unique(index);
+        if (ordered.size() == max_count) break;
+    }
+    return ordered;
+}
+
+const char *service_match_strength_name(ServiceMatchStrength strength) noexcept
+{
+    return strength == ServiceMatchStrength::Hard ? "hard" : "soft";
 }
 
 const char *service_match_type_name(ServiceMatchType type) noexcept
@@ -541,6 +701,8 @@ const char *service_match_type_name(ServiceMatchType type) noexcept
         return "exact";
     case ServiceMatchType::Prefix:
         return "prefix";
+    case ServiceMatchType::Suffix:
+        return "suffix";
     case ServiceMatchType::Substring:
         return "substring";
     case ServiceMatchType::Regex:

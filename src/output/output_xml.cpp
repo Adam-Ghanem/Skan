@@ -174,7 +174,7 @@ void write_service(XmlWriter &xml, const detect::ServiceResult &service, std::si
         attributes += attribute_number("rtt-ms", *service.rtt_ms);
     }
     if (service.service.empty() && service.product.empty() && service.version.empty() && service.extra.empty() &&
-        service.probe_name.empty()) {
+        service.hostname.empty() && service.tunnel.empty() && !service.tls_detected && service.probe_name.empty()) {
         xml.self_closing(depth, "service", attributes);
         return;
     }
@@ -190,6 +190,28 @@ void write_service(XmlWriter &xml, const detect::ServiceResult &service, std::si
     }
     if (!service.extra.empty()) {
         xml.element(depth + 1U, "extra", service.extra);
+    }
+    if (!service.hostname.empty()) {
+        xml.element(depth + 1U, "hostname", service.hostname);
+    }
+    if (!service.tunnel.empty()) {
+        xml.element(depth + 1U, "tunnel", service.tunnel);
+    }
+    if (service.tls_detected) {
+        xml.open(depth + 1U, "tls");
+        if (!service.tls_version.empty()) xml.element(depth + 2U, "version", service.tls_version);
+        if (!service.certificate_subject.empty())
+            xml.element(depth + 2U, "certificate-subject", service.certificate_subject);
+        if (!service.certificate_issuer.empty())
+            xml.element(depth + 2U, "certificate-issuer", service.certificate_issuer);
+        for (const std::string &name : service.certificate_san_names)
+            xml.element(depth + 2U, "certificate-san", name);
+        if (!service.certificate_not_before.empty())
+            xml.element(depth + 2U, "certificate-not-before", service.certificate_not_before);
+        if (!service.certificate_not_after.empty())
+            xml.element(depth + 2U, "certificate-not-after", service.certificate_not_after);
+        for (const std::string &protocol : service.alpn) xml.element(depth + 2U, "alpn", protocol);
+        xml.close(depth + 1U, "tls");
     }
     if (!service.probe_name.empty()) {
         xml.element(depth + 1U, "probe", service.probe_name);

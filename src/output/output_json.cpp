@@ -272,6 +272,50 @@ void write_service(JsonWriter &json, const detect::ServiceResult &service, std::
         json.key("extra", first, depth + 1U);
         json.string(service.extra);
     }
+    if (!service.hostname.empty()) {
+        json.key("hostname", first, depth + 1U);
+        json.string(service.hostname);
+    }
+    if (!service.tunnel.empty()) {
+        json.key("tunnel", first, depth + 1U);
+        json.string(service.tunnel);
+    }
+    if (service.tls_detected) {
+        json.key("tls", first, depth + 1U);
+        json.begin_object();
+        bool first_tls = true;
+        json.key("detected", first_tls, depth + 2U);
+        json.boolean(true);
+        if (!service.tls_version.empty()) {
+            json.key("version", first_tls, depth + 2U);
+            json.string(service.tls_version);
+        }
+        if (!service.certificate_subject.empty()) {
+            json.key("certificate_subject", first_tls, depth + 2U);
+            json.string(service.certificate_subject);
+        }
+        if (!service.certificate_issuer.empty()) {
+            json.key("certificate_issuer", first_tls, depth + 2U);
+            json.string(service.certificate_issuer);
+        }
+        if (!service.certificate_san_names.empty()) {
+            json.key("certificate_san_names", first_tls, depth + 2U);
+            write_string_array(json, service.certificate_san_names, depth + 3U);
+        }
+        if (!service.certificate_not_before.empty()) {
+            json.key("certificate_not_before", first_tls, depth + 2U);
+            json.string(service.certificate_not_before);
+        }
+        if (!service.certificate_not_after.empty()) {
+            json.key("certificate_not_after", first_tls, depth + 2U);
+            json.string(service.certificate_not_after);
+        }
+        if (!service.alpn.empty()) {
+            json.key("alpn", first_tls, depth + 2U);
+            write_string_array(json, service.alpn, depth + 3U);
+        }
+        json.end_object(depth + 1U, !first_tls);
+    }
     json.key("confidence", first, depth + 1U);
     json.number(service.confidence);
     json.key("method", first, depth + 1U);

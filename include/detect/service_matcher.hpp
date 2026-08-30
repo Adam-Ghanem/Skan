@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "detect/service_db.hpp"
+#include "detect/tls_metadata.hpp"
 
 namespace skan::detect {
 
@@ -15,6 +16,10 @@ struct ServiceMatchResult final {
     std::string product;
     std::string version;
     std::string extra;
+    std::string hostname;
+    std::string tunnel;
+    ServiceMatchStrength strength{ServiceMatchStrength::Hard};
+    TlsMetadata tls;
     double confidence{0.0};
     std::size_t priority{0U};
     std::size_t specificity{0U};

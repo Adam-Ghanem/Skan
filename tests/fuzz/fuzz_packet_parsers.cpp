@@ -6,6 +6,7 @@
 #include "db/os_db.hpp"
 #include "detect/service_db.hpp"
 #include "detect/service_matcher.hpp"
+#include "detect/tls_metadata.hpp"
 #include "net/packet_receiver.hpp"
 #include "osdetect/os_matcher.hpp"
 #include "osdetect/os_probe.hpp"
@@ -51,6 +52,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
         skan::detect::ServiceMatcher service_matcher(service_database);
         (void)service_matcher.match(service_database.probes().front(), text);
     }
+    (void)skan::detect::parse_tls_metadata(bytes);
     (void)skan::output::detail::json_escape(text);
     (void)skan::output::detail::xml_escape(text);
     (void)skan::output::detail::grep_escape(text);

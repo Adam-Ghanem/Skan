@@ -9,14 +9,15 @@ int main()
     using namespace skan::detect;
     const std::string text =
         "# comment\n"
-        "Probe TCP Demo rarity=2 ports=80,8080\n"
+        "Probe TCP Demo rarity=2 priority=90 timeout=750 ports=80,8080 fallback=Generic\n"
         "send \"GET /\\r\\n\\r\\n\"\n"
-        "match type=regex pattern=\"^Demo/([0-9.]+)\" service=demo product=Demo version=\"$1\" confidence=0.75\n"
+        "softmatch type=regex pattern=\"^Demo/([0-9.]+)\" service=demo product=Demo version=\"$1\" hostname=demo.local tunnel=tls confidence=0.75\n"
         "Probe UDP DemoUDP rarity=2 ports=53 protocol=udp\n"
         "send \"\\x12\\x34\"\n"
         "match type=exact pattern=\"\\x12\\x34\" service=dns product=DNS confidence=0.90\n"
         "Probe TCP Generic rarity=3\n"
         "send \"\\r\\n\"\n"
+        "match type=suffix pattern=ready service=text product=Text confidence=0.45\n"
         "match type=substring pattern=hello service=text product=Text confidence=0.40\n";
     skan::core::StatusCode status = skan::core::StatusCode::InternalError;
     const ServiceProbeDatabase database = ServiceProbeDatabase::parse(text, status);
@@ -25,9 +26,16 @@ int main()
     assert(database.probes().size() == 3U);
     assert(database.probes()[0].payload == "GET /\r\n\r\n");
     assert(database.probes()[0].port_hints.size() == 2U);
+    assert(database.probes()[0].priority == 90U);
+    assert(database.probes()[0].timeout == std::chrono::milliseconds{750});
+    assert(database.probes()[0].fallback_probe_names == std::vector<std::string>{"Generic"});
     assert(database.probes()[0].rules[0].compiled_regex.has_value());
+    assert(database.probes()[0].rules[0].strength == ServiceMatchStrength::Soft);
+    assert(database.probes()[0].rules[0].hostname == "demo.local");
+    assert(database.probes()[0].rules[0].tunnel == "tls");
     assert(database.probes()[1].protocol == skan::portscan::Protocol::Udp);
     assert(database.probes()[1].rules[0].type == ServiceMatchType::Exact);
+    assert(database.probes()[2].rules[0].type == ServiceMatchType::Suffix);
 
     const auto ordered = database.ordered_probe_indices({80U, skan::portscan::Protocol::Tcp}, 2U);
     assert(ordered.size() == 2U);
@@ -41,6 +49,10 @@ int main()
     assert(built_in.ordered_probe_indices({22U, skan::portscan::Protocol::Tcp}, 1U).size() == 1U);
     assert(built_in.probes()[built_in.ordered_probe_indices({22U, skan::portscan::Protocol::Tcp}, 1U)[0]].name ==
            "SSHBanner");
+    const auto https_probes = built_in.ordered_probe_indices({443U, skan::portscan::Protocol::Tcp}, 3U);
+    assert(https_probes.size() == 3U);
+    assert(built_in.probes()[https_probes[0]].name == "TLSClientHello");
+    assert(built_in.probes()[https_probes[1]].name == "HTTPGet");
 
     skan::core::StatusCode bad_status = skan::core::StatusCode::Ok;
     const ServiceProbeDatabase bad = ServiceProbeDatabase::parse(
@@ -49,6 +61,20 @@ int main()
     assert(bad_status == skan::core::StatusCode::ParseError);
     assert(bad.status() == skan::core::StatusCode::ParseError);
     assert(bad.probes().empty());
+
+    skan::core::StatusCode unsafe_regex_status = skan::core::StatusCode::Ok;
+    const ServiceProbeDatabase unsafe_regex = ServiceProbeDatabase::parse(
+        "Probe TCP Unsafe rarity=1\nmatch type=regex pattern=\"^(.*)+$\" service=x confidence=0.5\n",
+        unsafe_regex_status);
+    assert(unsafe_regex_status == skan::core::StatusCode::ParseError);
+    assert(unsafe_regex.probes().empty());
+
+    skan::core::StatusCode missing_fallback_status = skan::core::StatusCode::Ok;
+    const ServiceProbeDatabase missing_fallback = ServiceProbeDatabase::parse(
+        "Probe TCP Missing rarity=1 fallback=Nowhere\n",
+        missing_fallback_status);
+    assert(missing_fallback_status == skan::core::StatusCode::ParseError);
+    assert(missing_fallback.probes().empty());
 
     const std::string oversized_text((1U << 20U) + 1U, '#');
     skan::core::StatusCode oversized_status = skan::core::StatusCode::Ok;

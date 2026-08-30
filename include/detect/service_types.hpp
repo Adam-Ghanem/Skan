@@ -67,13 +67,23 @@ struct ServiceResult final {
     std::optional<double> rtt_ms;
     DetectionError error{DetectionError::None};
     DetectionTimePoint timestamp{};
+    std::string hostname;
+    std::string tunnel;
+    bool tls_detected{false};
+    std::string tls_version;
+    std::string certificate_subject;
+    std::string certificate_issuer;
+    std::vector<std::string> certificate_san_names;
+    std::string certificate_not_before;
+    std::string certificate_not_after;
+    std::vector<std::string> alpn;
 };
 
 struct ServiceDetectionConfig final {
     std::size_t max_outstanding{16U};
     std::chrono::milliseconds timeout{1000};
     std::size_t max_response_bytes{8192U};
-    std::size_t max_probes_per_port{2U};
+    std::size_t max_probes_per_port{3U};
     bool adaptive_timing{false};
     scanengine::TimingProfile timing_profile{};
 };

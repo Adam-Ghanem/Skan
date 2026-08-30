@@ -52,6 +52,8 @@ private:
         std::vector<std::size_t> probe_indices;
         std::size_t next_probe{0U};
         std::size_t retry_count{0U};
+        std::optional<ServiceMatchResult> best_soft_match;
+        std::size_t best_soft_probe_index{0U};
     };
 
     struct Pending final {

@@ -95,7 +95,28 @@ inline ScanReport make_report()
         "banner",
         1.25,
         detect::DetectionError::None,
+        {},
+        {},
+        {},
+        false,
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
         {}});
+    detect::ServiceResult &service = second.services.back();
+    service.hostname = "www.example.test";
+    service.tunnel = "tls";
+    service.tls_detected = true;
+    service.tls_version = "TLS 1.3";
+    service.certificate_subject = "CN=www.example.test";
+    service.certificate_issuer = "CN=Test CA";
+    service.certificate_san_names = {"www.example.test", "example.test"};
+    service.certificate_not_before = "260101000000Z";
+    service.certificate_not_after = "270101000000Z";
+    service.alpn = {"h2", "http/1.1"};
     second.os_matches.push_back(osdetect::OSMatchResult{
         "SkanWindowsGeneric", "Skan", "Windows", "generic", "desktop", 0.91,
         db::MatchCategory::StrongMatch, {"ttl"}, {}, {}, core::AddressFamily::IPv4, "fixture", 10U});

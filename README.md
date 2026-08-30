@@ -20,6 +20,7 @@ It brings host discovery, TCP/UDP scanning, service detection, OS fingerprinting
 - 🔎 Host discovery
 - 🔌 TCP & UDP scanning
 - 🧠 Service & OS detection
+- 🧬 Data-driven service fingerprints with bounded TLS metadata
 - ⚙️ Adaptive scan scheduling
 - 🧩 Modular transport and packet architecture
 - 📦 Structured JSON results
@@ -141,6 +142,7 @@ The native `skan scan <target>` interface remains supported. A scoped Nmap-compa
 | `--top-ports 1..100` | Deterministic Skan-owned common TCP corpus |
 
 See [Nmap compatibility](docs/NMAP_COMPATIBILITY.md) for exact boundaries.
+See [Service fingerprinting](docs/SERVICE_FINGERPRINTS.md) for the clean-room probe format and corpus limits.
 
 ## 🏅 Security & Quality
 
@@ -178,12 +180,13 @@ Skan is an open-source engineering project. Contributions, experiments, ideas, a
 
 ## Development status
 
-Phases 29.1–31 establish the current release baseline:
+Phases 29.1–32 establish the current release baseline:
 
 - IPv6 advertised-length truncation is classified before structural parsing, including VLAN fixtures.
 - The privileged harness is authorization-gated, executable, auditable, and forced onto the explicit Linux transport.
 - CI creates an isolated dual-stack network namespace, validates raw IPv4/IPv6 open and closed ports, and compares Skan with Nmap.
 - Nmap-style aliases cover the implemented Connect, SYN, UDP, discovery, service, OS, timing, port, interface, and output capabilities.
 - The project is MIT licensed.
+- Phase 32 adds prioritized probes, per-probe timeouts, explicit fallbacks, soft/hard matches, a broader project-owned corpus, and bounded TLS certificate/ALPN metadata.
 
-Skan is not a complete Nmap replacement yet. NSE, traceroute, advanced scan families, broad fingerprint corpora, and cross-platform raw transports remain future work. The project does not silently emulate unsupported features.
+Skan is not a complete Nmap replacement yet. NSE, traceroute, advanced scan families, Nmap-scale fingerprint breadth, and cross-platform raw transports remain future work. The project does not silently emulate unsupported features.

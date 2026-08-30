@@ -27,7 +27,7 @@ The compatibility form currently accepts one Skan target specification as the fi
 | `-sU` | `--udp --transport linux` | Use `--udp-ports` for explicit UDP ports. |
 | `-sn` | discovery enabled, port scan disabled | Uses the explicit Linux transport unless overridden for deterministic offline testing. |
 | `-Pn` | discovery disabled | Discovery is already off by default for scan mode. |
-| `-sV` | `--service-detect` | Uses the bounded project-owned probe database. |
+| `-sV` | `--service-detect` | Uses prioritized probes, explicit fallbacks, soft/hard matches, and the bounded project-owned corpus. |
 | `-O` | `--os-detect` | Reports unavailable when reliable evidence cannot be collected. |
 | `-T0`…`-T5` | `--timing T0`…`T5` | Reuses the adaptive timing engine. |
 | `-e` | `--interface` | Raw scans may still derive a route-consistent interface when omitted. |
@@ -42,6 +42,8 @@ Existing `-p`, `-p-`, IPv4/IPv6 targets, output formats, service/OS databases, t
 ## Explicit differences
 
 Skan does not claim byte-for-byte output compatibility, Nmap database compatibility, or complete feature parity. The current scope excludes NSE, traceroute, resume files, decoys, spoofing, idle scanning, fragmentation/evasion behavior, Internet-wide automation, and unsupported protocol families.
+
+Service coverage is intentionally smaller than Nmap's. TLS certificate fields are available when the peer exposes parseable unencrypted handshake records; TLS 1.3 certificate messages are encrypted and therefore remain unavailable to the current raw probe. See [Service fingerprinting](SERVICE_FINGERPRINTS.md).
 
 The Skan top-port corpus is project-owned and is not represented as Nmap's frequency ranking. Fingerprint data must be added with clear provenance and compatible licensing.
 

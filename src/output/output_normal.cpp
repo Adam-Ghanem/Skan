@@ -67,6 +67,17 @@ OutputStatus NormalOutputWriter::write(
                     if (!service->version.empty()) {
                         output << " version=" << detail::grep_escape(service->version);
                     }
+                    if (!service->hostname.empty()) {
+                        output << " hostname=" << detail::grep_escape(service->hostname);
+                    }
+                    if (!service->tunnel.empty()) {
+                        output << " tunnel=" << detail::grep_escape(service->tunnel);
+                    }
+                    if (service->tls_detected) {
+                        output << " tls=yes";
+                        if (!service->tls_version.empty())
+                            output << " tls_version=" << detail::grep_escape(service->tls_version);
+                    }
                     output << " confidence=" << std::setprecision(15) << service->confidence;
                     output << " method=" << detect::detection_method_name(service->method)
                            << " error=" << detect::detection_error_name(service->error);

@@ -1,10 +1,14 @@
 #include "detect/service_matcher.hpp"
 
 #include <charconv>
+#include <cstdint>
 #include <regex>
+#include <span>
 
 namespace skan::detect {
 namespace {
+
+constexpr std::size_t kMaximumMatchResponseBytes = 8192U;
 
 std::string expand_template(
     std::string_view value,
@@ -44,6 +48,9 @@ std::size_t rule_priority(const ServiceMatchRule &rule) noexcept
     if (rule.type == ServiceMatchType::Prefix) {
         return 3U;
     }
+    if (rule.type == ServiceMatchType::Suffix) {
+        return 3U;
+    }
     if (rule.type == ServiceMatchType::Substring) {
         return 2U;
     }
@@ -64,6 +71,9 @@ bool rule_matches(
         return response == rule.pattern;
     case ServiceMatchType::Prefix:
         return response.size() >= rule.pattern.size() && response.substr(0U, rule.pattern.size()) == rule.pattern;
+    case ServiceMatchType::Suffix:
+        return response.size() >= rule.pattern.size() &&
+               response.substr(response.size() - rule.pattern.size()) == rule.pattern;
     case ServiceMatchType::Substring:
         return response.find(rule.pattern) != std::string_view::npos;
     case ServiceMatchType::Regex:
@@ -88,7 +98,8 @@ ServiceMatchResult ServiceMatcher::match(
     std::string_view response) const
 {
     ServiceMatchResult best;
-    if (database_.status() != core::StatusCode::Ok || response.empty()) {
+    if (database_.status() != core::StatusCode::Ok || response.empty() ||
+        response.size() > kMaximumMatchResponseBytes) {
         return best;
     }
     std::string owned_response;
@@ -104,17 +115,28 @@ ServiceMatchResult ServiceMatcher::match(
         candidate.product = expand_template(rule.product, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
         candidate.version = expand_template(rule.version, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
         candidate.extra = expand_template(rule.extra, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
+        candidate.hostname = expand_template(rule.hostname, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
+        candidate.tunnel = expand_template(rule.tunnel, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
+        candidate.strength = rule.strength;
         candidate.confidence = rule.confidence;
         candidate.priority = rule_priority(rule);
         candidate.specificity = rule.specificity;
         candidate.rule_index = index;
-        const bool better = !best.matched || candidate.priority > best.priority ||
-                            (candidate.priority == best.priority && candidate.confidence > best.confidence) ||
-                            (candidate.priority == best.priority && candidate.confidence == best.confidence &&
+        const bool better = !best.matched || candidate.strength > best.strength ||
+                            (candidate.strength == best.strength && candidate.priority > best.priority) ||
+                            (candidate.strength == best.strength && candidate.priority == best.priority &&
+                             candidate.confidence > best.confidence) ||
+                            (candidate.strength == best.strength && candidate.priority == best.priority &&
+                             candidate.confidence == best.confidence &&
                              candidate.specificity > best.specificity) ||
-                            (candidate.priority == best.priority && candidate.confidence == best.confidence &&
+                            (candidate.strength == best.strength && candidate.priority == best.priority &&
+                             candidate.confidence == best.confidence &&
                              candidate.specificity == best.specificity && candidate.rule_index < best.rule_index);
         if (better) {
+            if (candidate.tunnel == "tls" || candidate.service == "tls" || candidate.service == "https") {
+                const auto *data = reinterpret_cast<const std::uint8_t *>(response.data());
+                candidate.tls = parse_tls_metadata(std::span<const std::uint8_t>{data, response.size()});
+            }
             best = std::move(candidate);
         }
     }

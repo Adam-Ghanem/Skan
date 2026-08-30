@@ -36,5 +36,10 @@ int main()
     assert(first.str().find("<tcp-evidence>0</tcp-evidence>") != std::string::npos);
     assert(first.str().find("<udp-evidence>0</udp-evidence>") != std::string::npos);
     assert(first.str().find("<rtt-ms>4.5</rtt-ms>") != std::string::npos);
+    assert(first.str().find("<hostname>www.example.test</hostname>") != std::string::npos);
+    assert(first.str().find("<tunnel>tls</tunnel>") != std::string::npos);
+    assert(first.str().find("<certificate-subject>CN=www.example.test</certificate-subject>") != std::string::npos);
+    assert(first.str().find("<certificate-san>example.test</certificate-san>") != std::string::npos);
+    assert(first.str().find("<alpn>h2</alpn>") != std::string::npos);
     return 0;
 }

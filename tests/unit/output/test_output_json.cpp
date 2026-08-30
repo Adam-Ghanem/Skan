@@ -38,6 +38,11 @@ int main()
     assert(first.str().find("\"tcp_observations\": 0") != std::string::npos);
     assert(first.str().find("\"icmp_observations\": 0") != std::string::npos);
     assert(first.str().find("\"udp_observations\": 0") != std::string::npos);
+    assert(first.str().find("\"hostname\": \"www.example.test\"") != std::string::npos);
+    assert(first.str().find("\"tunnel\": \"tls\"") != std::string::npos);
+    assert(first.str().find("\"certificate_subject\": \"CN=www.example.test\"") != std::string::npos);
+    assert(first.str().find("\"certificate_san_names\": [") != std::string::npos);
+    assert(first.str().find("\"alpn\": [") != std::string::npos);
 
     skan::output::OutputContext compact;
     compact.pretty_json = false;

@@ -57,7 +57,7 @@ struct ScanConfig final {
 
     std::string service_db_path;
     std::size_t max_response_bytes{8192U};
-    std::size_t max_probes_per_port{2U};
+    std::size_t max_probes_per_port{3U};
     std::string os_db_path;
     output::OutputFormat output_format{output::OutputFormat::Normal};
     std::optional<std::string> output_file;
