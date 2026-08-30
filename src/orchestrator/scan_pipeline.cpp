@@ -397,7 +397,7 @@ bool ScanPipeline::serialize_report(std::ostream &output)
     }
     session_.set_report(built);
     if (!config_.output_file.has_value()) {
-        const output::OutputStatus status = output::OutputManager::write(config_.output_format, built, output);
+        const output::OutputStatus status = output::OutputManager::write(config_.output_format, built, output, config_.output_context);
         if (status != output::OutputStatus::Ok) {
             fail(std::string("output serialization failed: ") + output::output_status_name(status),
                  status == output::OutputStatus::IoError ? core::StatusCode::IoError : core::StatusCode::InternalError);
@@ -407,7 +407,7 @@ bool ScanPipeline::serialize_report(std::ostream &output)
     }
 
     std::ostringstream serialized;
-    const output::OutputStatus status = output::OutputManager::write(config_.output_format, built, serialized);
+    const output::OutputStatus status = output::OutputManager::write(config_.output_format, built, serialized, config_.output_context);
     if (status != output::OutputStatus::Ok) {
         fail(std::string("output serialization failed: ") + output::output_status_name(status),
              status == output::OutputStatus::IoError ? core::StatusCode::IoError : core::StatusCode::InternalError);
