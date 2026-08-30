@@ -9,6 +9,7 @@
 
 #include "core/status.hpp"
 #include "core/types.hpp"
+#include "output/output_context.hpp"
 #include "output/result_model.hpp"
 #include "portscan/port_types.hpp"
 #include "scanengine/timing_profile.hpp"
@@ -60,6 +61,7 @@ struct ScanConfig final {
     std::size_t max_probes_per_port{3U};
     std::string os_db_path;
     output::OutputFormat output_format{output::OutputFormat::Normal};
+    output::OutputContext output_context{};
     std::optional<std::string> output_file;
 
     core::StatusCode validate() const noexcept;

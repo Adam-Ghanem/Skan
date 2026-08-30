@@ -23,6 +23,6 @@ The TLS probe sends a bounded TLS ClientHello. The detector recognizes TLS recor
 
 ## Corpus coverage
 
-The initial Phase 32 corpus includes deterministic signatures for HTTP, TLS, SSH, FTP, SMTP, POP3, IMAP, DNS, Redis, MySQL, PostgreSQL, MongoDB, SMB, RDP, VNC, Telnet, and IRC. Tests use byte fixtures and loopback only; they never contact public targets.
+The bundled project-owned corpus includes deterministic signatures for HTTP, TLS, SSH, FTP, SMTP, POP3, IMAP, DNS, Redis, MySQL, PostgreSQL, MongoDB, SMB, RDP, VNC, Telnet, and IRC. Tests use byte fixtures and loopback only; they never contact public targets.
 
 Use `--service-db <path>` to select another database. Invalid files fail visibly and are never silently replaced by the bundled corpus.
