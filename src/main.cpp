@@ -69,6 +69,8 @@ void print_help()
               << "  -4 / -6              Restrict resolved targets to IPv4 or IPv6\n"
               << "  --exclude <spec>     Exclude resolved targets (repeatable)\n"
               << "  --exclude-ports <spec> Exclude ports from the active TCP/UDP selection\n"
+              << "  --open               Show only OPEN or OPEN_OR_FILTERED ports\n"
+              << "  --reason             Show port-state reasons in normal output\n"
               << "  --top-ports <1-100>  Scan the deterministic Skan-owned common TCP corpus\n"
               << "  -oN/-oX/-oG <file>   Normal, XML, or grepable output aliases\n"
               << "  -oA <prefix>          Write .nmap, .xml, and .gnmap outputs\n"
@@ -856,6 +858,10 @@ int run_scan(int argc, char **argv)
             config.service_detection_enabled = true;
         } else if (argument == "-O") {
             config.os_detection_enabled = true;
+        } else if (argument == "--open") {
+            config.output_context.open_only = true;
+        } else if (argument == "--reason") {
+            config.output_context.include_reasons = true;
         } else if (argument == "-4") {
             ipv4_only = true;
         } else if (argument == "-6") {
@@ -1298,7 +1304,8 @@ int run_scan(int argc, char **argv)
             if (!output.is_open()) {
                 return false;
             }
-            return skan::output::OutputManager::write(format, *orchestrator.report(), output) ==
+            return skan::output::OutputManager::write(
+                       format, *orchestrator.report(), output, config.output_context) ==
                    skan::output::OutputStatus::Ok && output.good();
         };
         if (!write_aggregate(skan::output::OutputFormat::Normal, ".nmap") ||
