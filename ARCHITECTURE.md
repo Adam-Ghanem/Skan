@@ -45,6 +45,12 @@ Output
 Network Transport and Packet Capture (infrastructure boundary)
 ```
 
+## Runtime resources and installation boundary
+
+`core::RuntimePaths` is the single resource-location boundary for the service, UDP, and IPv4/IPv6 OS fingerprint databases. Resolution is deterministic: explicit CLI overrides win; an installed executable uses resources relative to its executable prefix; a development executable may use the adjacent source-tree data directory; and the compile-time FHS data directory is the final configured candidate. The current working directory is never a resource root.
+
+Production installation places the executable in `/usr/bin/skan` and immutable project-owned databases in `/usr/share/skan`. `DESTDIR` affects staging only and is never compiled into the binary. Missing database sets fail visibly, and the IPv4/IPv6 OS database pair is selected atomically so evidence cannot be mixed across installations.
+
 The Phase 1 I/O Engine is independent infrastructure. Phases 3–6 use it through its public event-loop and timer API; they do not duplicate the reactor or create a second event loop.
 
 ## Language responsibilities
