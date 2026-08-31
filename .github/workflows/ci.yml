@@ -18,7 +18,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Toolchain
         run: |
@@ -86,12 +88,67 @@ jobs:
           make clean
           test -z "$(git status --porcelain)"
 
+  debian-package:
+    needs: build-test-audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build Debian package in Debian 12
+        run: |
+          docker build --tag skan-debian12-builder --file tests/packaging/Dockerfile.builder .
+          docker run --rm --network none \
+            --volume "$PWD:/work" \
+            --workdir /work \
+            skan-debian12-builder \
+            bash scripts/build_deb.sh
+
+      - name: Validate package metadata
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t packages < <(find dist -maxdepth 1 -type f -name 'skan_*_amd64.deb' -print)
+          test "${#packages[@]}" -eq 1
+          docker run --rm \
+            --volume "$PWD/dist:/dist:ro" \
+            skan-debian12-builder \
+            lintian --fail-on error "/dist/$(basename "${packages[0]}")"
+          echo "path=${packages[0]}" >>"$GITHUB_OUTPUT"
+
+      - name: Accept package on Debian 12
+        run: |
+          bash scripts/test_deb_package.sh \
+            "${{ steps.package.outputs.path }}" \
+            "debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443"
+
+      - name: Accept package on Ubuntu 24.04
+        run: |
+          bash scripts/test_deb_package.sh \
+            "${{ steps.package.outputs.path }}" \
+            "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
+
+      - name: Upload validated package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skan-debian-amd64
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
+
   privileged-private-lab:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Install isolated-lab tooling
         run: |
@@ -146,12 +203,14 @@ jobs:
 
       - name: Validate raw IPv4 against Nmap
         run: |
+          set -o pipefail
           mkdir -p validation_runs/ipv4
           sudo timeout 8 tcpdump -U -i skan-lab -nn -e -vvv -w validation_runs/ipv4/packet-evidence.pcap &
           sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv4"             ./scripts/privileged_validation.sh 192.0.2.2 8080,8082 skan-lab
           skan_output=$(find validation_runs/ipv4 -name '*_skan.txt' -print -quit)
           nmap_output=$(find validation_runs/ipv4 -name '*_nmap.txt' -print -quit)
-          sudo tcpdump -nn -e -vvv -r validation_runs/ipv4/packet-evidence.pcap             >validation_runs/ipv4/packet-evidence.txt
+          sudo tcpdump -nn -e -vvv -r validation_runs/ipv4/packet-evidence.pcap \
+            | tee validation_runs/ipv4/packet-evidence.txt >/dev/null
           cat "$skan_output"
           cat "$nmap_output"
           cat validation_runs/ipv4/packet-evidence.txt
@@ -174,7 +233,7 @@ jobs:
 
       - name: Upload validation evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: privileged-private-lab-evidence
           path: validation_runs/
