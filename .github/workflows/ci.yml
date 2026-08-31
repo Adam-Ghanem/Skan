@@ -30,6 +30,7 @@ jobs:
 
       - name: Validate privileged harness
         run: |
+          make check-line-endings
           bash -n scripts/privileged_validation.sh
           test -x scripts/privileged_validation.sh
 

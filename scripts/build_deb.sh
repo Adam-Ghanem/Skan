@@ -29,6 +29,7 @@ chmod 0755 "$source_root/debian/rules" "$source_root/debian/tests/smoke" \
 (
     cd "$source_root"
     make check-version
+    bash tests/packaging/test_make_install.sh
     dpkg-buildpackage -us -uc -b
 )
 

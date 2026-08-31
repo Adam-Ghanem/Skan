@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   validate-linux-debian-release:
     runs-on: ubuntu-24.04
@@ -90,9 +94,23 @@ jobs:
           test "${#packages[@]}" -eq 1
           test -s release-assets/SHA256SUMS
           package=${packages[0]}
+          package_name=$(basename "$package")
+          test "$(wc -l <release-assets/SHA256SUMS)" -eq 1
+          checksum_name=$(awk '{print $2}' release-assets/SHA256SUMS)
+          checksum_name=${checksum_name#\*}
+          test "$checksum_name" = "$package_name"
+          (cd release-assets && sha256sum -c SHA256SUMS)
           version=${GITHUB_REF_NAME#v}
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$package" release-assets/SHA256SUMS --clobber
+            existing_assets=$(mktemp -d)
+            trap 'rm -rf "$existing_assets"' EXIT
+            gh release download "$GITHUB_REF_NAME" \
+              --dir "$existing_assets" \
+              --pattern "$package_name" \
+              --pattern SHA256SUMS
+            cmp "$package" "$existing_assets/$package_name"
+            cmp release-assets/SHA256SUMS "$existing_assets/SHA256SUMS"
+            echo "Release assets already exist and match the validated artifacts."
           else
             gh release create "$GITHUB_REF_NAME" "$package" release-assets/SHA256SUMS \
               --verify-tag \

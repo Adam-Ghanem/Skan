@@ -342,7 +342,7 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_target_engine \
 				$(BUILD_DIR)/test_target_pipeline
 
-.PHONY: all release debug asan ubsan coverage fuzz benchmark test install check-version package-deb clean
+.PHONY: all release debug asan ubsan coverage fuzz benchmark test install check-line-endings check-version package-deb clean
 
 all: $(TARGET)
 
@@ -366,6 +366,16 @@ check-version:
 			exit 1; \
 		}; \
 	fi
+
+check-line-endings:
+	@cr=$$(printf '\r'); \
+	bad=$$(find Makefile scripts tests -type f \( -name Makefile -o -name '*.sh' \) \
+		-exec grep -Il "$$cr" {} +); \
+	test -z "$$bad" || { \
+		echo "CRLF line endings are not allowed in Linux build or shell files:" >&2; \
+		echo "$$bad" >&2; \
+		exit 1; \
+	}
 
 package-deb:
 	bash scripts/build_deb.sh

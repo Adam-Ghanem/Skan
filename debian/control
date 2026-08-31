@@ -8,7 +8,7 @@ Homepage: https://github.com/Adam-Ghanem/Skan
 Rules-Requires-Root: no
 
 Package: skan
-Architecture: any
+Architecture: linux-any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: first-party modular network scanner
  Skan is a Linux-first C++20 network scanner with host discovery, TCP and UDP

@@ -1357,6 +1357,7 @@ int run_nmap_compatible(int argc, char **argv)
                option == "-e" || option == "-oN" || option == "-oX" ||
                option == "-oG" || option == "-oA" || option == "--output" ||
                option == "-o" || option == "--output-file" || option == "--service-db" ||
+               option == "--os-db" ||
                option == "--max-response-bytes" || option == "--max-probes" ||
                option == "--exclude" || option == "--exclude-ports";
     };

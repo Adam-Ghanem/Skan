@@ -24,6 +24,10 @@ python3 -m json.tool "$tmp_dir/discovery.json" >/dev/null
   --os-db data/os-fingerprints.db --output json >"$tmp_dir/scan-os-db.json"
 python3 -m json.tool "$tmp_dir/scan-os-db.json" >/dev/null
 
+"$skan_bin" -sS -O --transport offline -p 80 \
+  --os-db data/os-fingerprints.db --output json 192.0.2.1 >"$tmp_dir/nmap-os-db.json"
+python3 -m json.tool "$tmp_dir/nmap-os-db.json" >/dev/null
+
 "$skan_bin" -sS --transport offline --top-ports 10 -T4 -oA "$tmp_dir/aggregate" 192.0.2.1
 test -s "$tmp_dir/aggregate.nmap"
 test -s "$tmp_dir/aggregate.xml"
