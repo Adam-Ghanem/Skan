@@ -1,0 +1,5 @@
+skan (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian package for the Skan network scanner.
+
+ -- Adam Ghanem <adam.ghanem.it@gmail.com>  Mon, 31 Aug 2026 00:00:00 +0100

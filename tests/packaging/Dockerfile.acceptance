@@ -1,0 +1,11 @@
+ARG BASE_IMAGE=debian:12
+FROM ${BASE_IMAGE}
+
+ARG DEBIAN_FRONTEND=noninteractive
+COPY skan.deb /tmp/skan.deb
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends /tmp/skan.deb python3 libcap2-bin binutils \
+    && rm -rf /var/lib/apt/lists/*
+COPY deb_acceptance.sh /opt/skan-tests/deb_acceptance.sh
+COPY fixtures/ /opt/skan-tests/
+ENTRYPOINT ["bash", "/opt/skan-tests/deb_acceptance.sh"]

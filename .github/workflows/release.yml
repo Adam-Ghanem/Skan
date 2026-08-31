@@ -1,0 +1,119 @@
+name: Skan Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-linux-debian-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag and project versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(<VERSION)
+          test "$GITHUB_REF_NAME" = "v$version"
+          make check-version
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+
+      - name: Build and test Debian package
+        run: |
+          docker build --tag skan-debian12-builder --file tests/packaging/Dockerfile.builder .
+          docker run --rm --network none \
+            --volume "$PWD:/work" \
+            --workdir /work \
+            skan-debian12-builder \
+            bash scripts/build_deb.sh
+
+      - name: Validate package and installed behavior
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t packages < <(find dist -maxdepth 1 -type f -name 'skan_*_amd64.deb' -print)
+          test "${#packages[@]}" -eq 1
+          docker run --rm \
+            --volume "$PWD/dist:/dist:ro" \
+            skan-debian12-builder \
+            lintian --fail-on error "/dist/$(basename "${packages[0]}")"
+          bash scripts/test_deb_package.sh \
+            "${packages[0]}" \
+            "debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443"
+          bash scripts/test_deb_package.sh \
+            "${packages[0]}" \
+            "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
+          (cd dist && sha256sum "$(basename "${packages[0]}")" >SHA256SUMS)
+          echo "path=${packages[0]}" >>"$GITHUB_OUTPUT"
+
+      - name: Upload validated release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skan-linux-debian-${{ github.sha }}
+          path: |
+            ${{ steps.package.outputs.path }}
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  publish-github-release:
+    needs: validate-linux-debian-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download validated release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: skan-linux-debian-${{ github.sha }}
+          path: release-assets
+
+      - name: Publish GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t packages < <(find release-assets -maxdepth 1 -type f -name 'skan_*_amd64.deb' -print)
+          test "${#packages[@]}" -eq 1
+          test -s release-assets/SHA256SUMS
+          package=${packages[0]}
+          package_name=$(basename "$package")
+          test "$(wc -l <release-assets/SHA256SUMS)" -eq 1
+          checksum_name=$(awk '{print $2}' release-assets/SHA256SUMS)
+          checksum_name=${checksum_name#\*}
+          test "$checksum_name" = "$package_name"
+          (cd release-assets && sha256sum -c SHA256SUMS)
+          version=${GITHUB_REF_NAME#v}
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            existing_assets=$(mktemp -d)
+            trap 'rm -rf "$existing_assets"' EXIT
+            gh release download "$GITHUB_REF_NAME" \
+              --dir "$existing_assets" \
+              --pattern "$package_name" \
+              --pattern SHA256SUMS
+            cmp "$package" "$existing_assets/$package_name"
+            cmp release-assets/SHA256SUMS "$existing_assets/SHA256SUMS"
+            echo "Release assets already exist and match the validated artifacts."
+          else
+            gh release create "$GITHUB_REF_NAME" "$package" release-assets/SHA256SUMS \
+              --verify-tag \
+              --generate-notes \
+              --title "Skan $version"
+          fi
