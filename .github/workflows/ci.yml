@@ -5,17 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: skan-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
-  build-test-audit:
+  core-tests:
     runs-on: ubuntu-latest
-    # The validation pipeline intentionally rebuilds for debug/release,
-    # ASan/LSan, UBSan, coverage, benchmark, and the offline fuzz target.
-    # Keep the full sequence from being cancelled solely by the aggregate
-    # build/analysis wall time; individual commands still fail normally.
-    timeout-minutes: 60
+    timeout-minutes: 25
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -35,28 +35,63 @@ jobs:
         run: |
           make clean
           make -j2
-          make test
+          make -j2 test
 
       - name: Nmap-compatible CLI regression
-        run: |
-          bash tests/integration/cli/test_nmap_compat.sh
+        run: bash tests/integration/cli/test_nmap_compat.sh
 
-      - name: Debug and release builds
+      - name: Repository clean
         run: |
-          make debug
-          make release
+          make clean
+          test -z "$(git status --porcelain)"
 
-      - name: Sanitizers and coverage
-        run: |
-          make asan
-          make ubsan
-          make coverage
+  build-flavors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [debug, release]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
 
-      - name: Benchmark isolation after coverage
+      - name: Build ${{ matrix.target }}
+        run: make ${{ matrix.target }}
+
+  dynamic-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [asan, ubsan, coverage]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run ${{ matrix.target }}
+        run: make -j2 ${{ matrix.target }}
+
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Benchmark isolation
         run: |
-          make benchmark
+          make -j2 benchmark
           ./build/benchmark_offline >/tmp/skan-benchmark.csv
           test -s /tmp/skan-benchmark.csv
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
 
       - name: Fuzz target or capability-aware fallback
         run: |
@@ -65,6 +100,13 @@ jobs:
             g++ -Iinclude -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 \
               -O2 -c tests/fuzz/fuzz_packet_parsers.cpp -o /tmp/fuzz_packet_parsers.o
           fi
+
+  static-security-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
 
       - name: Static and security audit
         shell: bash
@@ -81,10 +123,27 @@ jobs:
           fi
           git status --short
 
-      - name: Repository clean
+  build-test-audit:
+    if: always()
+    needs:
+      - core-tests
+      - build-flavors
+      - dynamic-analysis
+      - benchmark
+      - fuzz
+      - static-security-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify parallel validation
+        shell: bash
         run: |
-          make clean
-          test -z "$(git status --porcelain)"
+          test "${{ needs.core-tests.result }}" = "success"
+          test "${{ needs.build-flavors.result }}" = "success"
+          test "${{ needs.dynamic-analysis.result }}" = "success"
+          test "${{ needs.benchmark.result }}" = "success"
+          test "${{ needs.fuzz.result }}" = "success"
+          test "${{ needs.static-security-audit.result }}" = "success"
 
   privileged-private-lab:
     runs-on: ubuntu-latest
@@ -148,10 +207,12 @@ jobs:
         run: |
           mkdir -p validation_runs/ipv4
           sudo timeout 8 tcpdump -U -i skan-lab -nn -e -vvv -w validation_runs/ipv4/packet-evidence.pcap &
-          sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv4"             ./scripts/privileged_validation.sh 192.0.2.2 8080,8082 skan-lab
+          sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv4" \
+            ./scripts/privileged_validation.sh 192.0.2.2 8080,8082 skan-lab
           skan_output=$(find validation_runs/ipv4 -name '*_skan.txt' -print -quit)
           nmap_output=$(find validation_runs/ipv4 -name '*_nmap.txt' -print -quit)
-          sudo tcpdump -nn -e -vvv -r validation_runs/ipv4/packet-evidence.pcap             >validation_runs/ipv4/packet-evidence.txt
+          sudo tcpdump -nn -e -vvv -r validation_runs/ipv4/packet-evidence.pcap \
+            >validation_runs/ipv4/packet-evidence.txt
           cat "$skan_output"
           cat "$nmap_output"
           cat validation_runs/ipv4/packet-evidence.txt
@@ -162,7 +223,8 @@ jobs:
 
       - name: Validate raw IPv6 against Nmap
         run: |
-          sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv6"             ./scripts/privileged_validation.sh 2001:db8:29::2 8081,8083 skan-lab
+          sudo env SKAN_AUTHORIZED_LAB=1 SKAN_BIN="$PWD/bin/skan" VALIDATION_DIR="$PWD/validation_runs/ipv6" \
+            ./scripts/privileged_validation.sh 2001:db8:29::2 8081,8083 skan-lab
           skan_output=$(find validation_runs/ipv6 -name '*_skan.txt' -print -quit)
           nmap_output=$(find validation_runs/ipv6 -name '*_nmap.txt' -print -quit)
           cat "$skan_output"
