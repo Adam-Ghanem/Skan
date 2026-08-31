@@ -86,11 +86,13 @@ void assert_open_only_writer_parity()
         if (expectation.format == skan::output::OutputFormat::Normal) {
             const std::size_t open_line = serialized.find("10/tcp");
             const std::size_t open_line_end = serialized.find('\n', open_line);
-            assert(serialized.substr(open_line, open_line_end - open_line).find("OPEN") != std::string::npos);
+            const std::string open_row = serialized.substr(open_line, open_line_end - open_line);
+            assert(open_row.find("OPEN") != std::string::npos);
+            assert(open_row.find("OPEN_OR_") == std::string::npos);
             const std::size_t possible_line = serialized.find("11/udp");
             const std::size_t possible_line_end = serialized.find('\n', possible_line);
-            assert(serialized.substr(possible_line, possible_line_end - possible_line).find("OPEN_OR_") !=
-                   std::string::npos);
+            const std::string possible_row = serialized.substr(possible_line, possible_line_end - possible_line);
+            assert(possible_row.find("OPEN_OR_") != std::string::npos);
         }
         for (const char *excluded : expectation.excluded_ports) {
             assert(serialized.find(excluded) == std::string::npos);
