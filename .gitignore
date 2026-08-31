@@ -14,3 +14,10 @@ Thumbs.db
 *.swo
 *~
 validation_runs/
+dist/
+build/package/
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/skan/
+debian/skan.substvars

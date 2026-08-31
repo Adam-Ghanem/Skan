@@ -17,7 +17,11 @@ SKAN_VERSION_MINOR := $(word 2,$(SKAN_VERSION_COMPONENTS))
 SKAN_VERSION_PATCH := $(word 3,$(SKAN_VERSION_COMPONENTS))
 
 PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
 DATADIR ?= $(PREFIX)/share/skan
+DOCDIR ?= $(PREFIX)/share/doc/skan
+DESTDIR ?=
+INSTALL ?= install
 CPPFLAGS += -DSKAN_DATA_DIR=\"$(DATADIR)\" \
 	-DSKAN_VERSION_VALUE=\"$(SKAN_VERSION)\" \
 	-DSKAN_VERSION_MAJOR_VALUE=$(SKAN_VERSION_MAJOR)U \
@@ -337,9 +341,28 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_target_engine \
 				$(BUILD_DIR)/test_target_pipeline
 
-.PHONY: all release debug asan ubsan coverage fuzz benchmark test clean
+.PHONY: all release debug asan ubsan coverage fuzz benchmark test install check-version clean
 
 all: $(TARGET)
+
+install: $(TARGET)
+	$(INSTALL) -d "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(DATADIR)" "$(DESTDIR)$(DOCDIR)"
+	$(INSTALL) -m 0755 "$(TARGET)" "$(DESTDIR)$(BINDIR)/skan"
+	$(INSTALL) -m 0644 data/service-probes.db data/udp-probes.db \
+		data/os-fingerprints.db data/os-fingerprints-v6.db "$(DESTDIR)$(DATADIR)/"
+	$(INSTALL) -m 0644 README.md LICENSE "$(DESTDIR)$(DOCDIR)/"
+
+check-version:
+	@test "$(SKAN_VERSION)" = "$$(cat VERSION)"
+	@if test -f debian/changelog; then \
+		package_version=$$(sed -n '1s/^[^ ]* (\([^)]*\)).*/\1/p' debian/changelog); \
+		upstream_version=$${package_version%%-*}; \
+		test -n "$$package_version" || { echo "Unable to read debian/changelog version" >&2; exit 1; }; \
+		test "$$upstream_version" = "$(SKAN_VERSION)" || { \
+			echo "VERSION ($(SKAN_VERSION)) does not match Debian upstream version ($$upstream_version)" >&2; \
+			exit 1; \
+		}; \
+	fi
 
 $(TARGET): $(CPP_OBJECTS) $(C_OBJECTS) | bin
 	$(CXX) $(LDFLAGS) $^ -o $@
