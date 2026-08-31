@@ -15,7 +15,9 @@ int main()
     static_assert(SKAN_PROTOCOL_NUMBER_TCP == 6U);
     static_assert(SKAN_PROTOCOL_NUMBER_UDP == 17U);
 
-    assert(SKAN_VERSION_STRING == std::string_view{"Skan 0.1.0"});
+    assert(SKAN_PRODUCT_NAME == std::string_view{"Skan"});
+    assert(SKAN_VERSION_STRING == std::string_view{"0.1.0"});
+    assert(SKAN_DISPLAY_VERSION == std::string_view{"Skan 0.1.0"});
     assert(SKAN_MIN_PORT == static_cast<std::uint16_t>(1U));
     assert(SKAN_MAX_PORT == static_cast<std::uint16_t>(65535U));
 

@@ -43,7 +43,7 @@ constexpr std::array<std::uint16_t, 100U> kTopTcpPorts{
 
 void print_help()
 {
-    std::cout << skan::core::constants::SKAN_VERSION_STRING << '\n'
+    std::cout << skan::core::constants::SKAN_DISPLAY_VERSION << '\n'
               << "Nmap-inspired modular network scanning platform\n\n"
               << "Usage:\n"
               << "  skan [options]\n"
@@ -1085,6 +1085,12 @@ int run_scan(int argc, char **argv)
                 std::cerr << "Error: service database path cannot be empty.\n";
                 return EXIT_FAILURE;
             }
+        } else if (argument == "--os-db" && index + 1 < argc) {
+            config.os_db_path = argv[++index];
+            if (config.os_db_path.empty()) {
+                std::cerr << "Error: OS database path cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
         } else if (argument == "--max-response-bytes" && index + 1 < argc) {
             unsigned int value = 0U;
             if (!parse_unsigned(argv[++index], value) || value == 0U) {
@@ -1410,7 +1416,7 @@ int run_nmap_compatible(int argc, char **argv)
 int main(int argc, char **argv)
 {
     if (argc == 2 && std::string_view(argv[1]) == "--version") {
-        std::cout << skan::core::constants::SKAN_VERSION_STRING << '\n';
+        std::cout << skan::core::constants::SKAN_DISPLAY_VERSION << '\n';
         return EXIT_SUCCESS;
     }
 

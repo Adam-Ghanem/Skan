@@ -1,9 +1,28 @@
 CXX := g++
 CC := gcc
-CPPFLAGS ?= -Iinclude
+CPPFLAGS += -Iinclude
 CXXFLAGS ?= -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 -O2
 CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 -O2
 LDFLAGS ?=
+
+VERSION_FILE := VERSION
+SKAN_VERSION := $(strip $(file <$(VERSION_FILE)))
+SKAN_VERSION_VALID := $(shell printf '%s\n' '$(SKAN_VERSION)' | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' && printf yes)
+ifneq ($(SKAN_VERSION_VALID),yes)
+$(error VERSION must contain exactly MAJOR.MINOR.PATCH)
+endif
+SKAN_VERSION_COMPONENTS := $(subst ., ,$(SKAN_VERSION))
+SKAN_VERSION_MAJOR := $(word 1,$(SKAN_VERSION_COMPONENTS))
+SKAN_VERSION_MINOR := $(word 2,$(SKAN_VERSION_COMPONENTS))
+SKAN_VERSION_PATCH := $(word 3,$(SKAN_VERSION_COMPONENTS))
+
+PREFIX ?= /usr/local
+DATADIR ?= $(PREFIX)/share/skan
+CPPFLAGS += -DSKAN_DATA_DIR=\"$(DATADIR)\" \
+	-DSKAN_VERSION_VALUE=\"$(SKAN_VERSION)\" \
+	-DSKAN_VERSION_MAJOR_VALUE=$(SKAN_VERSION_MAJOR)U \
+	-DSKAN_VERSION_MINOR_VALUE=$(SKAN_VERSION_MINOR)U \
+	-DSKAN_VERSION_PATCH_VALUE=$(SKAN_VERSION_PATCH)U
 
 PROJECT := skan
 TARGET := bin/$(PROJECT)
@@ -12,6 +31,7 @@ BUILD_DIR := build
 CPP_SOURCES := \
 	src/core/types.cpp \
 	src/core/status.cpp \
+	src/core/runtime_paths.cpp \
 	src/core/log.cpp \
 	src/io/event.cpp \
 	src/io/io_engine.cpp \
@@ -105,7 +125,8 @@ C_SOURCES := src/c_api/status.c
 CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
 LIB_CPP_OBJECTS := $(filter-out $(BUILD_DIR)/main.o,$(CPP_OBJECTS))
 C_OBJECTS := $(C_SOURCES:src/%.c=$(BUILD_DIR)/%.o)
-CORE_OBJECTS := $(BUILD_DIR)/core/types.o $(BUILD_DIR)/core/status.o
+CORE_OBJECTS := $(BUILD_DIR)/core/types.o $(BUILD_DIR)/core/status.o \
+	$(BUILD_DIR)/core/runtime_paths.o
 CORE_LOG_OBJECT := $(BUILD_DIR)/core/log.o
 C_API_OBJECTS := $(BUILD_DIR)/c_api/status.o
 IO_OBJECTS := $(BUILD_DIR)/io/event.o $(BUILD_DIR)/io/io_engine.o $(BUILD_DIR)/io/timer.o
@@ -154,6 +175,7 @@ TEST_SOURCES := \
 	tests/unit/core/test_types.cpp \
 	tests/unit/core/test_status.cpp \
 	tests/unit/core/test_constants.cpp \
+	tests/unit/core/test_runtime_paths.cpp \
 	tests/unit/core/test_log.cpp \
 	tests/unit/io/test_event.cpp \
 	tests/unit/io/test_io_engine.cpp \
@@ -236,6 +258,7 @@ TEST_BINARIES := \
 	$(BUILD_DIR)/test_types \
 	$(BUILD_DIR)/test_status \
 	$(BUILD_DIR)/test_constants \
+	$(BUILD_DIR)/test_runtime_paths \
 	$(BUILD_DIR)/test_log \
 	$(BUILD_DIR)/test_event \
 	$(BUILD_DIR)/test_io_engine \
@@ -335,6 +358,9 @@ $(BUILD_DIR)/test_status: $(BUILD_DIR)/tests/unit/core/test_status.o $(BUILD_DIR
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_constants: $(BUILD_DIR)/tests/unit/core/test_constants.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_runtime_paths: $(BUILD_DIR)/tests/unit/core/test_runtime_paths.o $(BUILD_DIR)/core/runtime_paths.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_log: $(BUILD_DIR)/tests/unit/core/test_log.o $(CORE_LOG_OBJECT) | $(BUILD_DIR)

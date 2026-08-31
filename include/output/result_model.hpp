@@ -73,7 +73,7 @@ struct ScanSummary final {
 };
 
 struct ScanReport final {
-    std::string scanner_name{"Skan"};
+    std::string scanner_name{core::constants::SKAN_PRODUCT_NAME};
     std::string scanner_version{core::constants::SKAN_VERSION_STRING};
     std::optional<std::string> started_at;
     std::optional<std::string> finished_at;
