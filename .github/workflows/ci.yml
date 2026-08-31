@@ -155,9 +155,9 @@ jobs:
           cat "$skan_output"
           cat "$nmap_output"
           cat validation_runs/ipv4/packet-evidence.txt
-          grep -F "Port 8080/tcp OPEN" "$skan_output"
+          grep -E '(^|[[:space:]])8080/tcp[[:space:]]+OPEN([[:space:]]|$)' "$skan_output"
           grep -E '8080/tcp[[:space:]]+open' "$nmap_output"
-          grep -F "Port 8082/tcp CLOSED" "$skan_output"
+          grep -E '(^|[[:space:]])8082/tcp[[:space:]]+CLOSED([[:space:]]|$)' "$skan_output"
           grep -E '8082/tcp[[:space:]]+closed' "$nmap_output"
 
       - name: Validate raw IPv6 against Nmap
@@ -167,9 +167,9 @@ jobs:
           nmap_output=$(find validation_runs/ipv6 -name '*_nmap.txt' -print -quit)
           cat "$skan_output"
           cat "$nmap_output"
-          grep -F "Port 8081/tcp OPEN" "$skan_output"
+          grep -E '(^|[[:space:]])8081/tcp[[:space:]]+OPEN([[:space:]]|$)' "$skan_output"
           grep -E '8081/tcp[[:space:]]+open' "$nmap_output"
-          grep -F "Port 8083/tcp CLOSED" "$skan_output"
+          grep -E '(^|[[:space:]])8083/tcp[[:space:]]+CLOSED([[:space:]]|$)' "$skan_output"
           grep -E '8083/tcp[[:space:]]+closed' "$nmap_output"
 
       - name: Upload validation evidence

@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <ctime>
+#include <cstdlib>
+#include <string_view>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
@@ -25,6 +27,15 @@ const char *level_name(Level level) noexcept
     }
 }
 
+bool enabled(Level level) noexcept
+{
+    if (level != Level::Debug) {
+        return true;
+    }
+    const char *configured = std::getenv("SKAN_LOG");
+    return configured != nullptr && std::string_view(configured) == "debug";
+}
+
 std::string timestamp()
 {
     const std::time_t now = std::time(nullptr);
@@ -42,6 +53,9 @@ std::string timestamp()
 
 void write(Level level, std::string_view message)
 {
+    if (!enabled(level)) {
+        return;
+    }
     static std::mutex log_mutex;
     const std::lock_guard<std::mutex> lock(log_mutex);
     std::ostream &stream = std::cerr;

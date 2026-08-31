@@ -60,9 +60,9 @@ void assert_open_only_writer_parity()
     };
     const WriterExpectation expectations[] = {
         {skan::output::OutputFormat::Normal,
-         "Port 10/tcp OPEN",
-         "Port 11/udp OPEN_OR_FILTERED",
-         {"Port 12/", "Port 13/", "Port 14/", "Port 15/", "Port 16/", "Port 17/"}},
+         "10/tcp",
+         "11/udp",
+         {"12/tcp", "13/tcp", "14/tcp", "15/tcp", "16/tcp", "17/tcp"}},
         {skan::output::OutputFormat::Json,
          "\"port\": 10",
          "\"port\": 11",
@@ -83,6 +83,15 @@ void assert_open_only_writer_parity()
         const std::string serialized = output.str();
         assert(serialized.find(expectation.open) != std::string::npos);
         assert(serialized.find(expectation.open_or_filtered) != std::string::npos);
+        if (expectation.format == skan::output::OutputFormat::Normal) {
+            const std::size_t open_line = serialized.find("10/tcp");
+            const std::size_t open_line_end = serialized.find('\n', open_line);
+            assert(serialized.substr(open_line, open_line_end - open_line).find("OPEN") != std::string::npos);
+            const std::size_t possible_line = serialized.find("11/udp");
+            const std::size_t possible_line_end = serialized.find('\n', possible_line);
+            assert(serialized.substr(possible_line, possible_line_end - possible_line).find("OPEN_OR_") !=
+                   std::string::npos);
+        }
         for (const char *excluded : expectation.excluded_ports) {
             assert(serialized.find(excluded) == std::string::npos);
         }

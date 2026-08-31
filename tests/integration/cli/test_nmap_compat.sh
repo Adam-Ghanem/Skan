@@ -95,15 +95,15 @@ fi
 
 "$skan_bin" -sS --transport offline -p 80 --reason --output normal \
   192.0.2.1 >"$tmp_dir/reason.nmap"
-grep -q "Port 80/tcp FILTERED reason=TIMEOUT" "$tmp_dir/reason.nmap"
+grep -Eq "^[[:space:]]*80/tcp[[:space:]]+FILTERED[[:space:]]+.*TIMEOUT$" "$tmp_dir/reason.nmap"
 
 "$skan_bin" -sS --transport offline -p 80 --open --output normal \
   192.0.2.1 >"$tmp_dir/open-only.nmap"
-if grep -q "Port 80/tcp" "$tmp_dir/open-only.nmap"; then
+if grep -Eq "^[[:space:]]*80/tcp[[:space:]]" "$tmp_dir/open-only.nmap"; then
   echo "--open unexpectedly emitted a filtered port" >&2
   exit 1
 fi
-grep -q "filtered=1" "$tmp_dir/open-only.nmap"
+grep -q "1 filtered" "$tmp_dir/open-only.nmap"
 
 "$skan_bin" -sU --transport offline -p 53 --open --output json \
   --output-file "$tmp_dir/open-only.json" 192.0.2.1
@@ -133,7 +133,7 @@ PY
 
 "$skan_bin" -sU --transport offline -p 53 --open -oA \
   "$tmp_dir/open-only-aggregate" 192.0.2.1
-grep -q "Port 53/udp OPEN_OR_FILTERED" "$tmp_dir/open-only-aggregate.nmap"
+grep -Eq '^[[:space:]]*53/udp[[:space:]]+OPEN_OR_' "$tmp_dir/open-only-aggregate.nmap"
 grep -q 'number="53" protocol="udp" state="OPEN_OR_FILTERED"' \
   "$tmp_dir/open-only-aggregate.xml"
 grep -q 'number=53 protocol=udp state=OPEN_OR_FILTERED' \
@@ -141,10 +141,19 @@ grep -q 'number=53 protocol=udp state=OPEN_OR_FILTERED' \
 
 "$skan_bin" -sS --transport offline -p 80 --open -oA \
   "$tmp_dir/filtered-open-only-aggregate" 192.0.2.1
-if grep -qE 'Port 80/|number="80"|number=80 ' \
+if grep -qE '^[[:space:]]*80/tcp[[:space:]]|number="80"|number=80 ' \
   "$tmp_dir/filtered-open-only-aggregate.nmap" \
   "$tmp_dir/filtered-open-only-aggregate.xml" \
   "$tmp_dir/filtered-open-only-aggregate.gnmap"; then
   echo "--open output aggregate unexpectedly emitted a filtered port" >&2
   exit 1
 fi
+
+"$skan_bin" -sS --transport offline -p 80 --output normal \
+  192.0.2.1 >"$tmp_dir/redirected-normal.nmap"
+if grep -Eq '╭|╰|◈|●|○|\x1b' "$tmp_dir/redirected-normal.nmap"; then
+  echo "redirected normal output unexpectedly contains terminal decoration" >&2
+  exit 1
+fi
+grep -q '^SKAN v' "$tmp_dir/redirected-normal.nmap"
+grep -Eq '^[[:space:]]*80/tcp[[:space:]]+FILTERED' "$tmp_dir/redirected-normal.nmap"

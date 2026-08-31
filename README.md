@@ -98,6 +98,10 @@ Service detection can be enabled when needed:
   --service-detect
 ```
 
+### Terminal identity
+
+Interactive normal scans use Skan's compact terminal UI: a branded header, aligned port/service table, state colors, and a concise completion summary. ANSI colors are enabled only for an interactive terminal; redirected output and output files remain color-free. Use `--no-color` to disable terminal colors explicitly and `--debug` to opt into diagnostic engine logs. JSON, XML, and grepable formats remain decoration-free for automation.
+
 ## 🔧 Build
 
 Skan currently targets Linux and requires a C++20 compiler and GNU Make.

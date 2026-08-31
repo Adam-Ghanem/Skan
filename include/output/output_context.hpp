@@ -13,6 +13,7 @@ struct OutputContext final {
     bool pretty_json{true};
     bool pretty_xml{true};
     bool color_enabled{false};
+    bool interactive_terminal{false};
 };
 
 } // namespace skan::output
