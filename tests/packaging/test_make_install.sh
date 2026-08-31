@@ -18,9 +18,14 @@ done
 
 test -s "$stage/usr/share/doc/skan/README.md"
 test -s "$stage/usr/share/doc/skan/LICENSE"
+test -s "$stage/usr/share/doc/skan/ARCHITECTURE.md"
+test -s "$stage/usr/share/doc/skan/SECURITY.md"
+test -s "$stage/usr/share/man/man1/skan.1"
+test "$(stat -c %a "$stage/usr/share/man/man1/skan.1")" = 644
 test ! -e "$stage/usr/local"
 
-test "$(cd "$outside" && "$stage/usr/bin/skan" --version)" = "Skan 0.1.0"
+version=$(<"$repo_root/VERSION")
+test "$(cd "$outside" && "$stage/usr/bin/skan" --version)" = "Skan $version"
 (cd "$outside" && "$stage/usr/bin/skan" scan 192.0.2.10 --transport offline \
     -p 80 --os-detect --output json >/dev/null)
 

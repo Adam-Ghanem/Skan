@@ -1,0 +1,130 @@
+.TH SKAN 1 "31 August 2026" "Skan" "User Commands"
+.SH NAME
+skan \- first-party modular network scanner
+.SH SYNOPSIS
+.B skan
+.RI [ options ]
+.br
+.B skan scan
+.I target-spec
+.RI [ options ]
+.br
+.B skan discover
+.I ip-address
+.RI [ options ]
+.br
+.B skan resolve
+.I target-spec
+.RI [ options ]
+.SH DESCRIPTION
+Skan is a Linux-first C++20 network scanner supporting bounded target
+resolution, host discovery, TCP and UDP scanning, service detection, OS
+fingerprinting, and normal, JSON, XML, or grepable output.
+.PP
+Targets may be IPv4 or IPv6 addresses, CIDR ranges, inclusive address ranges,
+hostnames, or comma-separated mixtures. Use only on systems and networks for
+which you have authorization.
+.SH COMMON OPTIONS
+.TP
+.B --help
+Display command-line help.
+.TP
+.B --version
+Display the Skan version.
+.TP
+.BR \-sT , " --method connect"
+Use unprivileged TCP connect scanning.
+.TP
+.B \-sS
+Use TCP SYN scanning. Live raw-packet operation requires root or explicitly
+reviewed Linux capabilities.
+.TP
+.B \-sU
+Use bounded UDP scanning. Live raw-packet operation may require root.
+.TP
+.B \-sn
+Perform discovery only.
+.TP
+.B \-Pn
+Skip host discovery.
+.TP
+.B \-sV
+Enable service and version detection.
+.TP
+.B \-O
+Enable OS fingerprinting.
+.TP
+.BR \-4 , " \-6"
+Restrict resolved targets to IPv4 or IPv6.
+.TP
+.BI "\-p " port-spec
+Select ports using a single port, comma-separated list, range, or
+.B \-p\-
+for all TCP ports.
+.TP
+.BI "--top-ports " count
+Scan the selected number from Skan's deterministic common TCP port corpus.
+.TP
+.BI "--exclude " target-spec
+Exclude resolved targets. May be repeated.
+.TP
+.BI "--exclude-ports " port-spec
+Exclude ports from the active TCP or UDP selection.
+.TP
+.B --open
+Display only open or open-or-filtered ports.
+.TP
+.B --reason
+Display port-state reasons in normal output.
+.TP
+.B --no-color
+Disable ANSI color in normal terminal output.
+.TP
+.B --debug
+Enable diagnostic engine logging. Diagnostic output is disabled by default.
+.TP
+.BI "--service-db " path
+Override the default service-probe database.
+.TP
+.BI "--os-db " path
+Override the default OS-fingerprint database.
+.TP
+.BI "--output " format
+Select normal, JSON, XML, or grepable output.
+.TP
+.BR \-oN , " \-oX , " \-oG
+Write normal, XML, or grepable output to a file.
+.TP
+.BI "\-oA " prefix
+Write normal, XML, and grepable output files using a shared prefix.
+.SH FILES
+.TP
+.I /usr/share/skan/service-probes.db
+Default service probe database.
+.TP
+.I /usr/share/skan/udp-probes.db
+Default UDP probe database.
+.TP
+.I /usr/share/skan/os-fingerprints.db
+Default IPv4 OS fingerprint database.
+.TP
+.I /usr/share/skan/os-fingerprints-v6.db
+Default IPv6 OS fingerprint database.
+.SH PRIVILEGES
+The installed executable is not set-user-ID and receives no capabilities.
+TCP connect scans normally run without root. Live SYN, UDP, and other
+raw-packet modes can require
+.BR sudo (8).
+Skan reports capability failures and does not silently fall back.
+.SH EXAMPLES
+.PP
+.nf
+skan -sT -p 22,80,443 192.0.2.10
+sudo skan -sS --top-ports 100 192.0.2.10
+sudo skan -sU -p 53 192.0.2.10
+.fi
+.SH SEE ALSO
+.BR capabilities (7),
+.BR sudo (8)
+.SH AUTHORS
+Skan contributors. Project home: https://github.com/Adam-Ghanem/Skan

@@ -21,3 +21,8 @@ debian/debhelper-build-stamp
 debian/files
 debian/skan/
 debian/skan.substvars
+debian/*.debhelper.log
+debian/*.debhelper
+debian/*.substvars
+debian/*.buildinfo
+debian/*.changes

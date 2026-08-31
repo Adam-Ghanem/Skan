@@ -1,0 +1,15 @@
+Source: skan
+Section: net
+Priority: optional
+Maintainer: Adam Ghanem <adam.ghanem.it@gmail.com>
+Build-Depends: debhelper-compat (= 13), g++ (>= 10), make
+Standards-Version: 4.7.2.0
+Homepage: https://github.com/Adam-Ghanem/Skan
+Rules-Requires-Root: no
+
+Package: skan
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: first-party modular network scanner
+ Skan is a Linux-first C++20 network scanner with host discovery, TCP and UDP
+ scanning, service detection, OS fingerprinting, and structured output.
