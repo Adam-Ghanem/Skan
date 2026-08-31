@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "core/constants.hpp"
 #include "detect/service_scheduler.hpp"
 #include "io/io_engine.hpp"
 #include "orchestrator/scan_pipeline.hpp"
@@ -135,7 +136,7 @@ skan::output::ScanReport report_for(std::size_t count)
 {
     skan::output::ScanReport report;
     report.scanner_name = "Skan benchmark";
-    report.scanner_version = "0.1.0";
+    report.scanner_version = skan::core::constants::SKAN_VERSION_STRING;
     report.target_spec = count == 0U ? "" : address_for(0U) + "-" + address_for(count - 1U);
     report.hosts.reserve(count);
     for (std::size_t index = 0U; index < count; ++index) {

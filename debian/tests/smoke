@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(mktemp -d)"
+package_version=$(dpkg-query -W -f='${Version}' skan)
+upstream_version=${package_version%%-*}
+test "$(skan --version)" = "Skan $upstream_version"
+skan --help | grep -F "Usage:" >/dev/null
+skan -sS --transport offline -p 80 --output json 192.0.2.10 | python3 -m json.tool >/dev/null

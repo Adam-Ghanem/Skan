@@ -26,6 +26,10 @@ int main()
     skan::output::OutputContext interactive;
     interactive.interactive_terminal = true;
 
+    const skan::output::ScanReport default_report;
+    assert(default_report.scanner_name == "Skan");
+    assert(default_report.scanner_version == "0.1.0");
+
     std::ostringstream empty_output;
     assert(writer.write(skan::output::ScanReport{}, empty_output, interactive) ==
            skan::output::OutputStatus::Ok);
@@ -37,7 +41,7 @@ int main()
 
     skan::output::ScanReport branded_report;
     branded_report.scanner_name = "Skan";
-    branded_report.scanner_version = "Skan 0.1.0";
+    branded_report.scanner_version = "0.1.0";
     std::ostringstream branded_output;
     assert(writer.write(branded_report, branded_output, interactive) ==
            skan::output::OutputStatus::Ok);

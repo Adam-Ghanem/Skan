@@ -1,0 +1,3 @@
+Probe TCP PackageFixture rarity=1 priority=100 timeout=1000 ports=8080
+send "GET / HTTP/1.0\r\n\r\n"
+match type=substring pattern="SkanFixture/1.2" service=http product=SkanFixture version=1.2 confidence=1.0

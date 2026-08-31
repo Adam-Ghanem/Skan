@@ -13,6 +13,32 @@ Skan is a Linux-first network scanner designed for **performance, modularity, de
 
 It brings host discovery, TCP/UDP scanning, service detection, OS fingerprinting, adaptive scheduling, IPv4/IPv6 networking, and structured results together behind a clean architecture built to be understood and extended.
 
+## Installation
+
+### Ubuntu / Debian
+
+Download the validated `amd64` package from the GitHub Releases page, then install it with APT:
+
+```bash
+sudo apt install ./skan_0.1.0-1_amd64.deb
+skan --version
+```
+
+The package installs `skan` globally in `/usr/bin` and its project-owned runtime databases in `/usr/share/skan`. It does not depend on the repository or the current working directory.
+
+Skan has not yet been accepted into the official Debian or Ubuntu archives, so plain `sudo apt install skan` without a downloaded package is not currently available. See [Installation](docs/INSTALLATION.md) for package verification, privilege guidance, and the repository-readiness path.
+
+## Quick start
+
+```bash
+skan -sT -p 22,80,443 192.0.2.10
+sudo skan -sS --top-ports 100 192.0.2.10
+sudo skan -sU -p 53 192.0.2.10
+skan -sV --top-ports 100 192.0.2.10
+```
+
+TCP connect scans normally run without root. Live SYN, UDP, and other raw-packet modes can require `sudo`; the package never installs Skan setuid and does not assign Linux capabilities automatically.
+
 ## ⚡ Highlights
 
 - 🚀 **C++20** performance-oriented core
@@ -81,36 +107,22 @@ Target ordering, probe correlation, scheduling decisions, and offline execution 
 
 Targets, network operations, and live capabilities are explicitly bounded and validated before execution.
 
-## 🚀 Quick Start
-
-```bash
-./bin/skan scan 192.168.1.1 \
-  --tcp-ports 22,80,443 \
-  --method connect
-```
-
-Service detection can be enabled when needed:
-
-```bash
-./bin/skan scan 192.168.1.1 \
-  --tcp-ports 22,80,443 \
-  --method connect \
-  --service-detect
-```
-
 ### Terminal identity
 
 Interactive normal scans use Skan's compact terminal UI: a branded header, aligned port/service table, state colors, and a concise completion summary. ANSI colors are enabled only for an interactive terminal; redirected output and output files remain color-free. Use `--no-color` to disable terminal colors explicitly and `--debug` to opt into diagnostic engine logs. JSON, XML, and grepable formats remain decoration-free for automation.
 
-## 🔧 Build
+## 🔧 Building from source
 
-Skan currently targets Linux and requires a C++20 compiler and GNU Make.
+This section is for developers. Package users do not need a compiler, Make, the repository path, or knowledge of the build directory. Skan currently targets Linux and requires a C++20 compiler and GNU Make.
 
 ```bash
 sudo apt-get install build-essential
 make -j2
 make test
+sudo make install PREFIX=/usr
 ```
+
+Packagers can stage the same deterministic layout without root by using `make install DESTDIR=<staging-dir> PREFIX=/usr`. See [Debian packaging](docs/DEBIAN_PACKAGING.md).
 
 Optional validation tooling:
 
@@ -127,14 +139,14 @@ make fuzz
 The native `skan scan <target>` interface remains supported. A scoped Nmap-compatible mode accepts one or more positional target specifications before, between, or after supported options:
 
 ```bash
-./bin/skan -sT -p 22,80,443 127.0.0.1
-./bin/skan -sS -sV --top-ports 100 192.0.2.2
-./bin/skan -sU -p 53 --transport linux 192.0.2.2
-./bin/skan -sn 192.0.2.0/24
-./bin/skan -sS -p 1-1024 -T4 -oA scan-result 192.0.2.2
-./bin/skan -sS -6 -p 22,443 --exclude 2001:db8::10 2001:db8::/120
-./bin/skan -sT -p 22,80,443 --exclude-ports 80 192.0.2.10 192.0.2.11
-./bin/skan -sS -p 1-1024 --open --reason 192.0.2.2
+skan -sT -p 22,80,443 127.0.0.1
+sudo skan -sS -sV --top-ports 100 192.0.2.2
+sudo skan -sU -p 53 --transport linux 192.0.2.2
+skan -sn 192.0.2.0/24
+sudo skan -sS -p 1-1024 -T4 -oA scan-result 192.0.2.2
+sudo skan -sS -6 -p 22,443 --exclude 2001:db8::10 2001:db8::/120
+skan -sT -p 22,80,443 --exclude-ports 80 192.0.2.10 192.0.2.11
+sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 ```
 
 | Nmap-style option | Skan behavior |
@@ -157,7 +169,7 @@ See [Service fingerprinting](docs/SERVICE_FINGERPRINTS.md) for the clean-room pr
 
 ## 🏅 Security & Quality
 
-Skan CI enforces clean builds, the complete registered test suite, debug/release builds, ASan/LSan, UBSan, coverage, fuzz capability handling, static safety checks, Nmap-compatible CLI regressions, and isolated privileged dual-stack validation.
+Skan CI enforces clean builds, the complete registered test suite, debug/release builds, ASan/LSan, UBSan, coverage, fuzz capability handling, static safety checks, Nmap-compatible CLI regressions, isolated privileged dual-stack validation, Debian package policy checks, and installed-package acceptance on Debian 12 and Ubuntu 24.04.
 
 > **Security note:** Skan is a network reconnaissance tool. Only scan systems and networks you are authorized to test.
 
