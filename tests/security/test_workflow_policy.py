@@ -73,6 +73,36 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("persist-credentials: false", result.stderr)
 
+    def test_rejects_checkout_setting_outside_with_inputs(self) -> None:
+        result = self.validate(
+            f"""
+            name: fixture
+            jobs:
+              test:
+                steps:
+                  - uses: actions/checkout@{CHECKOUT_SHA}
+                    env:
+                      persist-credentials: false
+            """
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("persist-credentials: false", result.stderr)
+
+    def test_accepts_flow_style_checkout_inputs(self) -> None:
+        result = self.validate(
+            f"""
+            name: fixture
+            jobs:
+              test:
+                steps:
+                  - uses: actions/checkout@{CHECKOUT_SHA}
+                    with: {{ persist-credentials: false }}
+            """
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,13 +12,18 @@ USES_PATTERN = re.compile(
     r"^(?P<indent>\s*)(?P<list_marker>-\s*)?uses:\s*(?P<reference>[^#\s]+)"
 )
 PINNED_ACTION_PATTERN = re.compile(r"^[^@\s]+@[0-9a-fA-F]{40}$")
-PERSIST_CREDENTIALS_PATTERN = re.compile(
-    r"^\s*persist-credentials:\s*false\s*(?:#.*)?$", re.MULTILINE
+BLOCK_CREDENTIALS_PATTERN = re.compile(
+    r"^persist-credentials:\s*false\s*(?:#.*)?$"
+)
+FLOW_CREDENTIALS_PATTERN = re.compile(
+    r"(?:^\{|,)\s*persist-credentials\s*:\s*false\s*(?=,|\})"
 )
 
 
-def checkout_step(lines: list[str], uses_index: int, step_indent: int) -> str:
-    end_index = len(lines)
+def checkout_disables_credentials(
+    lines: list[str], uses_index: int, step_indent: int
+) -> bool:
+    with_indent = step_indent + 2
     for index in range(uses_index + 1, len(lines)):
         line = lines[index]
         stripped = line.lstrip()
@@ -26,9 +31,28 @@ def checkout_step(lines: list[str], uses_index: int, step_indent: int) -> str:
             continue
         indentation = len(line) - len(stripped)
         if indentation <= step_indent:
-            end_index = index
             break
-    return "\n".join(lines[uses_index:end_index])
+        if indentation != with_indent or not stripped.startswith("with:"):
+            continue
+
+        inline_mapping = stripped.removeprefix("with:").strip()
+        if inline_mapping and not inline_mapping.startswith("#"):
+            return FLOW_CREDENTIALS_PATTERN.search(inline_mapping) is not None
+
+        input_indent = with_indent + 2
+        for input_line in lines[index + 1 :]:
+            input_stripped = input_line.lstrip()
+            if not input_stripped or input_stripped.startswith("#"):
+                continue
+            indentation = len(input_line) - len(input_stripped)
+            if indentation <= with_indent:
+                break
+            if indentation == input_indent and BLOCK_CREDENTIALS_PATTERN.fullmatch(
+                input_stripped
+            ):
+                return True
+        return False
+    return False
 
 
 def validate_workflow(path: Path) -> list[str]:
@@ -56,9 +80,7 @@ def validate_workflow(path: Path) -> list[str]:
             step_indent = len(match.group("indent"))
             if match.group("list_marker") is None:
                 step_indent = max(step_indent - 2, 0)
-            if PERSIST_CREDENTIALS_PATTERN.search(
-                checkout_step(lines, index, step_indent)
-            ) is None:
+            if not checkout_disables_credentials(lines, index, step_indent):
                 errors.append(
                     f"{location}: actions/checkout must set persist-credentials: false"
                 )
