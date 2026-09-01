@@ -11,6 +11,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "core/runtime_paths.hpp"
+
 namespace skan::detect {
 namespace {
 
@@ -321,16 +323,11 @@ bool regex_is_bounded(std::string_view pattern) noexcept
 
 ServiceProbeDatabase ServiceProbeDatabase::built_in()
 {
-    static constexpr std::array<const char *, 4U> candidates{
-        "data/service-probes.db",
-        "../data/service-probes.db",
-        "/usr/local/share/skan/service-probes.db",
-        "/usr/share/skan/service-probes.db"};
-    for (const char *path : candidates) {
-        core::StatusCode file_status = core::StatusCode::Ok;
-        ServiceProbeDatabase database = load_file(path, file_status);
-        if (file_status == core::StatusCode::Ok) return database;
-        if (file_status != core::StatusCode::NotFound) return database;
+    const std::filesystem::path path = core::RuntimePaths::for_process().service_probe_db();
+    core::StatusCode file_status = core::StatusCode::Ok;
+    ServiceProbeDatabase database = load_file(path.string(), file_status);
+    if (file_status != core::StatusCode::NotFound) {
+        return database;
     }
     // A compact recovery corpus keeps library-only embedding useful. The maintained,
     // comprehensive project-owned corpus lives in data/service-probes.db.

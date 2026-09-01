@@ -1,4 +1,4 @@
-# Skan Phase 32 project-owned service probe corpus.
+# Skan project-owned service probe corpus.
 # Syntax is documented in docs/SERVICE_FINGERPRINTS.md. This is not derived from
 # or compatible with the Nmap service probe database.
 

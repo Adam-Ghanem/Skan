@@ -43,7 +43,7 @@ constexpr std::array<std::uint16_t, 100U> kTopTcpPorts{
 
 void print_help()
 {
-    std::cout << skan::core::constants::SKAN_VERSION_STRING << '\n'
+    std::cout << skan::core::constants::SKAN_DISPLAY_VERSION << '\n'
               << "Nmap-inspired modular network scanning platform\n\n"
               << "Usage:\n"
               << "  skan [options]\n"
@@ -67,6 +67,11 @@ void print_help()
               << "  -sT / -sS / -sU      Nmap-style Connect, SYN, or UDP scan aliases\n"
               << "  -sn / -Pn            Discovery-only or skip-discovery aliases\n"
               << "  -sV / -O             Service/version or OS detection aliases\n"
+              << "  -4 / -6              Restrict resolved targets to IPv4 or IPv6\n"
+              << "  --exclude <spec>     Exclude resolved targets (repeatable)\n"
+              << "  --exclude-ports <spec> Exclude ports from the active TCP/UDP selection\n"
+              << "  --open               Show only OPEN or OPEN_OR_FILTERED ports\n"
+              << "  --reason             Show port-state reasons in normal output\n"
               << "  --top-ports <1-100>  Scan the deterministic Skan-owned common TCP corpus\n"
               << "  -oN/-oX/-oG <file>   Normal, XML, or grepable output aliases\n"
               << "  -oA <prefix>          Write .nmap, .xml, and .gnmap outputs\n"
@@ -823,9 +828,15 @@ int run_scan(int argc, char **argv)
     bool explicit_ports = false;
     bool explicit_method = false;
     bool adaptive_timing = false;
+    bool explicit_udp_ports = false;
+    bool ipv4_only = false;
+    bool ipv6_only = false;
     std::string transport_mode;
     std::optional<unsigned int> top_ports_count;
+    std::optional<std::string> nmap_port_specification;
+    std::optional<std::string> excluded_port_specification;
     std::optional<std::string> output_all_prefix;
+    std::vector<std::string> excluded_target_specifications;
     bool no_color = false;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
@@ -851,6 +862,31 @@ int run_scan(int argc, char **argv)
             config.service_detection_enabled = true;
         } else if (argument == "-O") {
             config.os_detection_enabled = true;
+        } else if (argument == "--open") {
+            config.output_context.open_only = true;
+        } else if (argument == "--reason") {
+            config.output_context.include_reasons = true;
+        } else if (argument == "-4") {
+            ipv4_only = true;
+        } else if (argument == "-6") {
+            ipv6_only = true;
+        } else if (argument == "--exclude" && index + 1 < argc) {
+            excluded_target_specifications.emplace_back(argv[++index]);
+            if (excluded_target_specifications.back().empty()) {
+                std::cerr << "Error: --exclude target specification cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
+        } else if (argument == "--exclude-ports" && index + 1 < argc) {
+            const std::string value(argv[++index]);
+            if (value.empty()) {
+                std::cerr << "Error: --exclude-ports specification cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
+            if (excluded_port_specification.has_value()) {
+                *excluded_port_specification += "," + value;
+            } else {
+                excluded_port_specification = value;
+            }
         } else if (argument.size() == 3U && argument[0] == '-' && argument[1] == 'T' &&
                    argument[2] >= '0' && argument[2] <= '5') {
             if (skan::scanengine::TimingProfile::parse(argument.substr(1U), config.timing_profile) !=
@@ -882,7 +918,8 @@ int run_scan(int argc, char **argv)
             }
             config.udp_enabled = true;
             config.port_scan_enabled = false;
-        } else if ((argument == "--tcp-ports" || argument == "-p") && index + 1 < argc) {
+            explicit_udp_ports = true;
+        } else if (argument == "--tcp-ports" && index + 1 < argc) {
             const skan::portscan::PortSelection selection =
                 skan::portscan::parse_tcp_ports(argv[++index]);
             if (selection.status != skan::core::StatusCode::Ok) {
@@ -894,17 +931,14 @@ int run_scan(int argc, char **argv)
                 config.ports.push_back(port.number);
             }
             explicit_ports = true;
-        } else if (argument == "-p-") {
-            const skan::portscan::PortSelection selection = skan::portscan::parse_tcp_ports("1-65535");
-            if (selection.status != skan::core::StatusCode::Ok) {
-                std::cerr << "Error: invalid TCP port selection.\n";
+        } else if (argument == "-p" && index + 1 < argc) {
+            nmap_port_specification = argv[++index];
+            if (nmap_port_specification->empty()) {
+                std::cerr << "Error: -p port specification cannot be empty.\n";
                 return EXIT_FAILURE;
             }
-            config.ports.clear();
-            for (const skan::portscan::Port &port : selection.ports) {
-                config.ports.push_back(port.number);
-            }
-            explicit_ports = true;
+        } else if (argument == "-p-") {
+            nmap_port_specification = "1-65535";
         } else if (argument == "--method" && index + 1 < argc) {
             const std::string_view method(argv[++index]);
             if (method == "connect") {
@@ -1051,6 +1085,12 @@ int run_scan(int argc, char **argv)
                 std::cerr << "Error: service database path cannot be empty.\n";
                 return EXIT_FAILURE;
             }
+        } else if (argument == "--os-db" && index + 1 < argc) {
+            config.os_db_path = argv[++index];
+            if (config.os_db_path.empty()) {
+                std::cerr << "Error: OS database path cannot be empty.\n";
+                return EXIT_FAILURE;
+            }
         } else if (argument == "--max-response-bytes" && index + 1 < argc) {
             unsigned int value = 0U;
             if (!parse_unsigned(argv[++index], value) || value == 0U) {
@@ -1070,6 +1110,38 @@ int run_scan(int argc, char **argv)
             return EXIT_FAILURE;
         }
     }
+    if (ipv4_only && ipv6_only) {
+        std::cerr << "Error: -4 and -6 cannot be combined.\n";
+        return EXIT_FAILURE;
+    }
+    if (top_ports_count.has_value() && nmap_port_specification.has_value()) {
+        std::cerr << "Error: --top-ports cannot be combined with -p or -p-.\n";
+        return EXIT_FAILURE;
+    }
+    if (config.udp_enabled && nmap_port_specification.has_value() && explicit_udp_ports) {
+        std::cerr << "Error: use either -p or --udp-ports for a UDP scan, not both.\n";
+        return EXIT_FAILURE;
+    }
+    if (nmap_port_specification.has_value()) {
+        const skan::portscan::PortSelection selection = config.udp_enabled
+                                                            ? skan::portscan::parse_udp_ports(*nmap_port_specification)
+                                                            : skan::portscan::parse_tcp_ports(*nmap_port_specification);
+        if (selection.status != skan::core::StatusCode::Ok) {
+            std::cerr << "Error: invalid " << (config.udp_enabled ? "UDP" : "TCP")
+                      << " port selection for -p.\n";
+            return EXIT_FAILURE;
+        }
+        std::vector<std::uint16_t> &selected_ports = config.udp_enabled ? config.udp_ports : config.ports;
+        selected_ports.clear();
+        for (const skan::portscan::Port &port : selection.ports) {
+            selected_ports.push_back(port.number);
+        }
+        if (config.udp_enabled) {
+            explicit_udp_ports = true;
+        } else {
+            explicit_ports = true;
+        }
+    }
     if (top_ports_count.has_value()) {
         if (config.udp_enabled) {
             std::cerr << "Error: the current Skan-owned --top-ports corpus is TCP-only.\n";
@@ -1077,6 +1149,38 @@ int run_scan(int argc, char **argv)
         }
         config.ports.assign(kTopTcpPorts.begin(), kTopTcpPorts.begin() + *top_ports_count);
         explicit_ports = true;
+    }
+    if (excluded_port_specification.has_value()) {
+        const skan::portscan::PortSelection excluded = config.udp_enabled
+                                                           ? skan::portscan::parse_udp_ports(*excluded_port_specification)
+                                                           : skan::portscan::parse_tcp_ports(*excluded_port_specification);
+        if (excluded.status != skan::core::StatusCode::Ok) {
+            std::cerr << "Error: invalid --exclude-ports specification.\n";
+            return EXIT_FAILURE;
+        }
+        std::vector<std::uint16_t> &selected_ports = config.udp_enabled ? config.udp_ports : config.ports;
+        if (selected_ports.empty()) {
+            const std::vector<skan::portscan::Port> defaults = config.udp_enabled
+                                                                  ? skan::portscan::default_udp_ports()
+                                                                  : skan::portscan::default_tcp_ports();
+            for (const skan::portscan::Port &port : defaults) {
+                selected_ports.push_back(port.number);
+            }
+            if (config.udp_enabled) {
+                explicit_udp_ports = true;
+            } else {
+                explicit_ports = true;
+            }
+        }
+        for (const skan::portscan::Port &port : excluded.ports) {
+            selected_ports.erase(
+                std::remove(selected_ports.begin(), selected_ports.end(), port.number),
+                selected_ports.end());
+        }
+        if (selected_ports.empty()) {
+            std::cerr << "Error: --exclude-ports removed every selected port.\n";
+            return EXIT_FAILURE;
+        }
     }
     if (!explicit_ports) {
         config.ports.clear();
@@ -1126,15 +1230,37 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: --discovery requires --transport offline or --transport linux --interface <name>.\n";
         return EXIT_FAILURE;
     }
-    config.output_context.color_enabled =
-        !no_color && config.output_format == skan::output::OutputFormat::Normal &&
+    const bool interactive_normal_output =
+        config.output_format == skan::output::OutputFormat::Normal &&
         !config.output_file.has_value() && !output_all_prefix.has_value() && ::isatty(STDOUT_FILENO) != 0;
+    config.output_context.interactive_terminal = interactive_normal_output;
+    config.output_context.color_enabled = interactive_normal_output && !no_color;
     const skan::target::TargetResolutionResult resolved =
         skan::target::TargetEngine::resolve(target_specification, target_limits);
     if (!resolved.success()) {
         print_target_error(resolved.error);
         return EXIT_FAILURE;
     }
+    std::vector<skan::core::IpAddress> excluded_addresses;
+    for (const std::string &excluded_specification : excluded_target_specifications) {
+        const skan::target::TargetResolutionResult excluded =
+            skan::target::TargetEngine::resolve(excluded_specification, target_limits);
+        if (!excluded.success()) {
+            std::cerr << "Error: invalid --exclude target specification: ";
+            print_target_error(excluded.error);
+            return EXIT_FAILURE;
+        }
+        for (const skan::target::ResolvedTarget &target : excluded.target_set.targets) {
+            excluded_addresses.push_back(target.ip_address.valid()
+                                             ? target.ip_address
+                                             : skan::core::IpAddress::from_ipv4(target.address));
+        }
+    }
+    std::sort(excluded_addresses.begin(), excluded_addresses.end());
+    excluded_addresses.erase(
+        std::unique(excluded_addresses.begin(), excluded_addresses.end()),
+        excluded_addresses.end());
+
     skan::core::Target normalized_target;
     normalized_target.original_specification = target_specification;
     normalized_target.resolved_hosts.reserve(resolved.target_set.targets.size());
@@ -1142,8 +1268,16 @@ int run_scan(int argc, char **argv)
         const skan::core::IpAddress ip_address = target.ip_address.valid()
                                                     ? target.ip_address
                                                     : skan::core::IpAddress::from_ipv4(target.address);
+        if ((ipv4_only && !ip_address.is_ipv4()) || (ipv6_only && !ip_address.is_ipv6()) ||
+            std::binary_search(excluded_addresses.begin(), excluded_addresses.end(), ip_address)) {
+            continue;
+        }
         normalized_target.resolved_hosts.push_back(
             skan::core::Host{skan::target::format_ip_address(ip_address), target.source_hostname, false, ip_address});
+    }
+    if (normalized_target.resolved_hosts.empty()) {
+        std::cerr << "Error: target family filters and exclusions removed every resolved target.\n";
+        return EXIT_FAILURE;
     }
     if (config.transport == skan::orchestrator::ScanTransport::Linux && !config.interface_name.has_value()) {
         const skan::net::InterfaceResult selected = skan::net::select_interface_for_target(normalized_target);
@@ -1189,7 +1323,11 @@ int run_scan(int argc, char **argv)
             if (!output.is_open()) {
                 return false;
             }
-            return skan::output::OutputManager::write(format, *orchestrator.report(), output) ==
+            skan::output::OutputContext file_context = config.output_context;
+            file_context.color_enabled = false;
+            file_context.interactive_terminal = false;
+            return skan::output::OutputManager::write(
+                       format, *orchestrator.report(), output, file_context) ==
                    skan::output::OutputStatus::Ok && output.good();
         };
         if (!write_aggregate(skan::output::OutputFormat::Normal, ".nmap") ||
@@ -1207,20 +1345,64 @@ int run_nmap_compatible(int argc, char **argv)
     if (argc < 2) {
         return EXIT_FAILURE;
     }
-    const std::string target_specification = argv[argc - 1];
-    if (target_specification.empty() || target_specification.front() == '-') {
-        std::cerr << "Error: Nmap-compatible mode requires one target specification as the final argument.\n";
+    const auto option_requires_value = [](std::string_view option) noexcept {
+        return option == "--top-ports" || option == "--udp-ports" || option == "--tcp-ports" ||
+               option == "-p" || option == "--method" || option == "--timeout-ms" ||
+               option == "--udp-timeout-ms" || option == "--max-outstanding" ||
+               option == "--udp-max-outstanding" || option == "--udp-retries" ||
+               option == "--timing" || option == "--min-parallelism" ||
+               option == "--max-parallelism" || option == "--retries" ||
+               option == "--transport" || option == "--max-targets" ||
+               option == "--max-hostname-results" || option == "--interface" ||
+               option == "-e" || option == "-oN" || option == "-oX" ||
+               option == "-oG" || option == "-oA" || option == "--output" ||
+               option == "-o" || option == "--output-file" || option == "--service-db" ||
+               option == "--os-db" ||
+               option == "--max-response-bytes" || option == "--max-probes" ||
+               option == "--exclude" || option == "--exclude-ports";
+    };
+
+    std::vector<std::string> options;
+    std::vector<std::string> targets;
+    options.reserve(static_cast<std::size_t>(argc));
+    targets.reserve(static_cast<std::size_t>(argc));
+    for (int index = 1; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (!argument.empty() && argument.front() == '-') {
+            options.emplace_back(argument);
+            if (option_requires_value(argument)) {
+                if (index + 1 >= argc) {
+                    std::cerr << "Error: incomplete Nmap-compatible option.\n";
+                    return EXIT_FAILURE;
+                }
+                options.emplace_back(argv[++index]);
+            }
+        } else {
+            targets.emplace_back(argument);
+        }
+    }
+    if (targets.empty()) {
+        std::cerr << "Error: Nmap-compatible mode requires at least one target specification.\n";
         return EXIT_FAILURE;
+    }
+    std::string target_specification;
+    for (const std::string &target : targets) {
+        if (target.empty()) {
+            std::cerr << "Error: target specification cannot be empty.\n";
+            return EXIT_FAILURE;
+        }
+        if (!target_specification.empty()) {
+            target_specification.push_back(',');
+        }
+        target_specification += target;
     }
 
     std::vector<std::string> normalized;
-    normalized.reserve(static_cast<std::size_t>(argc) + 1U);
+    normalized.reserve(options.size() + 3U);
     normalized.emplace_back(argv[0]);
     normalized.emplace_back("scan");
-    normalized.push_back(target_specification);
-    for (int index = 1; index < argc - 1; ++index) {
-        normalized.emplace_back(argv[index]);
-    }
+    normalized.push_back(std::move(target_specification));
+    normalized.insert(normalized.end(), options.begin(), options.end());
 
     std::vector<char *> normalized_argv;
     normalized_argv.reserve(normalized.size());
@@ -1235,7 +1417,7 @@ int run_nmap_compatible(int argc, char **argv)
 int main(int argc, char **argv)
 {
     if (argc == 2 && std::string_view(argv[1]) == "--version") {
-        std::cout << skan::core::constants::SKAN_VERSION_STRING << '\n';
+        std::cout << skan::core::constants::SKAN_DISPLAY_VERSION << '\n';
         return EXIT_SUCCESS;
     }
 

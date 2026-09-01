@@ -1,6 +1,6 @@
 # Service fingerprinting
 
-Skan's service/version detector uses the project-owned corpus in `data/service-probes.db`. It is a bounded, clean-room format and is not an Nmap probe database derivative.
+Skan's service/version detector uses the project-owned corpus installed at `/usr/share/skan/service-probes.db`; development builds resolve the same repository-owned corpus from `data/service-probes.db` through the centralized runtime path boundary. Resolution never depends on the current working directory. The database is a bounded, clean-room format and is not an Nmap probe database derivative.
 
 ## Probe format
 
@@ -23,6 +23,6 @@ The TLS probe sends a bounded TLS ClientHello. The detector recognizes TLS recor
 
 ## Corpus coverage
 
-The initial Phase 32 corpus includes deterministic signatures for HTTP, TLS, SSH, FTP, SMTP, POP3, IMAP, DNS, Redis, MySQL, PostgreSQL, MongoDB, SMB, RDP, VNC, Telnet, and IRC. Tests use byte fixtures and loopback only; they never contact public targets.
+The bundled project-owned corpus includes deterministic signatures for HTTP, TLS, SSH, FTP, SMTP, POP3, IMAP, DNS, Redis, MySQL, PostgreSQL, MongoDB, SMB, RDP, VNC, Telnet, and IRC. Tests use byte fixtures and loopback only; they never contact public targets.
 
-Use `--service-db <path>` to select another database. Invalid files fail visibly and are never silently replaced by the bundled corpus.
+Use `--service-db <path>` to select another database. An explicit path takes precedence over installed and development defaults. Invalid files fail visibly and are never silently replaced by the bundled corpus.

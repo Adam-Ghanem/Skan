@@ -8,6 +8,8 @@
 #include <string_view>
 #include <unordered_set>
 
+#include "core/runtime_paths.hpp"
+
 namespace skan::db {
 namespace {
 
@@ -481,15 +483,16 @@ OSFingerprintDatabase OSFingerprintDatabase::load_file(
 
 OSFingerprintDatabase OSFingerprintDatabase::built_in()
 {
+    const core::OSFingerprintPaths paths = core::RuntimePaths::for_process().os_fingerprint_dbs();
     core::StatusCode status = core::StatusCode::InternalError;
-    OSFingerprintDatabase database = load_file("data/os-fingerprints.db", status, core::AddressFamily::IPv4);
+    OSFingerprintDatabase database = load_file(paths.ipv4.string(), status, core::AddressFamily::IPv4);
     if (status != core::StatusCode::Ok) {
         database.status_ = status;
         return database;
     }
     core::StatusCode ipv6_status = core::StatusCode::InternalError;
     OSFingerprintDatabase ipv6 = load_file(
-        "data/os-fingerprints-v6.db", ipv6_status, core::AddressFamily::IPv6);
+        paths.ipv6.string(), ipv6_status, core::AddressFamily::IPv6);
     if (ipv6_status != core::StatusCode::Ok) {
         database.status_ = ipv6_status;
         database.fingerprints_.clear();

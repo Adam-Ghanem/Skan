@@ -68,6 +68,10 @@ std::vector<const portscan::PortResult *> ordered_ports(const HostResult &host, 
     std::vector<const portscan::PortResult *> ports;
     ports.reserve(host.ports.size());
     for (const portscan::PortResult &port : host.ports) {
+        if (context.open_only && port.state != portscan::PortState::Open &&
+            port.state != portscan::PortState::OpenOrFiltered) {
+            continue;
+        }
         if (port.state == portscan::PortState::Closed && !context.include_closed_ports) {
             continue;
         }
