@@ -1,6 +1,8 @@
 #ifndef SKAN_OUTPUT_OUTPUT_CONTEXT_HPP
 #define SKAN_OUTPUT_OUTPUT_CONTEXT_HPP
 
+#include "output/terminal_capabilities.hpp"
+
 namespace skan::output {
 
 struct OutputContext final {
@@ -12,8 +14,7 @@ struct OutputContext final {
     bool include_reasons{false};
     bool pretty_json{true};
     bool pretty_xml{true};
-    bool color_enabled{false};
-    bool interactive_terminal{false};
+    TerminalCapabilities terminal;
 };
 
 } // namespace skan::output

@@ -30,7 +30,22 @@ bool service_less(const detect::ServiceResult &left, const detect::ServiceResult
     if (left.protocol != right.protocol) {
         return static_cast<unsigned int>(left.protocol) < static_cast<unsigned int>(right.protocol);
     }
-    return left.target < right.target;
+    if (left.target != right.target) {
+        return left.target < right.target;
+    }
+    if (left.probe_name != right.probe_name) {
+        return left.probe_name < right.probe_name;
+    }
+    if (left.service != right.service) {
+        return left.service < right.service;
+    }
+    if (left.product != right.product) {
+        return left.product < right.product;
+    }
+    if (left.version != right.version) {
+        return left.version < right.version;
+    }
+    return left.confidence > right.confidence;
 }
 
 bool os_less(const osdetect::OSMatchResult &left, const osdetect::OSMatchResult &right) noexcept

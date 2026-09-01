@@ -1230,11 +1230,11 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: --discovery requires --transport offline or --transport linux --interface <name>.\n";
         return EXIT_FAILURE;
     }
-    const bool interactive_normal_output =
-        config.output_format == skan::output::OutputFormat::Normal &&
-        !config.output_file.has_value() && !output_all_prefix.has_value() && ::isatty(STDOUT_FILENO) != 0;
-    config.output_context.interactive_terminal = interactive_normal_output;
-    config.output_context.color_enabled = interactive_normal_output && !no_color;
+    if (config.output_format == skan::output::OutputFormat::Normal &&
+        !config.output_file.has_value() && !output_all_prefix.has_value()) {
+        config.output_context.terminal =
+            skan::output::detect_terminal_capabilities(STDOUT_FILENO, no_color);
+    }
     const skan::target::TargetResolutionResult resolved =
         skan::target::TargetEngine::resolve(target_specification, target_limits);
     if (!resolved.success()) {
@@ -1324,8 +1324,7 @@ int run_scan(int argc, char **argv)
                 return false;
             }
             skan::output::OutputContext file_context = config.output_context;
-            file_context.color_enabled = false;
-            file_context.interactive_terminal = false;
+            file_context.terminal = {};
             return skan::output::OutputManager::write(
                        format, *orchestrator.report(), output, file_context) ==
                    skan::output::OutputStatus::Ok && output.good();

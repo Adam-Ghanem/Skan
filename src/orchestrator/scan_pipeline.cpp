@@ -408,8 +408,7 @@ bool ScanPipeline::serialize_report(std::ostream &output)
 
     std::ostringstream serialized;
     output::OutputContext file_context = config_.output_context;
-    file_context.color_enabled = false;
-    file_context.interactive_terminal = false;
+    file_context.terminal = {};
     const output::OutputStatus status = output::OutputManager::write(config_.output_format, built, serialized, file_context);
     if (status != output::OutputStatus::Ok) {
         fail(std::string("output serialization failed: ") + output::output_status_name(status),
