@@ -45,7 +45,7 @@ struct ScanConfig final {
     portscan::ScanProbeType port_method{portscan::ScanProbeType::TcpConnect};
     std::vector<std::uint16_t> ports;
     std::vector<std::uint16_t> udp_ports;
-    std::string udp_probe_db_path{"data/udp-probes.db"};
+    std::string udp_probe_db_path;
     scanengine::TimingProfile timing_profile{};
     std::chrono::milliseconds timeout{portscan::kDefaultPortTimeout};
     bool adaptive_timing{false};

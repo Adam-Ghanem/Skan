@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "core/runtime_paths.hpp"
 #include "db/os_db.hpp"
 #include "detect/service_db.hpp"
 #include "detect/service_probe.hpp"
@@ -288,7 +289,13 @@ StageResult UdpScanStage::start()
 
     portscan::UDPProbeDatabase database;
     if (config_.udp_probe_db_path.empty()) {
-        database = portscan::UDPProbeDatabase::built_in();
+        core::StatusCode db_status = core::StatusCode::Ok;
+        const std::filesystem::path path = core::RuntimePaths::for_process().udp_probe_db();
+        database = portscan::UDPProbeDatabase::load_file(path.string(), db_status);
+        if (db_status != core::StatusCode::Ok) {
+            result_ = stage_failure(db_status, "UDP probe database loading failed");
+            return result_;
+        }
     } else {
         core::StatusCode db_status = core::StatusCode::Ok;
         database = portscan::UDPProbeDatabase::load_file(config_.udp_probe_db_path, db_status);
@@ -394,6 +401,10 @@ StageResult ServiceDetectionStage::start(const std::vector<portscan::PortResult>
     detect::ServiceProbeDatabase database;
     if (config_.service_db_path.empty()) {
         database = detect::ServiceProbeDatabase::built_in();
+        if (database.status() != core::StatusCode::Ok) {
+            result_ = stage_failure(database.status(), "service database loading failed");
+            return result_;
+        }
     } else {
         core::StatusCode db_status = core::StatusCode::Ok;
         database = detect::ServiceProbeDatabase::load_file(config_.service_db_path, db_status);
@@ -518,6 +529,10 @@ StageResult OSDetectionStage::start(
     db::OSFingerprintDatabase database;
     if (config_.os_db_path.empty()) {
         database = db::OSFingerprintDatabase::built_in();
+        if (database.status() != core::StatusCode::Ok) {
+            result_ = stage_failure(database.status(), "OS database loading failed");
+            return result_;
+        }
     } else {
         core::StatusCode db_status = core::StatusCode::Ok;
         database = db::OSFingerprintDatabase::load_file(config_.os_db_path, db_status);
