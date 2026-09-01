@@ -243,8 +243,7 @@ public:
             suffix += " / " + format_ms(*latency);
         }
         if (layout.mode == TerminalLayoutMode::Plain) {
-            output << "Host: " << ascii_safe(identity) << '\n';
-            output << "Status: " << ascii_safe(suffix) << '\n';
+            output << "Host " << ascii_safe(identity) << " - " << ascii_safe(suffix) << '\n';
             return;
         }
         const bool reachable = host_status(host) == "reachable";
@@ -289,9 +288,20 @@ private:
                              std::ostream &output, const OutputContext &context)
     {
         if (ports.empty()) {
-            output << "Ports: none matched filters\n";
+            output << "  No port rows matched the selected output filters.\n";
             return;
         }
+        constexpr std::size_t endpoint_cells = 12U;
+        constexpr std::size_t state_cells = 13U;
+        constexpr std::size_t service_cells = 14U;
+        constexpr std::size_t version_cells = 28U;
+        output << "\n  " << padded("PORT", endpoint_cells) << padded("STATE", state_cells)
+               << padded("SERVICE", service_cells)
+               << padded("VERSION", version_cells + (context.include_reasons ? 1U : 0U));
+        if (context.include_reasons) {
+            output << "REASON";
+        }
+        output << "\n  " << std::string(context.include_reasons ? 90U : 67U, '-') << '\n';
         for (const portscan::PortResult *port : ports) {
             std::vector<const detect::ServiceResult *> matches = services_for(services, *port);
             if (matches.empty()) {
@@ -299,13 +309,19 @@ private:
             }
             for (std::size_t index = 0U; index < matches.size(); ++index) {
                 const detect::ServiceResult *service = matches[index];
-                output << (index == 0U ? "Port: " : "Service+: ")
-                       << (index == 0U ? endpoint_label(*port) + " " : "")
-                       << "State=" << portscan::port_state_name(port->state)
-                       << " Service=" << ascii_safe(service_label(service))
-                       << " Version=" << ascii_safe(version_label(service, false));
+                output << "  " << padded(index == 0U ? endpoint_label(*port) : "", endpoint_cells)
+                       << padded(index == 0U ? portscan::port_state_name(port->state) : "", state_cells)
+                       << padded(ascii_safe(service_label(service)), service_cells);
+                const std::string version = ascii_safe(version_label(service, false));
                 if (context.include_reasons) {
-                    output << " Reason=" << portscan::scan_reason_name(port->reason);
+                    if (index == 0U) {
+                        output << padded(version, version_cells) << ' ';
+                        output << portscan::scan_reason_name(port->reason);
+                    } else {
+                        output << fit(version, version_cells);
+                    }
+                } else {
+                    output << fit(version, version_cells);
                 }
                 output << '\n';
             }
@@ -538,7 +554,7 @@ OutputStatus TerminalReportRenderer::render(const ScanReport &report, std::ostre
     HeaderRenderer{}.render(report, output, layout, context.terminal, theme);
     if (report.target_spec.has_value()) {
         if (layout.mode == TerminalLayoutMode::Plain) {
-            output << "Target: " << ascii_safe(*report.target_spec) << '\n';
+            output << "Target  " << ascii_safe(*report.target_spec) << "\n\n";
         } else {
             output << theme.apply("Target", TerminalStyle::Metadata) << "  "
                    << theme.apply(fit(*report.target_spec, layout.columns - 8U), TerminalStyle::Brand) << "\n\n";

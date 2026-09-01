@@ -55,6 +55,7 @@ CPP_SOURCES := \
 		src/output/terminal_layout.cpp \
 		src/output/terminal_text.cpp \
 		src/output/terminal_theme.cpp \
+		src/output/terminal/progress_renderer.cpp \
 		src/output/terminal/report_renderer.cpp \
 		src/output/output_normal.cpp \
 		src/output/output_json.cpp \
@@ -239,6 +240,7 @@ TEST_SOURCES := \
 		tests/unit/output/test_terminal_layout.cpp \
 		tests/unit/output/test_terminal_text.cpp \
 		tests/unit/output/test_terminal_theme.cpp \
+		tests/unit/output/test_terminal_progress.cpp \
 		tests/unit/output/test_terminal_renderer.cpp \
 		tests/unit/output/test_output_normal.cpp \
 		tests/unit/output/test_output_json.cpp \
@@ -327,6 +329,7 @@ TEST_BINARIES := \
 		$(BUILD_DIR)/test_terminal_layout \
 		$(BUILD_DIR)/test_terminal_text \
 		$(BUILD_DIR)/test_terminal_theme \
+		$(BUILD_DIR)/test_terminal_progress \
 		$(BUILD_DIR)/test_terminal_renderer \
 		$(BUILD_DIR)/test_output_normal \
 		$(BUILD_DIR)/test_output_json \
@@ -582,6 +585,9 @@ $(BUILD_DIR)/test_terminal_text: $(BUILD_DIR)/tests/unit/output/test_terminal_te
 $(BUILD_DIR)/test_terminal_theme: $(BUILD_DIR)/tests/unit/output/test_terminal_theme.o $(BUILD_DIR)/output/terminal_theme.o $(BUILD_DIR)/output/terminal_text.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+$(BUILD_DIR)/test_terminal_progress: $(BUILD_DIR)/tests/unit/output/test_terminal_progress.o $(BUILD_DIR)/output/terminal/progress_renderer.o $(BUILD_DIR)/output/terminal_text.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/test_terminal_renderer: $(BUILD_DIR)/tests/unit/output/test_terminal_renderer.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
@@ -782,6 +788,7 @@ test: $(TEST_BINARIES)
 		./$(BUILD_DIR)/test_terminal_layout
 		./$(BUILD_DIR)/test_terminal_text
 		./$(BUILD_DIR)/test_terminal_theme
+		./$(BUILD_DIR)/test_terminal_progress
 		./$(BUILD_DIR)/test_terminal_renderer
 		./$(BUILD_DIR)/test_output_normal
 		./$(BUILD_DIR)/test_output_json

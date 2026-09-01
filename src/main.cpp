@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "core/constants.hpp"
+#include "core/log.hpp"
 #include "core/status.hpp"
 #include "db/os_db.hpp"
 #include "detect/service_detector.hpp"
@@ -25,6 +26,7 @@
 #include "osdetect/os_probe.hpp"
 #include "output/output_manager.hpp"
 #include "output/result_model.hpp"
+#include "output/terminal/progress_renderer.hpp"
 #include "net/interface.hpp"
 #include "net/linux_discovery_transport.hpp"
 #include "net/linux_os_probe_transport.hpp"
@@ -838,6 +840,7 @@ int run_scan(int argc, char **argv)
     std::optional<std::string> output_all_prefix;
     std::vector<std::string> excluded_target_specifications;
     bool no_color = false;
+    bool debug_logging = false;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "-sT") {
@@ -1078,7 +1081,8 @@ int run_scan(int argc, char **argv)
         } else if (argument == "--no-color") {
             no_color = true;
         } else if (argument == "--debug") {
-            (void)::setenv("SKAN_LOG", "debug", 1);
+            debug_logging = true;
+            skan::log::set_minimum_level(skan::log::Level::Debug);
         } else if (argument == "--service-db" && index + 1 < argc) {
             config.service_db_path = argv[++index];
             if (config.service_db_path.empty()) {
@@ -1298,7 +1302,21 @@ int run_scan(int argc, char **argv)
         }
     }
     config.targets.push_back(std::move(normalized_target));
-    skan::orchestrator::ScanOrchestrator orchestrator(config);
+    const skan::output::TerminalCapabilities standard_error =
+        skan::output::detect_terminal_capabilities(STDERR_FILENO, no_color);
+    const skan::output::ProgressPolicyInput progress_policy{
+        config.output_context.terminal,
+        standard_error,
+        config.output_format,
+        config.output_file.has_value() || output_all_prefix.has_value(),
+        debug_logging};
+    skan::output::TerminalProgressRenderer progress(
+        std::cerr,
+        skan::output::progress_allowed(progress_policy),
+        standard_error.unicode);
+    skan::orchestrator::ScanOrchestrator orchestrator(
+        config,
+        [&progress](const skan::orchestrator::ScanEvent &event) { progress.handle(event); });
     std::ostringstream suppressed_primary_output;
     std::ostream &primary_output = output_all_prefix.has_value()
                                        ? static_cast<std::ostream &>(suppressed_primary_output)

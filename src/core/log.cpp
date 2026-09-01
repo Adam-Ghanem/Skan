@@ -1,8 +1,8 @@
 #include "core/log.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <ctime>
-#include <cstdlib>
 #include <string_view>
 #include <iomanip>
 #include <iostream>
@@ -10,6 +10,8 @@
 
 namespace skan::log {
 namespace {
+
+std::atomic<Level> configured_minimum_level{Level::Info};
 
 const char *level_name(Level level) noexcept
 {
@@ -29,11 +31,8 @@ const char *level_name(Level level) noexcept
 
 bool enabled(Level level) noexcept
 {
-    if (level != Level::Debug) {
-        return true;
-    }
-    const char *configured = std::getenv("SKAN_LOG");
-    return configured != nullptr && std::string_view(configured) == "debug";
+    return static_cast<unsigned int>(level) >=
+           static_cast<unsigned int>(configured_minimum_level.load(std::memory_order_relaxed));
 }
 
 std::string timestamp()
@@ -50,6 +49,16 @@ std::string timestamp()
 }
 
 } // namespace
+
+void set_minimum_level(Level level) noexcept
+{
+    configured_minimum_level.store(level, std::memory_order_relaxed);
+}
+
+Level minimum_level() noexcept
+{
+    return configured_minimum_level.load(std::memory_order_relaxed);
+}
 
 void write(Level level, std::string_view message)
 {

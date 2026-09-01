@@ -14,6 +14,8 @@ enum class Level {
     Error
 };
 
+void set_minimum_level(Level level) noexcept;
+Level minimum_level() noexcept;
 void write(Level level, std::string_view message);
 
 namespace detail {
