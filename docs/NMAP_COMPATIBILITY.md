@@ -52,6 +52,10 @@ Service coverage is intentionally smaller than Nmap's. TLS certificate fields ar
 
 `--open` affects serialized port rows only. It does not skip probes, discard canonical results, or rewrite summary counters. `--reason` is additive in normal output, while JSON, XML, and grepable output continue to expose their existing structured evidence.
 
+Interactive normal output is Skan's own responsive dashboard, not a byte-for-byte Nmap clone. It requires a real stdout TTY and uses terminal-width, locale, `TERM`, `NO_COLOR`, and `--no-color` capability policy. Redirected normal output and `-oN`/`-oA` files remain deterministic ASCII with stable host/port rows. JSON, XML, and grepable output remain terminal-decoration-free and replace invalid UTF-8 before format-specific escaping.
+
+Transient progress is eligible only when both stdout and stderr are TTYs, the selected format is normal, no output file is active, and debug logging is off. It reports completed batch counters only and is cleared before final serialization. Skan currently makes no live rate, percentage, or ETA claim because orchestration completion events are emitted after their stages return.
+
 The Skan top-port corpus is project-owned and is not represented as Nmap's frequency ranking. Fingerprint data must be added with clear provenance and compatible licensing.
 
 ## Privileged behavior
