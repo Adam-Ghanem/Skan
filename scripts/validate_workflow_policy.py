@@ -13,10 +13,11 @@ USES_PATTERN = re.compile(
 )
 PINNED_ACTION_PATTERN = re.compile(r"^[^@\s]+@[0-9a-fA-F]{40}$")
 BLOCK_CREDENTIALS_PATTERN = re.compile(
-    r"^persist-credentials:\s*false\s*(?:#.*)?$"
+    r"^persist-credentials:\s*(?P<quote>['\"]?)false(?P=quote)\s*(?:#.*)?$"
 )
 FLOW_CREDENTIALS_PATTERN = re.compile(
-    r"(?:^\{|,)\s*persist-credentials\s*:\s*false\s*(?=,|\})"
+    r"(?:^\{|,)\s*persist-credentials\s*:\s*"
+    r"(?P<quote>['\"]?)false(?P=quote)\s*(?=,|\})"
 )
 
 

@@ -103,6 +103,35 @@ class WorkflowPolicyTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_accepts_quoted_false_in_block_checkout_inputs(self) -> None:
+        result = self.validate(
+            f"""
+            name: fixture
+            jobs:
+              test:
+                steps:
+                  - uses: actions/checkout@{CHECKOUT_SHA}
+                    with:
+                      persist-credentials: "false"
+            """
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_accepts_quoted_false_in_flow_checkout_inputs(self) -> None:
+        result = self.validate(
+            f"""
+            name: fixture
+            jobs:
+              test:
+                steps:
+                  - uses: actions/checkout@{CHECKOUT_SHA}
+                    with: {{ persist-credentials: 'false' }}
+            """
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
