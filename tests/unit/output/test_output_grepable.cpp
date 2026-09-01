@@ -8,7 +8,8 @@
 int main()
 {
     skan::output::GrepableOutputWriter writer;
-    const skan::output::ScanReport report = skan::output::test::make_report();
+    skan::output::ScanReport report = skan::output::test::make_report();
+    report.warnings.push_back(std::string("invalid-utf8") + static_cast<char>(0x9b));
     std::ostringstream first;
     std::ostringstream second;
     assert(writer.write(report, first, skan::output::OutputContext{}) == skan::output::OutputStatus::Ok);
@@ -26,6 +27,8 @@ int main()
     assert(first.str().find("\\n") != std::string::npos);
     assert(first.str().find("\\\"") != std::string::npos);
     assert(first.str().find('\x1b') == std::string::npos);
+    assert(first.str().find(static_cast<char>(0x9b)) == std::string::npos);
+    assert(first.str().find("invalid-utf8?") != std::string::npos);
     for (std::size_t start = 0U; start < first.str().size();) {
         const std::size_t end = first.str().find('\n', start);
         const std::size_t length = end == std::string::npos ? first.str().size() - start : end - start;

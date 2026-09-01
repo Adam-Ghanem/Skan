@@ -8,6 +8,7 @@ int main()
 {
     using skan::output::display_width;
     using skan::output::sanitize_terminal_text;
+    using skan::output::sanitize_utf8_text;
     using skan::output::truncate_display;
 
     const std::string hostile =
@@ -24,6 +25,8 @@ int main()
 
     const std::string malformed = std::string("A") + static_cast<char>(0xc3) + "(";
     assert(sanitize_terminal_text(malformed) == "A?(");
+    assert(sanitize_utf8_text(malformed) == "A?(");
+    assert(sanitize_utf8_text("line\n\tcaf\xc3\xa9") == "line\n\tcaf\xc3\xa9");
 
     const std::string bidi_override{"before\xe2\x80\xae" "after"};
     assert(sanitize_terminal_text(bidi_override) == "before?after");

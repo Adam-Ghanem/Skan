@@ -123,6 +123,23 @@ std::size_t sgr_length(std::string_view text, std::size_t offset) noexcept
 
 } // namespace
 
+std::string sanitize_utf8_text(std::string_view text)
+{
+    std::string sanitized;
+    sanitized.reserve(text.size());
+    for (std::size_t offset = 0U; offset < text.size();) {
+        const DecodedCodePoint decoded = decode(text, offset);
+        if (!decoded.valid) {
+            sanitized.push_back('?');
+            ++offset;
+            continue;
+        }
+        sanitized.append(text.substr(offset, decoded.length));
+        offset += decoded.length;
+    }
+    return sanitized;
+}
+
 std::string sanitize_terminal_text(std::string_view text)
 {
     std::string sanitized;

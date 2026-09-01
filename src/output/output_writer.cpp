@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "output/terminal_text.hpp"
+
 namespace skan::output {
 namespace {
 
@@ -135,10 +137,11 @@ std::vector<const osdetect::OSMatchResult *> ordered_os_matches(const HostResult
 
 std::string json_escape(std::string_view value)
 {
+    const std::string sanitized = sanitize_utf8_text(value);
     std::string escaped;
-    escaped.reserve(value.size());
+    escaped.reserve(sanitized.size());
     static constexpr char hex[] = "0123456789abcdef";
-    for (const unsigned char character : value) {
+    for (const unsigned char character : sanitized) {
         switch (character) {
         case '"':
             escaped += "\\\"";
@@ -177,9 +180,10 @@ std::string json_escape(std::string_view value)
 
 std::string xml_escape(std::string_view value)
 {
+    const std::string sanitized = sanitize_utf8_text(value);
     std::string escaped;
-    escaped.reserve(value.size());
-    for (const char character : value) {
+    escaped.reserve(sanitized.size());
+    for (const char character : sanitized) {
         switch (character) {
         case '&':
             escaped += "&amp;";
@@ -211,9 +215,10 @@ std::string xml_escape(std::string_view value)
 
 std::string grep_escape(std::string_view value)
 {
+    const std::string sanitized = sanitize_utf8_text(value);
     std::string escaped;
-    escaped.reserve(value.size());
-    for (const unsigned char character : value) {
+    escaped.reserve(sanitized.size());
+    for (const unsigned char character : sanitized) {
         if (character == '\\' || character == '"' || character == '\n' || character == '\r' ||
             character == '\t') {
             escaped.push_back('\\');
