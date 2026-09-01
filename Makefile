@@ -51,6 +51,8 @@ CPP_SOURCES := \
 		src/output/result_model.cpp \
 		src/output/output_writer.cpp \
 		src/output/output_context.cpp \
+		src/output/terminal_capabilities.cpp \
+		src/output/terminal_layout.cpp \
 		src/output/output_normal.cpp \
 		src/output/output_json.cpp \
 		src/output/output_xml.cpp \
@@ -140,7 +142,8 @@ SCANENGINE_OBJECTS := $(BUILD_DIR)/scanengine/timing_profile.o $(BUILD_DIR)/scan
 	$(BUILD_DIR)/scanengine/scan_group.o $(BUILD_DIR)/scanengine/adaptive_scheduler.o \
 			$(BUILD_DIR)/scanengine/scan_engine.o
 OUTPUT_OBJECTS := $(BUILD_DIR)/output/result_model.o $(BUILD_DIR)/output/output_writer.o \
-	$(BUILD_DIR)/output/output_context.o \
+	$(BUILD_DIR)/output/output_context.o $(BUILD_DIR)/output/terminal_capabilities.o \
+	$(BUILD_DIR)/output/terminal_layout.o \
 	$(BUILD_DIR)/output/output_normal.o $(BUILD_DIR)/output/output_json.o \
 	$(BUILD_DIR)/output/output_xml.o $(BUILD_DIR)/output/output_grepable.o \
 	$(BUILD_DIR)/output/output_manager.o
@@ -228,6 +231,8 @@ TEST_SOURCES := \
 		tests/integration/scanengine/test_scan_engine_io.cpp \
 		tests/unit/output/test_result_model.cpp \
 		tests/unit/output/test_output_context.cpp \
+		tests/unit/output/test_terminal_capabilities.cpp \
+		tests/unit/output/test_terminal_layout.cpp \
 		tests/unit/output/test_output_normal.cpp \
 		tests/unit/output/test_output_json.cpp \
 		tests/unit/output/test_output_xml.cpp \
@@ -311,6 +316,8 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_scan_engine_io \
 		$(BUILD_DIR)/test_result_model \
 		$(BUILD_DIR)/test_output_context \
+		$(BUILD_DIR)/test_terminal_capabilities \
+		$(BUILD_DIR)/test_terminal_layout \
 		$(BUILD_DIR)/test_output_normal \
 		$(BUILD_DIR)/test_output_json \
 		$(BUILD_DIR)/test_output_xml \
@@ -553,6 +560,12 @@ $(BUILD_DIR)/test_result_model: $(BUILD_DIR)/tests/unit/output/test_result_model
 $(BUILD_DIR)/test_output_context: $(BUILD_DIR)/tests/unit/output/test_output_context.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+$(BUILD_DIR)/test_terminal_capabilities: $(BUILD_DIR)/tests/unit/output/test_terminal_capabilities.o $(BUILD_DIR)/output/terminal_capabilities.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_terminal_layout: $(BUILD_DIR)/tests/unit/output/test_terminal_layout.o $(BUILD_DIR)/output/terminal_capabilities.o $(BUILD_DIR)/output/terminal_layout.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/test_output_normal: $(BUILD_DIR)/tests/unit/output/test_output_normal.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
@@ -743,6 +756,8 @@ test: $(TEST_BINARIES)
 			./$(BUILD_DIR)/test_scan_engine_io
 		./$(BUILD_DIR)/test_result_model
 		./$(BUILD_DIR)/test_output_context
+		./$(BUILD_DIR)/test_terminal_capabilities
+		./$(BUILD_DIR)/test_terminal_layout
 		./$(BUILD_DIR)/test_output_normal
 		./$(BUILD_DIR)/test_output_json
 		./$(BUILD_DIR)/test_output_xml
