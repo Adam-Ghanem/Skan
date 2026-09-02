@@ -33,10 +33,14 @@ PROJECT := skan
 TARGET := bin/$(PROJECT)
 BUILD_DIR := build
 
+# Build-flavor targets must clean before compiling even when callers enable -j.
+.NOTPARALLEL: debug release
+
 CPP_SOURCES := \
 	src/core/types.cpp \
 	src/core/status.cpp \
 	src/core/runtime_paths.cpp \
+	src/core/text_safety.cpp \
 	src/core/log.cpp \
 	src/io/event.cpp \
 	src/io/io_engine.cpp \
@@ -51,6 +55,12 @@ CPP_SOURCES := \
 		src/output/result_model.cpp \
 		src/output/output_writer.cpp \
 		src/output/output_context.cpp \
+		src/output/terminal_capabilities.cpp \
+		src/output/terminal_layout.cpp \
+		src/output/terminal_text.cpp \
+		src/output/terminal_theme.cpp \
+		src/output/terminal/progress_renderer.cpp \
+		src/output/terminal/report_renderer.cpp \
 		src/output/output_normal.cpp \
 		src/output/output_json.cpp \
 		src/output/output_xml.cpp \
@@ -131,7 +141,7 @@ CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
 LIB_CPP_OBJECTS := $(filter-out $(BUILD_DIR)/main.o,$(CPP_OBJECTS))
 C_OBJECTS := $(C_SOURCES:src/%.c=$(BUILD_DIR)/%.o)
 CORE_OBJECTS := $(BUILD_DIR)/core/types.o $(BUILD_DIR)/core/status.o \
-	$(BUILD_DIR)/core/runtime_paths.o
+	$(BUILD_DIR)/core/runtime_paths.o $(BUILD_DIR)/core/text_safety.o
 CORE_LOG_OBJECT := $(BUILD_DIR)/core/log.o
 C_API_OBJECTS := $(BUILD_DIR)/c_api/status.o
 IO_OBJECTS := $(BUILD_DIR)/io/event.o $(BUILD_DIR)/io/io_engine.o $(BUILD_DIR)/io/timer.o
@@ -140,7 +150,9 @@ SCANENGINE_OBJECTS := $(BUILD_DIR)/scanengine/timing_profile.o $(BUILD_DIR)/scan
 	$(BUILD_DIR)/scanengine/scan_group.o $(BUILD_DIR)/scanengine/adaptive_scheduler.o \
 			$(BUILD_DIR)/scanengine/scan_engine.o
 OUTPUT_OBJECTS := $(BUILD_DIR)/output/result_model.o $(BUILD_DIR)/output/output_writer.o \
-	$(BUILD_DIR)/output/output_context.o \
+	$(BUILD_DIR)/output/output_context.o $(BUILD_DIR)/output/terminal_capabilities.o \
+	$(BUILD_DIR)/output/terminal_layout.o $(BUILD_DIR)/output/terminal_text.o \
+	$(BUILD_DIR)/output/terminal_theme.o $(BUILD_DIR)/output/terminal/report_renderer.o \
 	$(BUILD_DIR)/output/output_normal.o $(BUILD_DIR)/output/output_json.o \
 	$(BUILD_DIR)/output/output_xml.o $(BUILD_DIR)/output/output_grepable.o \
 	$(BUILD_DIR)/output/output_manager.o
@@ -228,6 +240,12 @@ TEST_SOURCES := \
 		tests/integration/scanengine/test_scan_engine_io.cpp \
 		tests/unit/output/test_result_model.cpp \
 		tests/unit/output/test_output_context.cpp \
+		tests/unit/output/test_terminal_capabilities.cpp \
+		tests/unit/output/test_terminal_layout.cpp \
+		tests/unit/output/test_terminal_text.cpp \
+		tests/unit/output/test_terminal_theme.cpp \
+		tests/unit/output/test_terminal_progress.cpp \
+		tests/unit/output/test_terminal_renderer.cpp \
 		tests/unit/output/test_output_normal.cpp \
 		tests/unit/output/test_output_json.cpp \
 		tests/unit/output/test_output_xml.cpp \
@@ -311,6 +329,12 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_scan_engine_io \
 		$(BUILD_DIR)/test_result_model \
 		$(BUILD_DIR)/test_output_context \
+		$(BUILD_DIR)/test_terminal_capabilities \
+		$(BUILD_DIR)/test_terminal_layout \
+		$(BUILD_DIR)/test_terminal_text \
+		$(BUILD_DIR)/test_terminal_theme \
+		$(BUILD_DIR)/test_terminal_progress \
+		$(BUILD_DIR)/test_terminal_renderer \
 		$(BUILD_DIR)/test_output_normal \
 		$(BUILD_DIR)/test_output_json \
 		$(BUILD_DIR)/test_output_xml \
@@ -402,7 +426,7 @@ $(BUILD_DIR)/test_constants: $(BUILD_DIR)/tests/unit/core/test_constants.o | $(B
 $(BUILD_DIR)/test_runtime_paths: $(BUILD_DIR)/tests/unit/core/test_runtime_paths.o $(BUILD_DIR)/core/runtime_paths.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_log: $(BUILD_DIR)/tests/unit/core/test_log.o $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_log: $(BUILD_DIR)/tests/unit/core/test_log.o $(CORE_LOG_OBJECT) $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_event: $(BUILD_DIR)/tests/unit/io/test_event.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
@@ -553,6 +577,24 @@ $(BUILD_DIR)/test_result_model: $(BUILD_DIR)/tests/unit/output/test_result_model
 $(BUILD_DIR)/test_output_context: $(BUILD_DIR)/tests/unit/output/test_output_context.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+$(BUILD_DIR)/test_terminal_capabilities: $(BUILD_DIR)/tests/unit/output/test_terminal_capabilities.o $(BUILD_DIR)/output/terminal_capabilities.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_terminal_layout: $(BUILD_DIR)/tests/unit/output/test_terminal_layout.o $(BUILD_DIR)/output/terminal_capabilities.o $(BUILD_DIR)/output/terminal_layout.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_terminal_text: $(BUILD_DIR)/tests/unit/output/test_terminal_text.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_terminal_theme: $(BUILD_DIR)/tests/unit/output/test_terminal_theme.o $(BUILD_DIR)/output/terminal_theme.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_terminal_progress: $(BUILD_DIR)/tests/unit/output/test_terminal_progress.o $(BUILD_DIR)/output/terminal/progress_renderer.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_terminal_renderer: $(BUILD_DIR)/tests/unit/output/test_terminal_renderer.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/test_output_normal: $(BUILD_DIR)/tests/unit/output/test_output_normal.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
@@ -698,6 +740,7 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_types
 	./$(BUILD_DIR)/test_status
 	./$(BUILD_DIR)/test_constants
+	./$(BUILD_DIR)/test_runtime_paths
 	./$(BUILD_DIR)/test_log
 	./$(BUILD_DIR)/test_event
 	./$(BUILD_DIR)/test_io_engine
@@ -706,9 +749,11 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_packet
 	./$(BUILD_DIR)/test_ethernet
 	./$(BUILD_DIR)/test_ipv4
+	./$(BUILD_DIR)/test_ipv6
 	./$(BUILD_DIR)/test_tcp
 	./$(BUILD_DIR)/test_udp
 	./$(BUILD_DIR)/test_icmp
+	./$(BUILD_DIR)/test_icmpv6
 	./$(BUILD_DIR)/test_checksum
 	./$(BUILD_DIR)/test_discovery_types
 	./$(BUILD_DIR)/test_discovery_probe
@@ -743,6 +788,12 @@ test: $(TEST_BINARIES)
 			./$(BUILD_DIR)/test_scan_engine_io
 		./$(BUILD_DIR)/test_result_model
 		./$(BUILD_DIR)/test_output_context
+		./$(BUILD_DIR)/test_terminal_capabilities
+		./$(BUILD_DIR)/test_terminal_layout
+		./$(BUILD_DIR)/test_terminal_text
+		./$(BUILD_DIR)/test_terminal_theme
+		./$(BUILD_DIR)/test_terminal_progress
+		./$(BUILD_DIR)/test_terminal_renderer
 		./$(BUILD_DIR)/test_output_normal
 		./$(BUILD_DIR)/test_output_json
 		./$(BUILD_DIR)/test_output_xml

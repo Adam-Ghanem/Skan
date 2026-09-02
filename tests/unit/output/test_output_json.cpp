@@ -8,7 +8,8 @@
 int main()
 {
     skan::output::JsonOutputWriter writer;
-    const skan::output::ScanReport report = skan::output::test::make_report();
+    skan::output::ScanReport report = skan::output::test::make_report();
+    report.warnings.push_back(std::string("invalid-utf8") + static_cast<char>(0x9b));
     std::ostringstream first;
     std::ostringstream second;
     assert(writer.write(report, first, skan::output::OutputContext{}) == skan::output::OutputStatus::Ok);
@@ -43,6 +44,8 @@ int main()
     assert(first.str().find("\"certificate_subject\": \"CN=www.example.test\"") != std::string::npos);
     assert(first.str().find("\"certificate_san_names\": [") != std::string::npos);
     assert(first.str().find("\"alpn\": [") != std::string::npos);
+    assert(first.str().find(static_cast<char>(0x9b)) == std::string::npos);
+    assert(first.str().find("invalid-utf8?") != std::string::npos);
 
     skan::output::OutputContext compact;
     compact.pretty_json = false;

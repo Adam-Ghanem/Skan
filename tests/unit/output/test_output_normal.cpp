@@ -1,9 +1,9 @@
 #include <cassert>
-#include <cstdlib>
 #include <sstream>
 #include <string>
 
 #include "output/output_normal.hpp"
+#include "output/terminal_text.hpp"
 #include "output_test_fixture.hpp"
 
 namespace {
@@ -24,7 +24,7 @@ int main()
 {
     skan::output::NormalOutputWriter writer;
     skan::output::OutputContext interactive;
-    interactive.interactive_terminal = true;
+    interactive.terminal = {true, 120U, false, true};
 
     const skan::output::ScanReport default_report;
     assert(default_report.scanner_name == "Skan");
@@ -77,9 +77,9 @@ int main()
 
     const std::string open_line = line_containing(first.str(), "80/tcp");
     assert(open_line.find("80/tcp") == 2U);
-    assert(open_line.find("OPEN") == 14U);
-    assert(open_line.find("http") == 27U);
-    assert(open_line.find("nginx") == 41U);
+    assert(open_line.find("OPEN") > open_line.find("80/tcp"));
+    assert(open_line.find("http") > open_line.find("OPEN"));
+    assert(open_line.find("nginx") > open_line.find("http"));
 
     skan::output::ScanReport reachable_report = report;
     reachable_report.hosts.front().state = skan::discovery::HostState::Unknown;
@@ -91,11 +91,10 @@ int main()
     assert(reachable_host_line.find("UNKNOWN") == std::string::npos);
 
     skan::output::OutputContext colored;
-    colored.interactive_terminal = true;
-    colored.color_enabled = true;
+    colored.terminal = {true, 120U, true, true};
     std::ostringstream colored_output;
     assert(writer.write(report, colored_output, colored) == skan::output::OutputStatus::Ok);
-    assert(colored_output.str().find("\x1b[36m") != std::string::npos);
+    assert(colored_output.str().find("\x1b[36;1m") != std::string::npos);
     assert(colored_output.str().find("\x1b[32mOPEN") != std::string::npos);
     assert(colored_output.str().find("\x1b[33mFILTERED") != std::string::npos);
 
@@ -108,16 +107,16 @@ int main()
     assert(filtered_output.str().find("\n  443/tcp") == std::string::npos);
 
 
-    (void)::setenv("COLUMNS", "60", 1);
+    skan::output::OutputContext narrow = interactive;
+    narrow.terminal.columns = 72U;
     std::ostringstream narrow_output;
-    assert(writer.write(report, narrow_output, interactive) == skan::output::OutputStatus::Ok);
+    assert(writer.write(report, narrow_output, narrow) == skan::output::OutputStatus::Ok);
     std::istringstream narrow_lines(narrow_output.str());
     std::string narrow_line;
     while (std::getline(narrow_lines, narrow_line)) {
-        assert(narrow_line.size() <= 60U);
+        assert(skan::output::display_width(narrow_line) <= 72U);
     }
     assert(narrow_output.str().find("VERSION") == std::string::npos);
-    (void)::unsetenv("COLUMNS");
 
     skan::output::OutputContext reasons = interactive;
     reasons.include_reasons = true;
@@ -137,6 +136,14 @@ int main()
     assert(open_output.str().find("8443/tcp") == std::string::npos);
     assert(open_output.str().find("1 open") != std::string::npos);
     assert(open_output.str().find("1 filtered") != std::string::npos);
+
+    skan::output::OutputContext plain_open;
+    plain_open.open_only = true;
+    plain_open.terminal = {false, 80U, false, false};
+    std::ostringstream plain_open_output;
+    assert(writer.write(report, plain_open_output, plain_open) == skan::output::OutputStatus::Ok);
+    assert(plain_open_output.str().find("1 filtered") != std::string::npos);
+    assert(plain_open_output.str().find("filtered=1") == std::string::npos);
 
     return 0;
 }

@@ -1,0 +1,20 @@
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  ◈ SKAN  Modern Network Scanner                                                                              v0.1.0  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+Target  2001:db8::10
+
+● 2001:db8::10 (edge?[31m?host)  reachable / 4.20 ms
+
+  PORT       STATE         SERVICE           VERSION                                                REASON
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  22/tcp     CLOSED        -                 -                                                      CONNECTION_REFUSED
+  443/tcp    OPEN          https             nginx 1.25-very-long-version                           IMMEDIATE_SUCCESS
+                           ssl/http          OpenSSL 3.0
+  ! banner?unsafe
+
+
+Scan complete  42.5 ms
+  1 open / 1 closed / 0 filtered / 2 scanned / 2 services
+
+Skan — See more. Know more. Secure more.

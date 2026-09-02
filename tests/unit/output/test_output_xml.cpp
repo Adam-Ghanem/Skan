@@ -8,7 +8,9 @@
 int main()
 {
     skan::output::XmlOutputWriter writer;
-    const skan::output::ScanReport report = skan::output::test::make_report();
+    skan::output::ScanReport report = skan::output::test::make_report();
+    report.warnings.push_back(std::string("invalid-utf8") + static_cast<char>(0x9b));
+    report.warnings.push_back("xml-forbidden:\xef\xbf\xbe:\xef\xbf\xbf");
     std::ostringstream first;
     std::ostringstream second;
     assert(writer.write(report, first, skan::output::OutputContext{}) == skan::output::OutputStatus::Ok);
@@ -41,5 +43,10 @@ int main()
     assert(first.str().find("<certificate-subject>CN=www.example.test</certificate-subject>") != std::string::npos);
     assert(first.str().find("<certificate-san>example.test</certificate-san>") != std::string::npos);
     assert(first.str().find("<alpn>h2</alpn>") != std::string::npos);
+    assert(first.str().find(static_cast<char>(0x9b)) == std::string::npos);
+    assert(first.str().find("invalid-utf8?") != std::string::npos);
+    assert(first.str().find("\xef\xbf\xbe") == std::string::npos);
+    assert(first.str().find("\xef\xbf\xbf") == std::string::npos);
+    assert(first.str().find("xml-forbidden:?:?") != std::string::npos);
     return 0;
 }

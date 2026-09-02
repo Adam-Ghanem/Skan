@@ -109,7 +109,9 @@ Targets, network operations, and live capabilities are explicitly bounded and va
 
 ### Terminal identity
 
-Interactive normal scans use Skan's compact terminal UI: a branded header, aligned port/service table, state colors, and a concise completion summary. ANSI colors are enabled only for an interactive terminal; redirected output and output files remain color-free. Use `--no-color` to disable terminal colors explicitly and `--debug` to opt into diagnostic engine logs. JSON, XML, and grepable formats remain decoration-free for automation.
+Interactive normal scans use Skan's responsive terminal UI: a branded header, width-aware port/service table, semantic state colors, and an evidence-derived completion summary. Layout is selected once from the stdout terminal width: narrow at 64–87 columns, medium at 88–119, and wide at 120 or more. Smaller, non-TTY, and `TERM=dumb` output uses deterministic ASCII plain text.
+
+Color requires an interactive color-capable stdout and can be disabled with `--no-color` or `NO_COLOR`. Redirects, output files, JSON, XML, and grepable output never receive terminal decoration. Transient progress is written only to stderr when both stdout and stderr are interactive terminals; it reports completed event counts only, never fabricates rates, percentages, or ETA, and is disabled with `--debug` so diagnostic logs cannot collide with it. Current orchestration events are emitted in post-stage batches, so the progress line is intentionally not a live packet-rate meter.
 
 ## 🔧 Building from source
 
@@ -169,7 +171,7 @@ See [Service fingerprinting](docs/SERVICE_FINGERPRINTS.md) for the clean-room pr
 
 ## 🏅 Security & Quality
 
-Skan CI enforces clean builds, the complete registered test suite, debug/release builds, ASan/LSan, UBSan, coverage, fuzz capability handling, static safety checks, Nmap-compatible CLI regressions, isolated privileged dual-stack validation, Debian package policy checks, and installed-package acceptance on Debian 12 and Ubuntu 24.04.
+Skan CI enforces clean builds, the complete registered test suite, debug/release builds, ASan/LSan, UBSan, coverage, fuzz capability handling, static safety checks, Nmap-compatible and PTY terminal-policy regressions, isolated privileged dual-stack validation, Debian package policy checks, and installed-package acceptance on Debian 12 and Ubuntu 24.04.
 
 > **Security note:** Skan is a network reconnaissance tool. Only scan systems and networks you are authorized to test.
 
@@ -212,6 +214,7 @@ Phases 29.1–33 establish the current release baseline:
 - Phase 32 adds multiple positional targets, `-4`/`-6`, resolved target exclusions, active-protocol port exclusions, and protocol-aware `-p`/`-p-`.
 - Service detection adds prioritized probes, per-probe timeouts, explicit fallbacks, soft/hard matches, a broader project-owned corpus, and bounded TLS certificate/ALPN metadata.
 - Phase 33 adds `--open` and `--reason` through the canonical output context without changing scan evidence or summaries.
+- The terminal-dashboard milestone adds capability detection, responsive layouts, safe display-width handling, deterministic redirected output, and truthful post-stage progress without changing scan evidence.
 - The project is MIT licensed.
 
 Skan is not a complete Nmap replacement yet. NSE, traceroute, advanced scan families, Nmap-scale fingerprint breadth, and cross-platform raw transports remain future work. The project does not silently emulate unsupported features.

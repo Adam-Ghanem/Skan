@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "core/constants.hpp"
+#include "core/log.hpp"
 #include "core/status.hpp"
 #include "db/os_db.hpp"
 #include "detect/service_detector.hpp"
@@ -25,6 +26,8 @@
 #include "osdetect/os_probe.hpp"
 #include "output/output_manager.hpp"
 #include "output/result_model.hpp"
+#include "output/terminal/progress_renderer.hpp"
+#include "output/terminal_text.hpp"
 #include "net/interface.hpp"
 #include "net/linux_discovery_transport.hpp"
 #include "net/linux_os_probe_transport.hpp"
@@ -40,6 +43,11 @@ namespace {
 constexpr std::array<std::uint16_t, 100U> kTopTcpPorts{
     80U, 443U, 22U, 21U, 25U, 53U, 110U, 445U, 139U, 143U, 23U, 3389U, 3306U, 8080U, 1723U, 111U, 995U, 993U, 5900U, 1025U, 587U, 8888U, 199U, 1720U, 465U, 548U, 113U, 81U, 6001U, 10000U, 514U, 5060U, 179U, 1026U, 2000U, 8443U, 8000U, 32768U, 554U, 26U, 1433U, 49152U, 2001U, 515U, 8008U, 49154U, 1027U, 5666U, 646U, 5000U, 5631U, 631U, 49153U, 8081U, 2049U, 88U, 79U, 5800U, 106U, 2121U, 1110U, 49155U, 6000U, 513U, 990U, 5357U, 427U, 49156U, 543U, 544U, 5101U, 144U, 7U, 389U, 8009U, 3128U, 444U, 9999U, 5009U, 7070U, 5190U, 3000U, 5432U, 1900U, 3986U, 13U, 1029U, 9U, 5051U, 6646U, 49157U, 1028U, 873U, 1755U, 2717U, 4899U, 9100U, 119U, 37U, 1000U
 };
+
+std::string terminal_safe(std::string_view value)
+{
+    return skan::output::sanitize_terminal_text(value);
+}
 
 void print_help()
 {
@@ -248,7 +256,7 @@ int run_discover(int argc, char **argv)
     if (transport_mode == "linux" && interface_name.empty()) {
         const skan::net::InterfaceResult selected = skan::net::select_interface_for_target(target);
         if (!selected.success()) {
-            std::cerr << "Error: raw interface selection failed: " << selected.message << " ("
+            std::cerr << "Error: raw interface selection failed: " << terminal_safe(selected.message) << " ("
                       << skan::net::interface_status_name(selected.status) << ").\n";
             return EXIT_FAILURE;
         }
@@ -260,7 +268,7 @@ int run_discover(int argc, char **argv)
                                      interface_name.empty() ? std::nullopt
                                                              : std::optional<std::string>{interface_name},
                                      scope_error)) {
-            std::cerr << "Error: " << scope_error << ".\n";
+            std::cerr << "Error: " << terminal_safe(scope_error) << ".\n";
             return EXIT_FAILURE;
         }
     }
@@ -284,7 +292,7 @@ int run_discover(int argc, char **argv)
                       << " category=" << skan::net::preflight_category_name(network_status.category)
                       << " family=" << skan::core::address_family_name(network_status.family);
             if (!network_status.message.empty()) {
-                std::cerr << " (" << network_status.message << ')';
+                std::cerr << " (" << terminal_safe(network_status.message) << ')';
             }
             std::cerr << '\n';
             return EXIT_FAILURE;
@@ -330,7 +338,7 @@ void print_target_error(const skan::target::TargetError &error)
 {
     std::cerr << "Error: " << skan::target::target_error_name(error.code);
     if (!error.message.empty()) {
-        std::cerr << ": " << error.message;
+        std::cerr << ": " << terminal_safe(error.message);
     }
     std::cerr << '\n';
 }
@@ -621,7 +629,7 @@ int run_interfaces(int argc, char **argv)
         std::cerr << "Error: unable to enumerate interfaces: "
                   << skan::net::interface_status_name(enumeration.status);
         if (!enumeration.message.empty()) {
-            std::cerr << " (" << enumeration.message << ')';
+            std::cerr << " (" << terminal_safe(enumeration.message) << ')';
         }
         std::cerr << '\n';
         return EXIT_FAILURE;
@@ -636,7 +644,7 @@ int run_interfaces(int argc, char **argv)
                 return interface.name == selected_name;
             });
         if (found == enumeration.interfaces.end()) {
-            std::cerr << "Error: interface was not found: " << selected_name << '\n';
+            std::cerr << "Error: interface was not found: " << terminal_safe(selected_name) << '\n';
             return EXIT_FAILURE;
         }
         interfaces.push_back(*found);
@@ -773,7 +781,7 @@ int run_os_detect(int argc, char **argv)
     if (transport_mode == "linux" && !interface_name.has_value()) {
         const skan::net::InterfaceResult selected = skan::net::select_interface_for_target(target);
         if (!selected.success()) {
-            std::cerr << "Error: raw interface selection failed: " << selected.message << " ("
+            std::cerr << "Error: raw interface selection failed: " << terminal_safe(selected.message) << " ("
                       << skan::net::interface_status_name(selected.status) << ").\n";
             return EXIT_FAILURE;
         }
@@ -783,7 +791,7 @@ int run_os_detect(int argc, char **argv)
         for (const skan::core::Host &host : target.resolved_hosts) {
             std::string scope_error;
             if (!validate_raw_ipv6_scope(host.ip_address, interface_name, scope_error)) {
-                std::cerr << "Error: " << scope_error << ".\n";
+                std::cerr << "Error: " << terminal_safe(scope_error) << ".\n";
                 return EXIT_FAILURE;
             }
         }
@@ -808,7 +816,7 @@ int run_os_detect(int argc, char **argv)
     if (status != skan::core::StatusCode::Ok) {
         std::cerr << "Error: OS detection failed: " << skan::core::status_to_string(status);
         if (!orchestrator.session().error_message().empty()) {
-            std::cerr << " (" << orchestrator.session().error_message() << ')';
+            std::cerr << " (" << terminal_safe(orchestrator.session().error_message()) << ')';
         }
         std::cerr << '\n';
         return EXIT_FAILURE;
@@ -838,6 +846,7 @@ int run_scan(int argc, char **argv)
     std::optional<std::string> output_all_prefix;
     std::vector<std::string> excluded_target_specifications;
     bool no_color = false;
+    bool debug_logging = false;
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "-sT") {
@@ -1078,7 +1087,8 @@ int run_scan(int argc, char **argv)
         } else if (argument == "--no-color") {
             no_color = true;
         } else if (argument == "--debug") {
-            (void)::setenv("SKAN_LOG", "debug", 1);
+            debug_logging = true;
+            skan::log::set_minimum_level(skan::log::Level::Debug);
         } else if (argument == "--service-db" && index + 1 < argc) {
             config.service_db_path = argv[++index];
             if (config.service_db_path.empty()) {
@@ -1230,11 +1240,11 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: --discovery requires --transport offline or --transport linux --interface <name>.\n";
         return EXIT_FAILURE;
     }
-    const bool interactive_normal_output =
-        config.output_format == skan::output::OutputFormat::Normal &&
-        !config.output_file.has_value() && !output_all_prefix.has_value() && ::isatty(STDOUT_FILENO) != 0;
-    config.output_context.interactive_terminal = interactive_normal_output;
-    config.output_context.color_enabled = interactive_normal_output && !no_color;
+    if (config.output_format == skan::output::OutputFormat::Normal &&
+        !config.output_file.has_value() && !output_all_prefix.has_value()) {
+        config.output_context.terminal =
+            skan::output::detect_terminal_capabilities(STDOUT_FILENO, no_color);
+    }
     const skan::target::TargetResolutionResult resolved =
         skan::target::TargetEngine::resolve(target_specification, target_limits);
     if (!resolved.success()) {
@@ -1282,7 +1292,7 @@ int run_scan(int argc, char **argv)
     if (config.transport == skan::orchestrator::ScanTransport::Linux && !config.interface_name.has_value()) {
         const skan::net::InterfaceResult selected = skan::net::select_interface_for_target(normalized_target);
         if (!selected.success()) {
-            std::cerr << "Error: raw interface selection failed: " << selected.message << " ("
+            std::cerr << "Error: raw interface selection failed: " << terminal_safe(selected.message) << " ("
                       << skan::net::interface_status_name(selected.status) << ").\n";
             return EXIT_FAILURE;
         }
@@ -1292,13 +1302,27 @@ int run_scan(int argc, char **argv)
         for (const skan::core::Host &host : normalized_target.resolved_hosts) {
             std::string scope_error;
             if (!validate_raw_ipv6_scope(host.ip_address, config.interface_name, scope_error)) {
-                std::cerr << "Error: " << scope_error << ".\n";
+                std::cerr << "Error: " << terminal_safe(scope_error) << ".\n";
                 return EXIT_FAILURE;
             }
         }
     }
     config.targets.push_back(std::move(normalized_target));
-    skan::orchestrator::ScanOrchestrator orchestrator(config);
+    const skan::output::TerminalCapabilities standard_error =
+        skan::output::detect_terminal_capabilities(STDERR_FILENO, no_color);
+    const skan::output::ProgressPolicyInput progress_policy{
+        config.output_context.terminal,
+        standard_error,
+        config.output_format,
+        config.output_file.has_value() || output_all_prefix.has_value(),
+        debug_logging};
+    skan::output::TerminalProgressRenderer progress(
+        std::cerr,
+        skan::output::progress_allowed(progress_policy),
+        standard_error.unicode);
+    skan::orchestrator::ScanOrchestrator orchestrator(
+        config,
+        [&progress](const skan::orchestrator::ScanEvent &event) { progress.handle(event); });
     std::ostringstream suppressed_primary_output;
     std::ostream &primary_output = output_all_prefix.has_value()
                                        ? static_cast<std::ostream &>(suppressed_primary_output)
@@ -1307,7 +1331,7 @@ int run_scan(int argc, char **argv)
     if (status != skan::core::StatusCode::Ok) {
         std::cerr << "Error: scan orchestration failed: " << skan::core::status_to_string(status);
         if (!orchestrator.session().error_message().empty()) {
-            std::cerr << " (" << orchestrator.session().error_message() << ')';
+            std::cerr << " (" << terminal_safe(orchestrator.session().error_message()) << ')';
         }
         std::cerr << '\n';
         return EXIT_FAILURE;
@@ -1324,8 +1348,7 @@ int run_scan(int argc, char **argv)
                 return false;
             }
             skan::output::OutputContext file_context = config.output_context;
-            file_context.color_enabled = false;
-            file_context.interactive_terminal = false;
+            file_context.terminal = {};
             return skan::output::OutputManager::write(
                        format, *orchestrator.report(), output, file_context) ==
                    skan::output::OutputStatus::Ok && output.good();

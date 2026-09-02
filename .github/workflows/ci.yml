@@ -41,7 +41,9 @@ jobs:
           make -j2 test
 
       - name: Nmap-compatible CLI regression
-        run: bash tests/integration/cli/test_nmap_compat.sh
+        run: |
+          bash tests/integration/cli/test_nmap_compat.sh
+          python3 tests/integration/cli/test_terminal_policy.py
 
       - name: Repository clean
         run: |

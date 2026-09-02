@@ -172,3 +172,9 @@ The project-owned service corpus now includes prioritized TCP/UDP probes, per-pr
 Phase 33 adds `--open` and `--reason` through the existing `OutputContext` and canonical writers. `--open` serializes only `OPEN` and `OPEN_OR_FILTERED` port rows across normal, JSON, XML, grepable, file, and `-oA` output while retaining the full canonical report and summary counters. `--reason` adds canonical state reasons to normal output; structured formats keep their existing evidence fields.
 
 Offline CLI regression and writer tests cover the aliases. The phase does not alter probing, classification, scheduling, transport, service detection, or OS detection.
+
+## Terminal dashboard milestone status
+
+The normal writer now uses one capability snapshot and responsive wide, medium, narrow, or plain renderers over the canonical `ScanReport`. Terminal text is UTF-8 validated, control-safe, display-cell measured, and deterministically truncated. Redirected and file output stays ASCII and machine formats remain decoration-free. A presentation-only event sink writes throttled completed-result counters to stderr only when stdout and stderr are both interactive; it clears before report serialization and does not claim rate or ETA from post-stage batches.
+
+PTY policy tests cover `--no-color`, `NO_COLOR`, `TERM=dumb`, redirects, files, machine output, and debug/progress separation. The next numbered scanner milestone remains Phase 34 advanced scan types; this dashboard work does not implement or claim any Phase 34 scan family.
