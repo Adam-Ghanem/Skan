@@ -2,6 +2,7 @@
 #define SKAN_CORE_LOG_HPP
 
 #include <sstream>
+#include <iosfwd>
 #include <string>
 #include <string_view>
 
@@ -16,6 +17,8 @@ enum class Level {
 
 void set_minimum_level(Level level) noexcept;
 Level minimum_level() noexcept;
+void set_terminal_progress_active(bool active) noexcept;
+void write_to(std::ostream &stream, bool clear_active_terminal_line, Level level, std::string_view message);
 void write(Level level, std::string_view message);
 
 namespace detail {

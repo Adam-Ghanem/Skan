@@ -43,5 +43,13 @@ int main()
     assert(display_width(truncate_display("service-\xe7\x95\x8c-long", 10U)) <= 10U);
     assert(truncate_display("ignored", 0U).empty());
 
+    std::string combining_flood{"a"};
+    for (std::size_t index = 0U; index < 4096U; ++index) {
+        combining_flood += "\xcc\x81";
+    }
+    const std::string bounded = truncate_display(combining_flood, 10U);
+    assert(bounded.size() <= 40U);
+    assert(bounded.ends_with("..."));
+
     return 0;
 }

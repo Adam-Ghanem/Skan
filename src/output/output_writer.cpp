@@ -180,7 +180,7 @@ std::string json_escape(std::string_view value)
 
 std::string xml_escape(std::string_view value)
 {
-    const std::string sanitized = sanitize_utf8_text(value);
+    const std::string sanitized = sanitize_xml_text(value);
     std::string escaped;
     escaped.reserve(sanitized.size());
     for (const char character : sanitized) {

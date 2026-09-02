@@ -83,6 +83,18 @@ def assert_success(result: tuple[int, bytes]) -> bytes:
 
 
 def main() -> None:
+    hostile_target = "bad\x1b]0;owned\x07"
+    status, rejected = run_pty([str(SKAN), "resolve", hostile_target])
+    assert status != 0
+    assert b"invalid hostname" in rejected
+    assert b"\x1b" not in rejected and b"\x07" not in rejected
+
+    hostile_interface = "missing\x1b]0;owned\x07"
+    status, rejected = run_pty([str(SKAN), "interfaces", "--interface", hostile_interface])
+    assert status != 0
+    assert b"interface was not found" in rejected
+    assert b"\x1b" not in rejected and b"\x07" not in rejected
+
     interactive = assert_success(run_pty(SCAN))
     assert b"\x1b[2K" in interactive
     assert "◈ SKAN".encode() in interactive

@@ -7,11 +7,15 @@
 #include <iomanip>
 #include <iostream>
 #include <mutex>
+#include <unistd.h>
+
+#include "core/text_safety.hpp"
 
 namespace skan::log {
 namespace {
 
 std::atomic<Level> configured_minimum_level{Level::Info};
+std::atomic<bool> terminal_progress_active{false};
 
 const char *level_name(Level level) noexcept
 {
@@ -60,6 +64,11 @@ Level minimum_level() noexcept
     return configured_minimum_level.load(std::memory_order_relaxed);
 }
 
+void set_terminal_progress_active(bool active) noexcept
+{
+    terminal_progress_active.store(active, std::memory_order_release);
+}
+
 void write(Level level, std::string_view message)
 {
     if (!enabled(level)) {
@@ -67,9 +76,19 @@ void write(Level level, std::string_view message)
     }
     static std::mutex log_mutex;
     const std::lock_guard<std::mutex> lock(log_mutex);
-    std::ostream &stream = std::cerr;
+    const bool clear_active_terminal_line =
+        terminal_progress_active.exchange(false, std::memory_order_acq_rel) &&
+        ::isatty(STDERR_FILENO) == 1;
+    write_to(std::cerr, clear_active_terminal_line, level, message);
+}
 
-    stream << '[' << timestamp() << "] [" << level_name(level) << "] " << message << '\n';
+void write_to(std::ostream &stream, bool clear_active_terminal_line, Level level, std::string_view message)
+{
+    if (clear_active_terminal_line) {
+        stream << "\r\x1b[2K";
+    }
+    stream << '[' << timestamp() << "] [" << level_name(level) << "] "
+           << core::text::sanitize_terminal(message) << '\n';
 }
 
 } // namespace skan::log

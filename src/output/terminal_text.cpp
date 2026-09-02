@@ -2,68 +2,12 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
+
+#include "core/text_safety.hpp"
 
 namespace skan::output {
 namespace {
-
-struct DecodedCodePoint final {
-    char32_t value{U'?'};
-    std::size_t length{1U};
-    bool valid{false};
-};
-
-bool continuation(unsigned char value) noexcept
-{
-    return (value & 0xc0U) == 0x80U;
-}
-
-DecodedCodePoint decode(std::string_view text, std::size_t offset) noexcept
-{
-    const auto byte = [&](std::size_t index) {
-        return static_cast<unsigned char>(text[offset + index]);
-    };
-    const std::size_t remaining = text.size() - offset;
-    const unsigned char first = byte(0U);
-    if (first <= 0x7fU) {
-        return {static_cast<char32_t>(first), 1U, true};
-    }
-    if (first >= 0xc2U && first <= 0xdfU && remaining >= 2U && continuation(byte(1U))) {
-        const char32_t value = static_cast<char32_t>(((first & 0x1fU) << 6U) | (byte(1U) & 0x3fU));
-        return {value, 2U, true};
-    }
-    if (first >= 0xe0U && first <= 0xefU && remaining >= 3U && continuation(byte(1U)) &&
-        continuation(byte(2U))) {
-        const unsigned char second = byte(1U);
-        if ((first == 0xe0U && second < 0xa0U) || (first == 0xedU && second >= 0xa0U)) {
-            return {};
-        }
-        const char32_t value = static_cast<char32_t>(((first & 0x0fU) << 12U) |
-                                                     ((second & 0x3fU) << 6U) |
-                                                     (byte(2U) & 0x3fU));
-        return {value, 3U, true};
-    }
-    if (first >= 0xf0U && first <= 0xf4U && remaining >= 4U && continuation(byte(1U)) &&
-        continuation(byte(2U)) && continuation(byte(3U))) {
-        const unsigned char second = byte(1U);
-        if ((first == 0xf0U && second < 0x90U) || (first == 0xf4U && second >= 0x90U)) {
-            return {};
-        }
-        const char32_t value = static_cast<char32_t>(((first & 0x07U) << 18U) |
-                                                     ((second & 0x3fU) << 12U) |
-                                                     ((byte(2U) & 0x3fU) << 6U) |
-                                                     (byte(3U) & 0x3fU));
-        return {value, 4U, true};
-    }
-    return {};
-}
-
-bool terminal_control(char32_t value) noexcept
-{
-    return value <= U'\x1f' || (value >= U'\x7f' && value <= U'\x9f') ||
-           value == U'\u061c' || value == U'\u200e' || value == U'\u200f' ||
-           (value >= U'\u202a' && value <= U'\u202e') ||
-           (value >= U'\u2066' && value <= U'\u2069') || value == U'\ufeff';
-}
 
 bool combining(char32_t value) noexcept
 {
@@ -90,9 +34,9 @@ bool wide(char32_t value) noexcept
            (value >= U'\U00020000' && value <= U'\U0003fffd');
 }
 
-std::size_t code_point_width(const DecodedCodePoint &decoded) noexcept
+std::size_t code_point_width(const core::text::DecodedCodePoint &decoded) noexcept
 {
-    if (!decoded.valid || terminal_control(decoded.value)) {
+    if (!decoded.valid || core::text::terminal_control(decoded.value)) {
         return 1U;
     }
     if (combining(decoded.value)) {
@@ -125,36 +69,17 @@ std::size_t sgr_length(std::string_view text, std::size_t offset) noexcept
 
 std::string sanitize_utf8_text(std::string_view text)
 {
-    std::string sanitized;
-    sanitized.reserve(text.size());
-    for (std::size_t offset = 0U; offset < text.size();) {
-        const DecodedCodePoint decoded = decode(text, offset);
-        if (!decoded.valid) {
-            sanitized.push_back('?');
-            ++offset;
-            continue;
-        }
-        sanitized.append(text.substr(offset, decoded.length));
-        offset += decoded.length;
-    }
-    return sanitized;
+    return core::text::sanitize_utf8(text);
+}
+
+std::string sanitize_xml_text(std::string_view text)
+{
+    return core::text::sanitize_xml_1_0(text);
 }
 
 std::string sanitize_terminal_text(std::string_view text)
 {
-    std::string sanitized;
-    sanitized.reserve(text.size());
-    for (std::size_t offset = 0U; offset < text.size();) {
-        const DecodedCodePoint decoded = decode(text, offset);
-        if (!decoded.valid || terminal_control(decoded.value)) {
-            sanitized.push_back('?');
-            offset += decoded.valid ? decoded.length : 1U;
-            continue;
-        }
-        sanitized.append(text.substr(offset, decoded.length));
-        offset += decoded.length;
-    }
-    return sanitized;
+    return core::text::sanitize_terminal(text);
 }
 
 std::size_t display_width(std::string_view text) noexcept
@@ -166,7 +91,7 @@ std::size_t display_width(std::string_view text) noexcept
             offset += escape_length;
             continue;
         }
-        const DecodedCodePoint decoded = decode(text, offset);
+        const core::text::DecodedCodePoint decoded = core::text::decode_utf8(text, offset);
         cells += code_point_width(decoded);
         offset += decoded.valid ? decoded.length : 1U;
     }
@@ -179,7 +104,11 @@ std::string truncate_display(std::string_view text, std::size_t maximum_cells)
         return {};
     }
     const std::string sanitized = sanitize_terminal_text(text);
-    if (display_width(sanitized) <= maximum_cells) {
+    const std::size_t maximum_bytes =
+        maximum_cells > std::numeric_limits<std::size_t>::max() / 4U
+            ? std::numeric_limits<std::size_t>::max()
+            : maximum_cells * 4U;
+    if (display_width(sanitized) <= maximum_cells && sanitized.size() <= maximum_bytes) {
         return sanitized;
     }
     if (maximum_cells <= 3U) {
@@ -187,13 +116,14 @@ std::string truncate_display(std::string_view text, std::size_t maximum_cells)
     }
 
     const std::size_t content_cells = maximum_cells - 3U;
+    const std::size_t content_bytes = maximum_bytes - 3U;
     std::size_t used = 0U;
     std::string truncated;
     truncated.reserve(std::min(sanitized.size(), maximum_cells));
     for (std::size_t offset = 0U; offset < sanitized.size();) {
-        const DecodedCodePoint decoded = decode(sanitized, offset);
+        const core::text::DecodedCodePoint decoded = core::text::decode_utf8(sanitized, offset);
         const std::size_t width = code_point_width(decoded);
-        if (used + width > content_cells) {
+        if (used + width > content_cells || decoded.length > content_bytes - truncated.size()) {
             break;
         }
         truncated.append(sanitized.substr(offset, decoded.length));

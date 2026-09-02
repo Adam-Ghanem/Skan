@@ -33,10 +33,14 @@ PROJECT := skan
 TARGET := bin/$(PROJECT)
 BUILD_DIR := build
 
+# Build-flavor targets must clean before compiling even when callers enable -j.
+.NOTPARALLEL: debug release
+
 CPP_SOURCES := \
 	src/core/types.cpp \
 	src/core/status.cpp \
 	src/core/runtime_paths.cpp \
+	src/core/text_safety.cpp \
 	src/core/log.cpp \
 	src/io/event.cpp \
 	src/io/io_engine.cpp \
@@ -137,7 +141,7 @@ CPP_OBJECTS := $(CPP_SOURCES:src/%.cpp=$(BUILD_DIR)/%.o)
 LIB_CPP_OBJECTS := $(filter-out $(BUILD_DIR)/main.o,$(CPP_OBJECTS))
 C_OBJECTS := $(C_SOURCES:src/%.c=$(BUILD_DIR)/%.o)
 CORE_OBJECTS := $(BUILD_DIR)/core/types.o $(BUILD_DIR)/core/status.o \
-	$(BUILD_DIR)/core/runtime_paths.o
+	$(BUILD_DIR)/core/runtime_paths.o $(BUILD_DIR)/core/text_safety.o
 CORE_LOG_OBJECT := $(BUILD_DIR)/core/log.o
 C_API_OBJECTS := $(BUILD_DIR)/c_api/status.o
 IO_OBJECTS := $(BUILD_DIR)/io/event.o $(BUILD_DIR)/io/io_engine.o $(BUILD_DIR)/io/timer.o
@@ -422,7 +426,7 @@ $(BUILD_DIR)/test_constants: $(BUILD_DIR)/tests/unit/core/test_constants.o | $(B
 $(BUILD_DIR)/test_runtime_paths: $(BUILD_DIR)/tests/unit/core/test_runtime_paths.o $(BUILD_DIR)/core/runtime_paths.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_log: $(BUILD_DIR)/tests/unit/core/test_log.o $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_log: $(BUILD_DIR)/tests/unit/core/test_log.o $(CORE_LOG_OBJECT) $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_event: $(BUILD_DIR)/tests/unit/io/test_event.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
@@ -579,13 +583,13 @@ $(BUILD_DIR)/test_terminal_capabilities: $(BUILD_DIR)/tests/unit/output/test_ter
 $(BUILD_DIR)/test_terminal_layout: $(BUILD_DIR)/tests/unit/output/test_terminal_layout.o $(BUILD_DIR)/output/terminal_capabilities.o $(BUILD_DIR)/output/terminal_layout.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_terminal_text: $(BUILD_DIR)/tests/unit/output/test_terminal_text.o $(BUILD_DIR)/output/terminal_text.o | $(BUILD_DIR)
+$(BUILD_DIR)/test_terminal_text: $(BUILD_DIR)/tests/unit/output/test_terminal_text.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_terminal_theme: $(BUILD_DIR)/tests/unit/output/test_terminal_theme.o $(BUILD_DIR)/output/terminal_theme.o $(BUILD_DIR)/output/terminal_text.o | $(BUILD_DIR)
+$(BUILD_DIR)/test_terminal_theme: $(BUILD_DIR)/tests/unit/output/test_terminal_theme.o $(BUILD_DIR)/output/terminal_theme.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_terminal_progress: $(BUILD_DIR)/tests/unit/output/test_terminal_progress.o $(BUILD_DIR)/output/terminal/progress_renderer.o $(BUILD_DIR)/output/terminal_text.o | $(BUILD_DIR)
+$(BUILD_DIR)/test_terminal_progress: $(BUILD_DIR)/tests/unit/output/test_terminal_progress.o $(BUILD_DIR)/output/terminal/progress_renderer.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_terminal_renderer: $(BUILD_DIR)/tests/unit/output/test_terminal_renderer.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)

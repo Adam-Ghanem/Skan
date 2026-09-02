@@ -3,6 +3,7 @@
 #include <ostream>
 #include <string>
 
+#include "core/log.hpp"
 #include "output/terminal_text.hpp"
 
 namespace skan::output {
@@ -39,6 +40,7 @@ void TerminalProgressRenderer::status(std::string_view message)
     output_ << "\r\x1b[2K" << (unicode_ ? "◆ " : "* ")
             << sanitize_terminal_text(message) << std::flush;
     active_line_ = true;
+    log::set_terminal_progress_active(true);
 }
 
 void TerminalProgressRenderer::clear()
@@ -46,6 +48,7 @@ void TerminalProgressRenderer::clear()
     if (enabled_ && active_line_) {
         output_ << "\r\x1b[2K" << std::flush;
         active_line_ = false;
+        log::set_terminal_progress_active(false);
     }
 }
 
