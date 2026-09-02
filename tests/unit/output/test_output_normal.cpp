@@ -137,5 +137,13 @@ int main()
     assert(open_output.str().find("1 open") != std::string::npos);
     assert(open_output.str().find("1 filtered") != std::string::npos);
 
+    skan::output::OutputContext plain_open;
+    plain_open.open_only = true;
+    plain_open.terminal = {false, 80U, false, false};
+    std::ostringstream plain_open_output;
+    assert(writer.write(report, plain_open_output, plain_open) == skan::output::OutputStatus::Ok);
+    assert(plain_open_output.str().find("1 filtered") != std::string::npos);
+    assert(plain_open_output.str().find("filtered=1") == std::string::npos);
+
     return 0;
 }

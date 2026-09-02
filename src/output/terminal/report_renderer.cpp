@@ -453,10 +453,10 @@ public:
     {
         const ScanSummary summary = calculate_summary(report);
         if (layout.mode == TerminalLayoutMode::Plain) {
-            output << "Summary: hosts=" << summary.hosts << " up=" << summary.hosts_up
-                   << " ports=" << summary.ports_scanned << " open=" << summary.open_ports
-                   << " closed=" << summary.closed_ports << " filtered=" << summary.filtered_ports
-                   << " services=" << summary.services_detected;
+            output << "Summary: " << summary.hosts << " hosts (" << summary.hosts_up << " up); "
+                   << summary.ports_scanned << " ports scanned; " << summary.open_ports << " open, "
+                   << summary.closed_ports << " closed, " << summary.filtered_ports << " filtered; "
+                   << summary.services_detected << " services";
             if (report.duration_ms.has_value()) {
                 output << " duration=" << format_ms(*report.duration_ms);
             }
