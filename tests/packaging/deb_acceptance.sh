@@ -27,7 +27,10 @@ done
 test "$(stat -c %a /usr/bin/skan)" = 755
 find /usr/bin/skan /usr/share/skan -perm /6000 -print -quit | grep -q . && exit 1
 test -z "$(getcap /usr/bin/skan)"
-! dpkg-query -L skan | grep -Eq '/(systemd|init\.d)/'
+if dpkg-query -L skan | grep -Eq '/(systemd|init\.d)/'; then
+    echo "package unexpectedly installs a system service" >&2
+    exit 1
+fi
 for script in preinst postinst prerm postrm; do
     test ! -e "/var/lib/dpkg/info/skan.$script"
 done
@@ -58,13 +61,25 @@ skan -sT -sV -p 8080 --timeout-ms 1000 --service-db \
     /opt/skan-tests/service-override.db --output json 127.0.0.1 >service-override.json
 python3 -m json.tool service-override.json >/dev/null
 
-! skan scan 192.0.2.10 --transport offline -p 80 --os-detect \
-    --os-db /opt/skan-tests/invalid.db --output json >/dev/null 2>&1
-! skan -sT -sV -p 8080 --service-db /opt/skan-tests/invalid.db \
-    --output json 127.0.0.1 >/dev/null 2>&1
+if skan scan 192.0.2.10 --transport offline -p 80 --os-detect \
+    --os-db /opt/skan-tests/invalid.db --output json >/dev/null 2>&1; then
+    echo "invalid OS database unexpectedly accepted" >&2
+    exit 1
+fi
+if skan -sT -sV -p 8080 --service-db /opt/skan-tests/invalid.db \
+    --output json 127.0.0.1 >/dev/null 2>&1; then
+    echo "invalid service database unexpectedly accepted" >&2
+    exit 1
+fi
 
 apt-get purge -y skan >/dev/null
-! command -v skan >/dev/null
-! dpkg-query -W skan >/dev/null 2>&1
+if command -v skan >/dev/null; then
+    echo "skan remains on PATH after purge" >&2
+    exit 1
+fi
+if dpkg-query -W skan >/dev/null 2>&1; then
+    echo "skan remains registered after purge" >&2
+    exit 1
+fi
 test ! -e /usr/bin/skan
 test ! -e /usr/share/skan
