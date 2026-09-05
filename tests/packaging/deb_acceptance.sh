@@ -73,6 +73,9 @@ if skan -sT -sV -p 8080 --service-db /opt/skan-tests/invalid.db \
 fi
 
 apt-get purge -y skan >/dev/null
+# Bash remembers previously executed commands even after apt removes the file.
+# Refresh that cache so the PATH check measures the installed filesystem state.
+hash -r
 if command -v skan >/dev/null; then
     echo "skan remains on PATH after purge" >&2
     exit 1

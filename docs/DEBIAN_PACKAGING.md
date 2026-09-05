@@ -59,6 +59,13 @@ The image build needs distribution package mirrors to install the `.deb` and acc
 
 A tag matching `v*.*.*` starts `.github/workflows/release.yml`. The workflow rejects a tag that differs from `VERSION` or is not reachable from `main`, rebuilds and retests the package, runs both installed-package acceptance environments, and produces the validated `.deb` plus `SHA256SUMS`. A separate publication job downloads those assets and attaches them to the corresponding GitHub Release. Only that publication job receives `contents: write`; it does not check out or execute repository code, and normal CI remains read-only.
 
+Validated assets are copied from the container-owned `dist/` into a new
+runner-owned `release-assets/` directory before checksum generation. Existing
+asset directories are rejected, not overwritten. Ordinary package CI exercises
+this same staging step so ownership problems are caught before tagging. The
+packaging harness's regression tests run with
+`python3 -m unittest discover -s tests/packaging -p 'test_*.py' -v` on Linux.
+
 The release asset supports the immediately available flow:
 
 ```bash
