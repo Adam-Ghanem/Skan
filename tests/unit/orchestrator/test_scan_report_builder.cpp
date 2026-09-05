@@ -21,22 +21,13 @@ int main()
     unknown.state = skan::discovery::HostState::Unknown;
     unknown.reason = skan::discovery::DiscoveryReason::Timeout;
 
-    skan::portscan::PortResult open_port;
-    open_port.target = "192.0.2.1";
-    open_port.port = {22U, skan::portscan::Protocol::Tcp};
-    open_port.state = skan::portscan::PortState::Open;
-    open_port.probe = skan::portscan::ScanProbeType::TcpConnect;
-    open_port.reason = skan::portscan::ScanReason::ImmediateSuccess;
-    open_port.rtt_ms = 1.0;
-
-    // Discovery timed out, but a closed TCP port still proves that the target responded.
-    skan::portscan::PortResult closed_port;
-    closed_port.target = "192.0.2.2";
-    closed_port.port = {23U, skan::portscan::Protocol::Tcp};
-    closed_port.state = skan::portscan::PortState::Closed;
-    closed_port.probe = skan::portscan::ScanProbeType::TcpConnect;
-    closed_port.reason = skan::portscan::ScanReason::ConnectionRefused;
-    closed_port.rtt_ms = 1.5;
+    skan::portscan::PortResult port;
+    port.target = "192.0.2.1";
+    port.port = {22U, skan::portscan::Protocol::Tcp};
+    port.state = skan::portscan::PortState::Open;
+    port.probe = skan::portscan::ScanProbeType::TcpConnect;
+    port.reason = skan::portscan::ScanReason::ImmediateSuccess;
+    port.rtt_ms = 1.0;
 
     skan::osdetect::OSMatchResult os;
     os.fingerprint_name = "Synthetic OS";
@@ -44,7 +35,7 @@ int main()
     skan::orchestrator::OSReportEvidence evidence{"192.0.2.1", {os}, std::nullopt};
     const std::vector<std::string> warnings{"OS unavailable"};
     const std::vector<skan::discovery::DiscoveryResult> discovery_results{up, unknown};
-    const std::vector<skan::portscan::PortResult> port_results{open_port, closed_port};
+    const std::vector<skan::portscan::PortResult> port_results{port};
     const std::vector<skan::orchestrator::OSReportEvidence> os_results{evidence};
     const auto report = skan::orchestrator::ScanReportBuilder::build(
         config, target, discovery_results, port_results, {}, os_results, std::nullopt,
@@ -55,16 +46,43 @@ int main()
     assert(report.hosts[0].rtt_ms.has_value());
     assert(report.hosts[0].ports.size() == 1U);
     assert(report.hosts[0].os_matches.size() == 1U);
-    assert(report.hosts[1].address == "192.0.2.2");
-    assert(report.hosts[1].state == skan::discovery::HostState::Up);
-    assert(report.hosts[1].ports.size() == 1U);
+    assert(report.hosts[1].state == skan::discovery::HostState::Unknown);
     assert(report.warnings.size() == 1U);
     const skan::output::ScanSummary summary = skan::output::calculate_summary(report);
     assert(summary.hosts == 2U);
-    assert(summary.hosts_up == 2U);
-    assert(summary.hosts_unknown == 0U);
+    assert(summary.hosts_up == 1U);
+    assert(summary.hosts_unknown == 1U);
     assert(summary.open_ports == 1U);
-    assert(summary.closed_ports == 1U);
     assert(summary.os_matches == 1U);
+
+    // With discovery disabled, transport-level responses become the authoritative
+    // reachability evidence. A refused TCP connection is still a response from
+    // the target and must not produce "reachable" next to "0 up" in the final report.
+    skan::orchestrator::ScanConfig no_discovery;
+    no_discovery.discovery_enabled = false;
+    no_discovery.targets = {{"198.51.100.10", {{"198.51.100.10", std::nullopt, false}}}};
+    skan::core::Target no_discovery_target = no_discovery.targets.front();
+
+    skan::portscan::PortResult refused;
+    refused.target = "198.51.100.10";
+    refused.port = {23U, skan::portscan::Protocol::Tcp};
+    refused.state = skan::portscan::PortState::Closed;
+    refused.probe = skan::portscan::ScanProbeType::TcpConnect;
+    refused.reason = skan::portscan::ScanReason::ConnectionRefused;
+    refused.rtt_ms = 1.5;
+    const std::vector<skan::portscan::PortResult> refused_results{refused};
+
+    const auto transport_proven_report = skan::orchestrator::ScanReportBuilder::build(
+        no_discovery, no_discovery_target, {}, refused_results, {}, {}, std::nullopt,
+        std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), {}, {});
+    assert(transport_proven_report.hosts.size() == 1U);
+    assert(transport_proven_report.hosts[0].state == skan::discovery::HostState::Up);
+    assert(transport_proven_report.hosts[0].ports.size() == 1U);
+    const skan::output::ScanSummary transport_proven_summary =
+        skan::output::calculate_summary(transport_proven_report);
+    assert(transport_proven_summary.hosts == 1U);
+    assert(transport_proven_summary.hosts_up == 1U);
+    assert(transport_proven_summary.hosts_unknown == 0U);
+    assert(transport_proven_summary.closed_ports == 1U);
     return 0;
 }
