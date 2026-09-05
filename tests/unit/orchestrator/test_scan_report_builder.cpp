@@ -4,7 +4,9 @@
 #include <vector>
 
 #include "orchestrator/scan_report_builder.hpp"
+#include "output/output_grepable.hpp"
 #include "output/output_json.hpp"
+#include "output/output_xml.hpp"
 
 int main()
 {
@@ -96,6 +98,24 @@ int main()
     assert(json.find("\"state\": \"up\"") != std::string::npos);
     assert(json.find("\"hosts_up\": 1") != std::string::npos);
     assert(json.find("\"hosts_unknown\": 0") != std::string::npos);
+
+    skan::output::XmlOutputWriter xml_writer;
+    std::ostringstream xml_output;
+    assert(xml_writer.write(transport_proven_report, xml_output, skan::output::OutputContext{}) ==
+           skan::output::OutputStatus::Ok);
+    const std::string xml = xml_output.str();
+    assert(xml.find("state=\"up\"") != std::string::npos);
+    assert(xml.find("<hosts-up>1</hosts-up>") != std::string::npos);
+    assert(xml.find("<hosts-unknown>0</hosts-unknown>") != std::string::npos);
+
+    skan::output::GrepableOutputWriter grepable_writer;
+    std::ostringstream grepable_output;
+    assert(grepable_writer.write(transport_proven_report, grepable_output, skan::output::OutputContext{}) ==
+           skan::output::OutputStatus::Ok);
+    const std::string grepable = grepable_output.str();
+    assert(grepable.find("Host: address=\"198.51.100.10\" family=ipv4 state=up") != std::string::npos);
+    assert(grepable.find("Summary: hosts=1 hosts_up=1") != std::string::npos);
+    assert(grepable.find("hosts_unknown=0") != std::string::npos);
 
     // Silence/timeout evidence is not enough to claim a host is reachable.
     skan::portscan::PortResult filtered = refused;
