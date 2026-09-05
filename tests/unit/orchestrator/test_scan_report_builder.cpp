@@ -96,5 +96,25 @@ int main()
     assert(json.find("\"state\": \"up\"") != std::string::npos);
     assert(json.find("\"hosts_up\": 1") != std::string::npos);
     assert(json.find("\"hosts_unknown\": 0") != std::string::npos);
+
+    // Silence/timeout evidence is not enough to claim a host is reachable.
+    skan::portscan::PortResult filtered = refused;
+    filtered.target = "198.51.100.11";
+    filtered.state = skan::portscan::PortState::Filtered;
+    filtered.reason = skan::portscan::ScanReason::Timeout;
+    filtered.rtt_ms.reset();
+    skan::orchestrator::ScanConfig uncertain_config;
+    uncertain_config.discovery_enabled = false;
+    uncertain_config.targets = {{"198.51.100.11", {{"198.51.100.11", std::nullopt, false}}}};
+    const std::vector<skan::portscan::PortResult> filtered_results{filtered};
+    const auto uncertain_report = skan::orchestrator::ScanReportBuilder::build(
+        uncertain_config, uncertain_config.targets.front(), {}, filtered_results, {}, {}, std::nullopt,
+        std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), {}, {});
+    assert(uncertain_report.hosts.size() == 1U);
+    assert(uncertain_report.hosts[0].state == skan::discovery::HostState::Unknown);
+    const skan::output::ScanSummary uncertain_summary = skan::output::calculate_summary(uncertain_report);
+    assert(uncertain_summary.hosts_up == 0U);
+    assert(uncertain_summary.hosts_unknown == 1U);
+    assert(uncertain_summary.filtered_ports == 1U);
     return 0;
 }
