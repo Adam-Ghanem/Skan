@@ -1,7 +1,10 @@
 #include <cassert>
+#include <sstream>
+#include <string>
 #include <vector>
 
 #include "orchestrator/scan_report_builder.hpp"
+#include "output/output_json.hpp"
 
 int main()
 {
@@ -55,7 +58,7 @@ int main()
     assert(summary.open_ports == 1U);
     assert(summary.os_matches == 1U);
 
-    // With discovery disabled, transport-level responses become the authoritative
+    // With discovery disabled, transport-level responses become authoritative
     // reachability evidence. A refused TCP connection is still a response from
     // the target and must not produce "reachable" next to "0 up" in the final report.
     skan::orchestrator::ScanConfig no_discovery;
@@ -84,5 +87,14 @@ int main()
     assert(transport_proven_summary.hosts_up == 1U);
     assert(transport_proven_summary.hosts_unknown == 0U);
     assert(transport_proven_summary.closed_ports == 1U);
+
+    skan::output::JsonOutputWriter json_writer;
+    std::ostringstream json_output;
+    assert(json_writer.write(transport_proven_report, json_output, skan::output::OutputContext{}) ==
+           skan::output::OutputStatus::Ok);
+    const std::string json = json_output.str();
+    assert(json.find("\"state\": \"up\"") != std::string::npos);
+    assert(json.find("\"hosts_up\": 1") != std::string::npos);
+    assert(json.find("\"hosts_unknown\": 0") != std::string::npos);
     return 0;
 }
