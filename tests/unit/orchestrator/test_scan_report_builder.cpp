@@ -95,7 +95,7 @@ int main()
     assert(json_writer.write(transport_proven_report, json_output, skan::output::OutputContext{}) ==
            skan::output::OutputStatus::Ok);
     const std::string json = json_output.str();
-    assert(json.find("\"state\": \"up\"") != std::string::npos);
+    assert(json.find("\"state\": \"UP\"") != std::string::npos);
     assert(json.find("\"hosts_up\": 1") != std::string::npos);
     assert(json.find("\"hosts_unknown\": 0") != std::string::npos);
 
@@ -104,7 +104,7 @@ int main()
     assert(xml_writer.write(transport_proven_report, xml_output, skan::output::OutputContext{}) ==
            skan::output::OutputStatus::Ok);
     const std::string xml = xml_output.str();
-    assert(xml.find("state=\"up\"") != std::string::npos);
+    assert(xml.find("state=\"UP\"") != std::string::npos);
     assert(xml.find("<hosts-up>1</hosts-up>") != std::string::npos);
     assert(xml.find("<hosts-unknown>0</hosts-unknown>") != std::string::npos);
 
@@ -113,7 +113,7 @@ int main()
     assert(grepable_writer.write(transport_proven_report, grepable_output, skan::output::OutputContext{}) ==
            skan::output::OutputStatus::Ok);
     const std::string grepable = grepable_output.str();
-    assert(grepable.find("Host: address=\"198.51.100.10\" family=ipv4 state=up") != std::string::npos);
+    assert(grepable.find("Host: address=\"198.51.100.10\" family=ipv4 state=UP") != std::string::npos);
     assert(grepable.find("Summary: hosts=1 hosts_up=1") != std::string::npos);
     assert(grepable.find("hosts_unknown=0") != std::string::npos);
 
