@@ -7,6 +7,20 @@
 
 int main()
 {
+    using skan::core::StatusCode;
+    using skan::net::NetworkScanStatus;
+    using skan::net::network_scan_status_to_status_code;
+
+    assert(network_scan_status_to_status_code(NetworkScanStatus::Success) == StatusCode::Ok);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::InvalidConfiguration) == StatusCode::InvalidArgument);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::InterfaceNotFound) == StatusCode::InvalidArgument);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::PermissionDenied) == StatusCode::PermissionDenied);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::NotSupported) == StatusCode::PermissionDenied);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::RoutingUnavailable) == StatusCode::IoError);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::NotOpen) == StatusCode::IoError);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::SystemError) == StatusCode::IoError);
+    assert(network_scan_status_to_status_code(static_cast<NetworkScanStatus>(999)) == StatusCode::IoError);
+
     skan::io::IOEngine io_engine;
     assert(io_engine.initialization_status() == skan::core::StatusCode::Ok);
 
