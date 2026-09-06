@@ -28,4 +28,24 @@ const char *status_to_string(StatusCode status) noexcept
     }
 }
 
+ExitCode status_to_exit_code(StatusCode status) noexcept
+{
+    switch (status) {
+    case StatusCode::Ok:
+        return ExitCode::Success;
+    case StatusCode::InvalidArgument:
+    case StatusCode::ParseError:
+        return ExitCode::Usage;
+    case StatusCode::PermissionDenied:
+        return ExitCode::Permission;
+    case StatusCode::MemoryError:
+    case StatusCode::IoError:
+    case StatusCode::NotFound:
+    case StatusCode::InternalError:
+    case StatusCode::ResourceExhausted:
+    default:
+        return ExitCode::Runtime;
+    }
+}
+
 } // namespace skan::core
