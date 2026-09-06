@@ -18,7 +18,7 @@ make package-deb
 The build copies a clean source snapshot into a temporary Linux directory, applies Debian hardening flags, runs the registered test suite, and writes only the main binary package to `dist/`:
 
 ```text
-dist/skan_0.1.0-1_amd64.deb
+dist/skan_0.1.1-1_amd64.deb
 ```
 
 For an environment matching CI, use the pinned Debian 12 builder:
@@ -34,12 +34,12 @@ docker run --rm --volume "$PWD:/work" --workdir /work \
 ```bash
 docker run --rm --volume "$PWD/dist:/dist:ro" \
   skan-debian12-builder \
-  lintian --fail-on error /dist/skan_0.1.0-1_amd64.deb
+  lintian --fail-on error /dist/skan_0.1.1-1_amd64.deb
 
 bash scripts/test_deb_package.sh \
-  dist/skan_0.1.0-1_amd64.deb debian:12
+  dist/skan_0.1.1-1_amd64.deb debian:12
 bash scripts/test_deb_package.sh \
-  dist/skan_0.1.0-1_amd64.deb ubuntu:24.04
+  dist/skan_0.1.1-1_amd64.deb ubuntu:24.04
 ```
 
 The acceptance harness installs the package into a fresh image, then runs offline with raw-network capabilities dropped and the container network disabled. It verifies:
@@ -59,10 +59,17 @@ The image build needs distribution package mirrors to install the `.deb` and acc
 
 A tag matching `v*.*.*` starts `.github/workflows/release.yml`. The workflow rejects a tag that differs from `VERSION` or is not reachable from `main`, rebuilds and retests the package, runs both installed-package acceptance environments, and produces the validated `.deb` plus `SHA256SUMS`. A separate publication job downloads those assets and attaches them to the corresponding GitHub Release. Only that publication job receives `contents: write`; it does not check out or execute repository code, and normal CI remains read-only.
 
+Validated assets are copied from the container-owned `dist/` into a new
+runner-owned `release-assets/` directory before checksum generation. Existing
+asset directories are rejected, not overwritten. Ordinary package CI exercises
+this same staging step so ownership problems are caught before tagging. The
+packaging harness's regression tests run with
+`python3 -m unittest discover -s tests/packaging -p 'test_*.py' -v` on Linux.
+
 The release asset supports the immediately available flow:
 
 ```bash
-sudo apt install ./skan_0.1.0-1_amd64.deb
+sudo apt install ./skan_0.1.1-1_amd64.deb
 ```
 
 Official Debian/Ubuntu archive availability is separate and must not be claimed before external acceptance. The current automation builds a binary package; an archive submission still needs a policy-complete signed source package, sponsor review, and acceptance.

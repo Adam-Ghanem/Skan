@@ -2,3 +2,4 @@
 *.sh text eol=lf
 Makefile text eol=lf
 VERSION text eol=lf
+tests/data/output/*.golden text eol=lf

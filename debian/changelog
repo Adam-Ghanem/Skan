@@ -1,3 +1,11 @@
+skan (0.1.1-1) unstable; urgency=medium
+
+  * Correct package-purge acceptance checks and release asset ownership.
+  * Preserve terminal golden fixture line endings across checkouts.
+  * Rebuild version-bearing objects when the authoritative VERSION changes.
+
+ -- Adam Ghanem <adam.ghanem.it@gmail.com>  Sun, 06 Sep 2026 00:00:00 +0100
+
 skan (0.1.0-1) unstable; urgency=medium
 
   * Initial Debian package for the Skan network scanner.

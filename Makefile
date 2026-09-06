@@ -683,19 +683,19 @@ $(BUILD_DIR)/test_target_engine: $(BUILD_DIR)/tests/unit/target/test_target_engi
 $(BUILD_DIR)/test_target_pipeline: $(BUILD_DIR)/tests/integration/target/test_target_pipeline.o $(TARGET_OBJECTS) $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/%.o: src/%.cpp
+$(BUILD_DIR)/%.o: src/%.cpp $(VERSION_FILE)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/%.o: src/%.c
+$(BUILD_DIR)/%.o: src/%.c $(VERSION_FILE)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/tests/%.o: tests/%.cpp
+$(BUILD_DIR)/tests/%.o: tests/%.cpp $(VERSION_FILE)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
-$(BUILD_DIR)/benchmarks/%.o: benchmarks/%.cpp
+$(BUILD_DIR)/benchmarks/%.o: benchmarks/%.cpp $(VERSION_FILE)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
