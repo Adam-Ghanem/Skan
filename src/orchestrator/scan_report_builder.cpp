@@ -52,6 +52,19 @@ std::optional<double> rtt_for(std::string_view address, std::span<const discover
     return best;
 }
 
+bool port_state_proves_reachability(portscan::PortState state) noexcept
+{
+    return state == portscan::PortState::Open || state == portscan::PortState::Closed ||
+           state == portscan::PortState::Unfiltered;
+}
+
+bool has_port_reachability_evidence(const output::HostResult &host) noexcept
+{
+    return std::any_of(host.ports.begin(), host.ports.end(), [](const portscan::PortResult &port) {
+        return port_state_proves_reachability(port.state);
+    });
+}
+
 } // namespace
 
 output::ScanReport ScanReportBuilder::build(
@@ -131,6 +144,9 @@ output::ScanReport ScanReportBuilder::build(
         return left.address < right.address;
     });
     for (output::HostResult &host : report.hosts) {
+        if (has_port_reachability_evidence(host)) {
+            host.state = discovery::HostState::Up;
+        }
         std::sort(host.ports.begin(), host.ports.end(), [](const portscan::PortResult &left, const portscan::PortResult &right) {
             if (left.port.number != right.port.number) {
                 return left.port.number < right.port.number;
