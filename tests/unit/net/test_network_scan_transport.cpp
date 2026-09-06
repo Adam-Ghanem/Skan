@@ -7,6 +7,32 @@
 
 int main()
 {
+    using skan::core::ExitCode;
+    using skan::core::StatusCode;
+    using skan::net::NetworkScanStatus;
+    using skan::net::network_scan_status_to_exit_code;
+    using skan::net::network_scan_status_to_status_code;
+
+    assert(network_scan_status_to_status_code(NetworkScanStatus::Success) == StatusCode::Ok);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::InvalidConfiguration) == StatusCode::InvalidArgument);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::InterfaceNotFound) == StatusCode::InvalidArgument);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::RoutingUnavailable) == StatusCode::IoError);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::PermissionDenied) == StatusCode::PermissionDenied);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::NotSupported) == StatusCode::PermissionDenied);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::NotOpen) == StatusCode::IoError);
+    assert(network_scan_status_to_status_code(NetworkScanStatus::SystemError) == StatusCode::IoError);
+    assert(network_scan_status_to_status_code(static_cast<NetworkScanStatus>(999)) == StatusCode::IoError);
+
+    assert(network_scan_status_to_exit_code(NetworkScanStatus::Success) == ExitCode::Success);
+    assert(network_scan_status_to_exit_code(NetworkScanStatus::InvalidConfiguration) == ExitCode::Usage);
+    assert(network_scan_status_to_exit_code(NetworkScanStatus::InterfaceNotFound) == ExitCode::Usage);
+    assert(network_scan_status_to_exit_code(NetworkScanStatus::RoutingUnavailable) == ExitCode::Runtime);
+    assert(network_scan_status_to_exit_code(NetworkScanStatus::PermissionDenied) == ExitCode::Permission);
+    assert(network_scan_status_to_exit_code(NetworkScanStatus::NotSupported) == ExitCode::Permission);
+    assert(network_scan_status_to_exit_code(NetworkScanStatus::NotOpen) == ExitCode::Runtime);
+    assert(network_scan_status_to_exit_code(NetworkScanStatus::SystemError) == ExitCode::Runtime);
+    assert(network_scan_status_to_exit_code(static_cast<NetworkScanStatus>(999)) == ExitCode::Runtime);
+
     skan::io::IOEngine io_engine;
     assert(io_engine.initialization_status() == skan::core::StatusCode::Ok);
 

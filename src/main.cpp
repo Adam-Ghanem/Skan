@@ -49,6 +49,16 @@ std::string terminal_safe(std::string_view value)
     return skan::output::sanitize_terminal_text(value);
 }
 
+int process_exit(skan::core::ExitCode code) noexcept
+{
+    return skan::core::exit_code_value(code);
+}
+
+int process_exit(skan::core::StatusCode status) noexcept
+{
+    return process_exit(skan::core::status_to_exit_code(status));
+}
+
 void print_help()
 {
     std::cout << skan::core::constants::SKAN_DISPLAY_VERSION << '\n'
@@ -258,7 +268,7 @@ int run_discover(int argc, char **argv)
         if (!selected.success()) {
             std::cerr << "Error: raw interface selection failed: " << terminal_safe(selected.message) << " ("
                       << skan::net::interface_status_name(selected.status) << ").\n";
-            return EXIT_FAILURE;
+            return process_exit(skan::net::interface_status_to_exit_code(selected.status));
         }
         interface_name = selected.interface.name;
     }
@@ -275,7 +285,7 @@ int run_discover(int argc, char **argv)
     skan::io::IOEngine io_engine;
     if (io_engine.initialization_status() != skan::core::StatusCode::Ok) {
         std::cerr << "Error: unable to initialize the asynchronous I/O engine.\n";
-        return EXIT_FAILURE;
+        return process_exit(io_engine.initialization_status());
     }
     std::unique_ptr<skan::discovery::DiscoveryTransport> transport;
     std::unique_ptr<skan::discovery::RecordingTransport> offline_transport;
@@ -295,7 +305,7 @@ int run_discover(int argc, char **argv)
                 std::cerr << " (" << terminal_safe(network_status.message) << ')';
             }
             std::cerr << '\n';
-            return EXIT_FAILURE;
+            return process_exit(skan::net::network_scan_status_to_exit_code(network_status.status));
         }
         linux_transport_ptr = linux_transport.get();
         transport = std::move(linux_transport);
@@ -315,12 +325,12 @@ int run_discover(int argc, char **argv)
     if (submit_status != skan::core::StatusCode::Ok) {
         std::cerr << "Error: discovery submission failed: "
                   << skan::core::status_to_string(submit_status) << '\n';
-        return EXIT_FAILURE;
+        return process_exit(submit_status);
     }
     const skan::core::StatusCode run_status = discovery.run();
     if (run_status != skan::core::StatusCode::Ok) {
         std::cerr << "Error: discovery engine failed: " << skan::core::status_to_string(run_status) << '\n';
-        return EXIT_FAILURE;
+        return process_exit(run_status);
     }
     std::cout << canonical_target_address << " " << skan::discovery::host_state_name(discovery.host_state(canonical_target_address)) << '\n';
     for (const skan::discovery::DiscoveryResult &result : discovery.results()) {
@@ -375,7 +385,7 @@ int run_resolve(int argc, char **argv)
     const skan::target::TargetResolutionResult resolved = skan::target::TargetEngine::resolve(argv[2], limits);
     if (!resolved.success()) {
         print_target_error(resolved.error);
-        return EXIT_FAILURE;
+        return process_exit(resolved.status);
     }
     if (json) {
         std::cout << "{\"targets\":[";
@@ -632,7 +642,7 @@ int run_interfaces(int argc, char **argv)
             std::cerr << " (" << terminal_safe(enumeration.message) << ')';
         }
         std::cerr << '\n';
-        return EXIT_FAILURE;
+        return process_exit(skan::net::interface_status_to_exit_code(enumeration.status));
     }
     std::vector<skan::net::NetworkInterface> interfaces;
     if (selected_name.empty()) {
@@ -768,7 +778,7 @@ int run_os_detect(int argc, char **argv)
         skan::target::TargetEngine::resolve(argv[2], target_limits);
     if (!resolved.success()) {
         print_target_error(resolved.error);
-        return EXIT_FAILURE;
+        return process_exit(resolved.status);
     }
     skan::core::Target target;
     target.original_specification = argv[2];
@@ -783,7 +793,7 @@ int run_os_detect(int argc, char **argv)
         if (!selected.success()) {
             std::cerr << "Error: raw interface selection failed: " << terminal_safe(selected.message) << " ("
                       << skan::net::interface_status_name(selected.status) << ").\n";
-            return EXIT_FAILURE;
+            return process_exit(skan::net::interface_status_to_exit_code(selected.status));
         }
         interface_name = selected.interface.name;
     }
@@ -819,7 +829,7 @@ int run_os_detect(int argc, char **argv)
             std::cerr << " (" << terminal_safe(orchestrator.session().error_message()) << ')';
         }
         std::cerr << '\n';
-        return EXIT_FAILURE;
+        return process_exit(status);
     }
     return EXIT_SUCCESS;
 }
@@ -1249,7 +1259,7 @@ int run_scan(int argc, char **argv)
         skan::target::TargetEngine::resolve(target_specification, target_limits);
     if (!resolved.success()) {
         print_target_error(resolved.error);
-        return EXIT_FAILURE;
+        return process_exit(resolved.status);
     }
     std::vector<skan::core::IpAddress> excluded_addresses;
     for (const std::string &excluded_specification : excluded_target_specifications) {
@@ -1258,7 +1268,7 @@ int run_scan(int argc, char **argv)
         if (!excluded.success()) {
             std::cerr << "Error: invalid --exclude target specification: ";
             print_target_error(excluded.error);
-            return EXIT_FAILURE;
+            return process_exit(excluded.status);
         }
         for (const skan::target::ResolvedTarget &target : excluded.target_set.targets) {
             excluded_addresses.push_back(target.ip_address.valid()
@@ -1294,7 +1304,7 @@ int run_scan(int argc, char **argv)
         if (!selected.success()) {
             std::cerr << "Error: raw interface selection failed: " << terminal_safe(selected.message) << " ("
                       << skan::net::interface_status_name(selected.status) << ").\n";
-            return EXIT_FAILURE;
+            return process_exit(skan::net::interface_status_to_exit_code(selected.status));
         }
         config.interface_name = selected.interface.name;
     }
@@ -1334,12 +1344,12 @@ int run_scan(int argc, char **argv)
             std::cerr << " (" << terminal_safe(orchestrator.session().error_message()) << ')';
         }
         std::cerr << '\n';
-        return EXIT_FAILURE;
+        return process_exit(status);
     }
     if (output_all_prefix.has_value()) {
         if (!orchestrator.report().has_value()) {
             std::cerr << "Error: scan completed without a report for -oA serialization.\n";
-            return EXIT_FAILURE;
+            return process_exit(skan::core::StatusCode::InternalError);
         }
         const auto write_aggregate = [&](skan::output::OutputFormat format, std::string_view suffix) {
             const std::string path = *output_all_prefix + std::string(suffix);
@@ -1357,7 +1367,7 @@ int run_scan(int argc, char **argv)
             !write_aggregate(skan::output::OutputFormat::Xml, ".xml") ||
             !write_aggregate(skan::output::OutputFormat::Grepable, ".gnmap")) {
             std::cerr << "Error: failed to write one or more -oA output files.\n";
-            return EXIT_FAILURE;
+            return process_exit(skan::core::StatusCode::IoError);
         }
     }
     return EXIT_SUCCESS;

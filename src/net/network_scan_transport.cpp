@@ -81,28 +81,6 @@ NetworkScanResult preflight_failure(const TransportPreflightResult &preflight)
     return result;
 }
 
-core::StatusCode map_network_status(NetworkScanStatus status) noexcept
-{
-    switch (status) {
-    case NetworkScanStatus::Success:
-        return core::StatusCode::Ok;
-    case NetworkScanStatus::InvalidConfiguration:
-        return core::StatusCode::InvalidArgument;
-    case NetworkScanStatus::InterfaceNotFound:
-        return core::StatusCode::NotFound;
-    case NetworkScanStatus::RoutingUnavailable:
-        return core::StatusCode::PermissionDenied;
-    case NetworkScanStatus::PermissionDenied:
-        return core::StatusCode::PermissionDenied;
-    case NetworkScanStatus::NotSupported:
-        return core::StatusCode::PermissionDenied;
-    case NetworkScanStatus::NotOpen:
-    case NetworkScanStatus::SystemError:
-        return core::StatusCode::IoError;
-    }
-    return core::StatusCode::IoError;
-}
-
 std::optional<std::array<std::uint8_t, 6U>> parse_mac(std::string_view text)
 {
     std::array<std::uint8_t, 6U> mac{};
@@ -536,7 +514,7 @@ core::StatusCode LinuxNetworkScanTransport::submit(
         session_.last_preflight_family = target_preflight.family;
         session_.last_system_error = target_preflight.system_error;
         session_.last_error = target_preflight.message;
-        return core::StatusCode::PermissionDenied;
+        return network_scan_status_to_status_code(preflight_failure(target_preflight).status);
     }
     portscan::PortSubmission effective = submission;
     effective.target_ip = target_ip;
@@ -597,7 +575,7 @@ core::StatusCode LinuxNetworkScanTransport::submit(
         session_.last_preflight_family = target_ip.is_ipv4() ? core::AddressFamily::IPv4 : core::AddressFamily::IPv6;
         session_.last_system_error = send_result.system_error;
         session_.last_error = send_result.message;
-        return map_network_status(map_transport_status(send_result.status));
+        return network_scan_status_to_status_code(map_transport_status(send_result.status));
     }
     ++session_.submitted;
     return core::StatusCode::Ok;

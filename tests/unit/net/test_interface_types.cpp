@@ -7,6 +7,20 @@
 
 int main()
 {
+    using skan::core::ExitCode;
+    using skan::net::InterfaceStatus;
+    using skan::net::interface_status_to_exit_code;
+
+    assert(interface_status_to_exit_code(InterfaceStatus::Success) == ExitCode::Success);
+    assert(interface_status_to_exit_code(InterfaceStatus::InvalidName) == ExitCode::Usage);
+    assert(interface_status_to_exit_code(InterfaceStatus::InterfaceNotFound) == ExitCode::Usage);
+    assert(interface_status_to_exit_code(InterfaceStatus::PermissionDenied) == ExitCode::Permission);
+    assert(interface_status_to_exit_code(InterfaceStatus::NotSupported) == ExitCode::Permission);
+    assert(interface_status_to_exit_code(InterfaceStatus::EnumerationFailed) == ExitCode::Runtime);
+    assert(interface_status_to_exit_code(InterfaceStatus::RoutingUnavailable) == ExitCode::Runtime);
+    assert(interface_status_to_exit_code(InterfaceStatus::SystemError) == ExitCode::Runtime);
+    assert(interface_status_to_exit_code(static_cast<InterfaceStatus>(999)) == ExitCode::Runtime);
+
     skan::net::InterfaceAddress address{{192U, 0U, 2U, 1U}, 24U};
     const std::array<std::uint8_t, 4U> expected_ipv4{192U, 0U, 2U, 1U};
     assert(address.ipv4 == expected_ipv4);
