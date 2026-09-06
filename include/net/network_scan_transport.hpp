@@ -34,6 +34,9 @@ enum class NetworkScanStatus {
 
 const char *network_scan_status_name(NetworkScanStatus status) noexcept;
 
+/** Map raw-network outcomes onto the canonical internal status taxonomy. */
+core::StatusCode network_scan_status_to_status_code(NetworkScanStatus status) noexcept;
+
 struct NetworkScanConfig final {
     std::string interface_name;
     std::size_t max_frame_size{65535U};
