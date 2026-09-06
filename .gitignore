@@ -17,6 +17,7 @@ __pycache__/
 *.py[cod]
 validation_runs/
 dist/
+release-assets/
 build/package/
 debian/.debhelper/
 debian/debhelper-build-stamp

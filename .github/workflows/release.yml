@@ -59,8 +59,8 @@ jobs:
           bash scripts/test_deb_package.sh \
             "${packages[0]}" \
             "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
-          (cd dist && sha256sum "$(basename "${packages[0]}")" >SHA256SUMS)
-          echo "path=${packages[0]}" >>"$GITHUB_OUTPUT"
+          bash scripts/prepare_release_assets.sh "${packages[0]}" release-assets
+          echo "path=release-assets/$(basename "${packages[0]}")" >>"$GITHUB_OUTPUT"
 
       - name: Upload validated release assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -68,7 +68,7 @@ jobs:
           name: skan-linux-debian-${{ github.sha }}
           path: |
             ${{ steps.package.outputs.path }}
-            dist/SHA256SUMS
+            release-assets/SHA256SUMS
           if-no-files-found: error
 
   publish-github-release:

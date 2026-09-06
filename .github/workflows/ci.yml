@@ -128,6 +128,9 @@ jobs:
           python3 -m unittest tests/security/test_workflow_policy.py
           python3 scripts/validate_workflow_policy.py .github/workflows/*.yml
 
+      - name: Test packaging harness guards
+        run: python3 -m unittest discover -s tests/packaging -p 'test_*.py' -v
+
       - name: Static and security audit
         shell: bash
         run: |
@@ -208,6 +211,13 @@ jobs:
           bash scripts/test_deb_package.sh \
             "${{ steps.package.outputs.path }}" \
             "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
+
+      - name: Validate release asset staging
+        env:
+          PACKAGE_PATH: ${{ steps.package.outputs.path }}
+        run: |
+          bash scripts/prepare_release_assets.sh "$PACKAGE_PATH" release-assets
+          (cd release-assets && sha256sum -c SHA256SUMS)
 
       - name: Upload validated package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
