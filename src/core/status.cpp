@@ -34,12 +34,12 @@ ExitCode status_to_exit_code(StatusCode status) noexcept
     case StatusCode::Ok:
         return ExitCode::Success;
     case StatusCode::InvalidArgument:
-    case StatusCode::ParseError:
         return ExitCode::Usage;
     case StatusCode::PermissionDenied:
         return ExitCode::Permission;
     case StatusCode::MemoryError:
     case StatusCode::IoError:
+    case StatusCode::ParseError:
     case StatusCode::NotFound:
     case StatusCode::InternalError:
     case StatusCode::ResourceExhausted:
