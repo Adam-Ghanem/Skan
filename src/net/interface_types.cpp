@@ -65,4 +65,23 @@ const char *interface_status_name(InterfaceStatus status) noexcept
     return "unknown";
 }
 
+core::ExitCode interface_status_to_exit_code(InterfaceStatus status) noexcept
+{
+    switch (status) {
+    case InterfaceStatus::Success:
+        return core::ExitCode::Success;
+    case InterfaceStatus::InvalidName:
+    case InterfaceStatus::InterfaceNotFound:
+        return core::ExitCode::Usage;
+    case InterfaceStatus::PermissionDenied:
+    case InterfaceStatus::NotSupported:
+        return core::ExitCode::Permission;
+    case InterfaceStatus::EnumerationFailed:
+    case InterfaceStatus::RoutingUnavailable:
+    case InterfaceStatus::SystemError:
+    default:
+        return core::ExitCode::Runtime;
+    }
+}
+
 } // namespace skan::net
