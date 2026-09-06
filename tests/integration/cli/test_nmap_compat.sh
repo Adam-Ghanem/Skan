@@ -5,9 +5,30 @@ skan_bin=${SKAN_BIN:-./bin/skan}
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 
+expect_exit() {
+  local expected=$1
+  shift
+  local actual=0
+  set +e
+  "$@" >/dev/null 2>&1
+  actual=$?
+  set -e
+  if [[ "$actual" -ne "$expected" ]]; then
+    echo "expected exit $expected, got $actual: $*" >&2
+    exit 1
+  fi
+}
+
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 version=$(<"$repo_root/VERSION")
 test "$("$skan_bin" --version)" = "Skan $version"
+
+# Stable process taxonomy: success=0, usage=1, runtime/I/O=3.
+expect_exit 0 "$skan_bin" -sS --transport offline -p 80 192.0.2.1
+expect_exit 1 "$skan_bin" -sS --transport offline -4 -6 -p 80 192.0.2.1
+expect_exit 1 "$skan_bin" -sS --transport offline -p 0 192.0.2.1
+expect_exit 3 "$skan_bin" -sS --transport offline -p 80 --output json \
+  --output-file /proc/skan-exit-taxonomy-impossible 192.0.2.1
 
 "$skan_bin" -sT -p 1 --timeout-ms 50 --output json 127.0.0.1 >"$tmp_dir/connect.json"
 python3 -m json.tool "$tmp_dir/connect.json" >/dev/null
