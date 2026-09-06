@@ -105,6 +105,7 @@ CPP_SOURCES := \
 		src/portscan/port_probe.cpp \
 		src/portscan/tcp_connect.cpp \
 		src/portscan/tcp_syn.cpp \
+		src/portscan/tcp_ack.cpp \
 		src/portscan/port_scheduler.cpp \
 			src/portscan/udp_scan.cpp \
 		src/detect/service_types.cpp \
@@ -172,7 +173,7 @@ PACKET_OBJECTS := $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/packe
 
 PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o \
 	$(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o \
-	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/port_scheduler.o \
+	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/tcp_ack.o $(BUILD_DIR)/portscan/port_scheduler.o \
 		$(BUILD_DIR)/portscan/udp_scan.o
 DETECT_OBJECTS := $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/detect/service_db.o \
 	$(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_probe.o \
@@ -487,7 +488,7 @@ $(BUILD_DIR)/test_discovery_local: $(BUILD_DIR)/tests/integration/discovery/test
 $(BUILD_DIR)/test_port_types: $(BUILD_DIR)/tests/unit/portscan/test_port_types.o $(BUILD_DIR)/portscan/port_types.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_port_probe: $(BUILD_DIR)/tests/unit/portscan/test_port_probe.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o $(BUILD_DIR)/portscan/tcp_syn.o $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_port_probe: $(BUILD_DIR)/tests/unit/portscan/test_port_probe.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o $(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/tcp_ack.o $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_port_scheduler: $(BUILD_DIR)/tests/unit/portscan/test_port_scheduler.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)

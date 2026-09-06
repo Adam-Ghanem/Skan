@@ -21,6 +21,30 @@ int main()
         assert(skan::output::OutputManager::write(format, report, output) == skan::output::OutputStatus::Ok);
         assert(!output.str().empty());
     }
+    skan::output::ScanReport ack_report;
+    skan::output::HostResult ack_host;
+    ack_host.address = "192.0.2.1";
+    skan::portscan::PortResult ack_port;
+    ack_port.target = ack_host.address;
+    ack_port.port = {443U, skan::portscan::Protocol::Tcp};
+    ack_port.probe = skan::portscan::ScanProbeType::TcpAck;
+    ack_port.state = skan::portscan::PortState::Unfiltered;
+    ack_port.reason = skan::portscan::ScanReason::AckRst;
+    ack_host.ports.push_back(ack_port);
+    ack_report.hosts.push_back(ack_host);
+    for (const skan::output::OutputFormat format : formats) {
+        skan::output::OutputContext context;
+        context.include_reasons = true;
+        std::ostringstream full;
+        assert(skan::output::OutputManager::write(format, ack_report, full, context) == skan::output::OutputStatus::Ok);
+        assert(full.str().find("UNFILTERED") != std::string::npos);
+        assert(full.str().find("ACK_RST") != std::string::npos);
+        context.open_only = true;
+        std::ostringstream filtered;
+        assert(skan::output::OutputManager::write(format, ack_report, filtered, context) == skan::output::OutputStatus::Ok);
+        assert(filtered.str().find("UNFILTERED") == std::string::npos);
+        assert(filtered.str().find("ACK_RST") == std::string::npos);
+    }
     assert(skan::output::OutputManager::create(static_cast<skan::output::OutputFormat>(255U)) == nullptr);
     skan::output::OutputFormat parsed = skan::output::OutputFormat::Normal;
     assert(skan::output::parse_output_format("json", parsed) == skan::output::OutputStatus::Ok);

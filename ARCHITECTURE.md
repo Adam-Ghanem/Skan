@@ -1,5 +1,13 @@
 # Skan Architecture
 
+## Phase 34 ACK scan integration
+
+`TcpAckProbe` constructs and assesses ACK firewall-mapping probes. `PortScanScheduler` retains ownership of deadlines, retries, cancellation, and results. `LinuxNetworkScanTransport` shares one typed TCP response policy across IPv4/IPv6 and matches ICMP quotes against the emitted probe before retiring a pending operation. It validates both endpoint families, on-wire addresses, reversed ports, and probe-specific sequence/flag semantics; ambiguous matches are ignored.
+
+ACK reset evidence is `UNFILTERED/ACK_RST`, timeout is `FILTERED/ACK_TIMEOUT`, and a correlated destination-unreachable quote is `FILTERED/ICMP_NETWORK_UNREACHABLE`. Quotes may contain only the initial eight TCP bytes, but available identity bytes must match. The transport emits base IP headers without options/extensions or fragmentation; quoted forms it does not emit are rejected. There is no second packet stack, shell execution, implicit offline fallback, or open-port inference. Normal/JSON/XML/grepable writers consume the same canonical result.
+
+`-sA` and `--method ack` select Linux raw mode unless an explicit transport option overrides the default. Explicit Connect is rejected, as are service and OS detection. Offline mode is a requested simulation, never live evidence. Raw capability and isolated-lab CI gates remain required for delivery.
+
 Skan is an original Linux network-scanning platform designed as a modular C++20 application. The architecture is influenced by general scanner engineering principles, but all Skan implementations are original and the project does not claim compatibility with any other scanner.
 
 ## High-level stack

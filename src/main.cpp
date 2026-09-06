@@ -71,8 +71,8 @@ void print_help()
               << "  -p, --tcp-ports <spec> TCP ports: single, list, range, or -p- for 1-65535\n"
               << "  --udp                  Run the explicit bounded UDP scan mode\n"
               << "  --udp-ports <spec>     UDP ports: single, list, or range\n"
-              << "  --method <connect|syn> TCP Connect or capability-gated SYN (not with --udp)\n"
-              << "  -sT / -sS / -sU      Nmap-style Connect, SYN, or UDP scan aliases\n"
+              << "  --method <connect|syn|ack> TCP Connect, SYN, or ACK firewall mapping (not with --udp)\n"
+              << "  -sT / -sS / -sA / -sU Nmap-style Connect, SYN, ACK, or UDP scan aliases\n"
               << "  -sn / -Pn            Discovery-only or skip-discovery aliases\n"
               << "  -sV / -O             Service/version or OS detection aliases\n"
               << "  -4 / -6              Restrict resolved targets to IPv4 or IPv6\n"
@@ -127,7 +127,8 @@ void print_help()
               << "The resolve command normalizes targets without scanning; use --max-targets to bound expansion.\n"
               << "Discovery CLI mode uses an offline recording transport; explicit Linux IPv6 discovery is capability-gated and reports failure without fallback.\n"
               << "Scan Connect mode uses normal nonblocking TCP sockets unless --transport offline is selected.\n"
-              << "Scan SYN mode requires explicit --transport offline or --transport linux; Linux derives an interface from route/source evidence when omitted.\n"
+              << "-sS, -sA and --method ack select Linux raw packets; --transport offline is an explicit deterministic simulation.\n"
+              << "TCP ACK reports only FILTERED or UNFILTERED; it never identifies open services and cannot be combined with service or OS detection.\n"
               << "The scan pipeline runs Discovery, TCP Port, UDP (when --udp), Service, OS, and Output stages sequentially.\n"
               << "Service detection is opt-in, TCP-only, bounded, and restricted to OPEN scan results.\n"
               << "OS fingerprinting supports deterministic offline/injected probes and explicit Linux raw-packet mode.\n"
@@ -837,6 +838,7 @@ int run_scan(int argc, char **argv)
     bool explicit_method = false;
     bool adaptive_timing = false;
     bool explicit_udp_ports = false;
+    bool explicit_transport = false;
     bool ipv4_only = false;
     bool ipv6_only = false;
     std::string transport_mode;
@@ -847,24 +849,34 @@ int run_scan(int argc, char **argv)
     std::vector<std::string> excluded_target_specifications;
     bool no_color = false;
     bool debug_logging = false;
+    const auto select_tcp_method = [&](skan::portscan::ScanProbeType method, std::string_view default_transport) {
+        if (explicit_method && config.port_method != method) {
+            std::cerr << "Error: conflicting TCP scan methods; select exactly one method.\n";
+            return false;
+        }
+        config.port_method = method;
+        explicit_method = true;
+        if (!explicit_transport && !default_transport.empty()) {
+            transport_mode = default_transport;
+        }
+        return true;
+    };
     for (int index = 3; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "-sT") {
-            config.port_method = skan::portscan::ScanProbeType::TcpConnect;
-            transport_mode = "connect";
-            explicit_method = true;
+            if (!select_tcp_method(skan::portscan::ScanProbeType::TcpConnect, "connect")) { return EXIT_FAILURE; }
         } else if (argument == "-sS") {
-            config.port_method = skan::portscan::ScanProbeType::TcpSyn;
-            transport_mode = "linux";
-            explicit_method = true;
+            if (!select_tcp_method(skan::portscan::ScanProbeType::TcpSyn, "linux")) { return EXIT_FAILURE; }
+        } else if (argument == "-sA") {
+            if (!select_tcp_method(skan::portscan::ScanProbeType::TcpAck, "linux")) { return EXIT_FAILURE; }
         } else if (argument == "-sU") {
             config.udp_enabled = true;
             config.port_scan_enabled = false;
-            transport_mode = "linux";
+            if (!explicit_transport) { transport_mode = "linux"; }
         } else if (argument == "-sn") {
             config.discovery_enabled = true;
             config.port_scan_enabled = false;
-            transport_mode = "linux";
+            if (!explicit_transport) { transport_mode = "linux"; }
         } else if (argument == "-Pn") {
             config.discovery_enabled = false;
         } else if (argument == "-sV") {
@@ -951,14 +963,15 @@ int run_scan(int argc, char **argv)
         } else if (argument == "--method" && index + 1 < argc) {
             const std::string_view method(argv[++index]);
             if (method == "connect") {
-                config.port_method = skan::portscan::ScanProbeType::TcpConnect;
+                if (!select_tcp_method(skan::portscan::ScanProbeType::TcpConnect, {})) { return EXIT_FAILURE; }
             } else if (method == "syn") {
-                config.port_method = skan::portscan::ScanProbeType::TcpSyn;
+                if (!select_tcp_method(skan::portscan::ScanProbeType::TcpSyn, {})) { return EXIT_FAILURE; }
+            } else if (method == "ack") {
+                if (!select_tcp_method(skan::portscan::ScanProbeType::TcpAck, "linux")) { return EXIT_FAILURE; }
             } else {
-                std::cerr << "Error: method must be connect or syn.\n";
+                std::cerr << "Error: method must be connect, syn, or ack.\n";
                 return EXIT_FAILURE;
             }
-            explicit_method = true;
         } else if (argument == "--timeout-ms" && index + 1 < argc) {
             unsigned int timeout = 0U;
             if (!parse_unsigned(argv[++index], timeout) || timeout == 0U) {
@@ -1023,6 +1036,7 @@ int run_scan(int argc, char **argv)
             adaptive_timing = true;
         } else if (argument == "--transport" && index + 1 < argc) {
             transport_mode = argv[++index];
+            explicit_transport = true;
             if (transport_mode != "connect" && transport_mode != "offline" && transport_mode != "linux") {
                 std::cerr << "Error: transport must be connect, offline, or linux.\n";
                 return EXIT_FAILURE;
@@ -1219,21 +1233,33 @@ int run_scan(int argc, char **argv)
         config.transport = skan::orchestrator::ScanTransport::Connect;
     }
     if (config.udp_enabled && explicit_method) {
-        std::cerr << "Error: --udp cannot be combined with --method connect or --method syn; use --udp-ports instead.\n";
+        std::cerr << "Error: --udp cannot be combined with a TCP scan method; use --udp-ports instead.\n";
         return EXIT_FAILURE;
     }
     if (config.udp_enabled && transport_mode.empty()) {
         std::cerr << "Error: --udp requires an explicit --transport offline or --transport linux --interface <name>.\n";
         return EXIT_FAILURE;
     }
-    if (config.port_method == skan::portscan::ScanProbeType::TcpSyn && transport_mode.empty()) {
-        std::cerr << "Error: TCP SYN requires an explicit --transport linux --interface <name> or --transport offline; "
+    if ((config.port_method == skan::portscan::ScanProbeType::TcpSyn ||
+         config.port_method == skan::portscan::ScanProbeType::TcpAck) && transport_mode.empty()) {
+        std::cerr << "Error: TCP SYN and ACK require an explicit --transport linux --interface <name> or --transport offline; "
                      "no raw transport is selected implicitly.\n";
         return EXIT_FAILURE;
     }
     if (config.transport == skan::orchestrator::ScanTransport::Linux && !config.udp_enabled &&
-        config.port_method != skan::portscan::ScanProbeType::TcpSyn) {
-        std::cerr << "Error: the linux packet transport is only available for TCP --method syn; Connect mode uses normal TCP sockets.\n";
+        config.port_method != skan::portscan::ScanProbeType::TcpSyn &&
+        config.port_method != skan::portscan::ScanProbeType::TcpAck) {
+        std::cerr << "Error: the linux packet transport is only available for TCP --method syn or ack; Connect mode uses normal TCP sockets.\n";
+        return EXIT_FAILURE;
+    }
+    if (config.port_method == skan::portscan::ScanProbeType::TcpAck &&
+        config.transport == skan::orchestrator::ScanTransport::Connect) {
+        std::cerr << "Error: TCP ACK requires --transport linux or --transport offline; Connect mode cannot forge ACK probes.\n";
+        return EXIT_FAILURE;
+    }
+    if (config.port_method == skan::portscan::ScanProbeType::TcpAck &&
+        (config.service_detection_enabled || config.os_detection_enabled)) {
+        std::cerr << "Error: TCP ACK cannot be combined with service or OS detection.\n";
         return EXIT_FAILURE;
     }
     if (config.discovery_enabled && transport_mode.empty()) {

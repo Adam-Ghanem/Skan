@@ -21,7 +21,8 @@ enum class Protocol {
 enum class ScanProbeType {
     TcpConnect = 0,
     TcpSyn,
-    Udp
+    Udp,
+    TcpAck
 };
 
 enum class PortState {
@@ -58,7 +59,9 @@ enum class ScanReason {
     UdpTimeout,
     DuplicateResponse,
     LateResponse,
-    UnsupportedProtocol
+    UnsupportedProtocol,
+    AckRst,
+    AckTimeout
 };
 
 struct Port final {

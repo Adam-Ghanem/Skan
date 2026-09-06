@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include "packet/ethernet.hpp"
+#include "packet/checksum.hpp"
 #include "packet/ipv4.hpp"
 #include "packet/ipv6.hpp"
 #include "packet/packet.hpp"
@@ -360,6 +361,105 @@ std::string ipv4_text(std::uint32_t address)
 
 } // namespace
 
+bool matches_tcp_reply(
+    const portscan::PortSubmission &submission,
+    const PacketObservation &observation) noexcept
+{
+    if (!observation.valid() || !observation.tcp.has_value()) {
+        return false;
+    }
+    core::IpAddress source;
+    core::IpAddress destination;
+    if (observation.ipv4.has_value() && !observation.ipv6.has_value()) {
+        source = core::IpAddress::from_ipv4(observation.ipv4->source_address());
+        destination = core::IpAddress::from_ipv4(observation.ipv4->destination_address());
+    } else if (observation.ipv6.has_value() && !observation.ipv4.has_value()) {
+        source = core::IpAddress::from_ipv6(observation.ipv6->source_address());
+        destination = core::IpAddress::from_ipv6(observation.ipv6->destination_address());
+    } else {
+        return false;
+    }
+    // The capture interface owns the IPv6 scope; compare on-wire family and bytes.
+    if (source.family != submission.target_ip.family || destination.family != submission.source_ip.family ||
+        source.bytes != submission.target_ip.bytes || destination.bytes != submission.source_ip.bytes) {
+        return false;
+    }
+    const packet::TCP &tcp = *observation.tcp;
+    if (tcp.source_port() != submission.port.number || tcp.destination_port() != submission.source_port) {
+        return false;
+    }
+    const bool ack = packet::has_flag(tcp.flags(), packet::TcpFlag::Ack);
+    const bool rst = packet::has_flag(tcp.flags(), packet::TcpFlag::Rst);
+    const bool syn = packet::has_flag(tcp.flags(), packet::TcpFlag::Syn);
+    const bool fin = packet::has_flag(tcp.flags(), packet::TcpFlag::Fin);
+    if (submission.probe == portscan::ScanProbeType::TcpAck) {
+        // RFC 9293 section 3.10.7: a reset responding to ACK uses SEG.ACK as SEQ.
+        return rst && !ack && !syn && !fin && tcp.sequence_number() == submission.acknowledgment_number;
+    }
+    if (submission.probe == portscan::ScanProbeType::TcpSyn) {
+        return !fin && ((syn && !rst && ack && tcp.acknowledgment_number() == submission.sequence_number + 1U) ||
+                        (rst && !syn && (!ack || tcp.acknowledgment_number() == submission.sequence_number + 1U)));
+    }
+    return false;
+}
+
+bool matches_tcp_unreachable(
+    const portscan::PortSubmission &submission,
+    const PacketObservation &observation) noexcept
+{
+    if (!observation.valid() || submission.packet.size() < 20U ||
+        (submission.probe != portscan::ScanProbeType::TcpSyn && submission.probe != portscan::ScanProbeType::TcpAck)) {
+        return false;
+    }
+    std::span<const std::uint8_t> quote;
+    std::size_t header_size = 0U;
+    if (observation.ipv4.has_value() && !observation.ipv6.has_value() && observation.icmp.has_value() &&
+        submission.source_ip.is_ipv4() && submission.target_ip.is_ipv4()) {
+        if (observation.icmp->type() != packet::IcmpType::DestinationUnreachable || observation.icmp->code() > 15U ||
+            core::IpAddress::from_ipv4(observation.ipv4->destination_address()).bytes != submission.source_ip.bytes) {
+            return false;
+        }
+        quote = observation.icmp->payload();
+        header_size = 20U;
+        // Emitted probes have no IP options or fragments. ICMP may quote only eight TCP bytes;
+        // the full-packet IPv4 parser intentionally does not accept that truncation.
+        if (quote.size() < header_size + 8U || quote[0] != 0x45U || quote[9] != kTcpProtocol ||
+            packet::wire::read_u16(quote, 2U) != header_size + submission.packet.size() ||
+            (packet::wire::read_u16(quote, 6U) & 0xbfffU) != 0U ||
+            packet::checksum::internet(quote.first(header_size)) != 0U ||
+            core::IpAddress::from_ipv4(packet::wire::read_u32(quote, 12U)).bytes != submission.source_ip.bytes ||
+            core::IpAddress::from_ipv4(packet::wire::read_u32(quote, 16U)).bytes != submission.target_ip.bytes) {
+            return false;
+        }
+    } else if (observation.ipv6.has_value() && !observation.ipv4.has_value() && observation.icmpv6.has_value() &&
+               submission.source_ip.is_ipv6() && submission.target_ip.is_ipv6()) {
+        if (observation.icmpv6->type() != packet::Icmpv6Type::DestinationUnreachable || observation.icmpv6->code() > 6U ||
+            observation.ipv6->destination_address() != submission.source_ip.bytes) {
+            return false;
+        }
+        quote = observation.icmpv6->payload();
+        header_size = 40U;
+        // This transport emits base-header IPv6 probes, never extensions or fragments.
+        if (quote.size() < header_size + 8U || (quote[0] >> 4U) != 6U || quote[6] != kTcpProtocol ||
+            packet::wire::read_u16(quote, 4U) != submission.packet.size() ||
+            !std::equal(submission.source_ip.bytes.begin(), submission.source_ip.bytes.end(), quote.begin() + 8U) ||
+            !std::equal(submission.target_ip.bytes.begin(), submission.target_ip.bytes.end(), quote.begin() + 24U)) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    const auto tcp = quote.subspan(header_size);
+    const std::size_t size = std::min(tcp.size(), submission.packet.size());
+    for (std::size_t index = 0U; index < size; ++index) {
+        // The transport recomputes the checksum with the selected source address.
+        if (index != 16U && index != 17U && tcp[index] != submission.packet[index]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 const char *network_scan_status_name(NetworkScanStatus status) noexcept
 {
     switch (status) {
@@ -503,7 +603,8 @@ bool LinuxNetworkScanTransport::is_open() const noexcept
 
 bool LinuxNetworkScanTransport::supports(portscan::ScanProbeType probe) const noexcept
 {
-    return is_open() && probe == portscan::ScanProbeType::TcpSyn;
+    return is_open() && (probe == portscan::ScanProbeType::TcpSyn ||
+                         probe == portscan::ScanProbeType::TcpAck);
 }
 
 core::StatusCode LinuxNetworkScanTransport::submit(
@@ -513,7 +614,9 @@ core::StatusCode LinuxNetworkScanTransport::submit(
     if (!is_open()) {
         return core::StatusCode::PermissionDenied;
     }
-    if (submission.id == 0U || submission.probe != portscan::ScanProbeType::TcpSyn || !callback ||
+    if (submission.id == 0U ||
+        (submission.probe != portscan::ScanProbeType::TcpSyn &&
+         submission.probe != portscan::ScanProbeType::TcpAck) || !callback ||
         submission.target.empty()) {
         return core::StatusCode::InvalidArgument;
     }
@@ -676,76 +779,28 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
         callback(response);
     };
 
-    if (observation.valid() && observation.ipv6.has_value() && observation.icmpv6.has_value() &&
-        observation.icmpv6->type() == packet::Icmpv6Type::DestinationUnreachable) {
-        const std::span<const std::uint8_t> quoted_bytes{observation.icmpv6->payload()};
-        const auto quoted_ip = packet::IPv6::parse(quoted_bytes);
-        if (quoted_ip.has_value() && quoted_ip->next_header() == kTcpProtocol &&
-            quoted_bytes.size() >= quoted_ip->serialized_size()) {
-            const auto quoted_tcp = packet::TCP::parse(quoted_bytes.subspan(quoted_ip->serialized_size()));
-            if (quoted_tcp.has_value()) {
-                const core::IpAddress quoted_source = core::IpAddress::from_ipv6(quoted_ip->source_address());
-                const core::IpAddress quoted_destination = core::IpAddress::from_ipv6(quoted_ip->destination_address());
-                for (const auto &[id, pending] : pending_) {
-                    if (pending.submission.probe != portscan::ScanProbeType::TcpSyn ||
-                        pending.submission.source_ip.bytes != quoted_source.bytes ||
-                        pending.submission.target_ip.bytes != quoted_destination.bytes ||
-                        quoted_tcp->source_port() != pending.submission.source_port ||
-                        quoted_tcp->destination_port() != pending.submission.port.number ||
-                        quoted_tcp->sequence_number() != pending.submission.sequence_number) {
-                        continue;
-                    }
-                    complete_unreachable(id);
-                    return;
+    if (observation.icmp.has_value() || observation.icmpv6.has_value()) {
+        std::optional<portscan::PortProbeId> matched_id;
+        for (const auto &[id, pending] : pending_) {
+            if (matches_tcp_unreachable(pending.submission, observation)) {
+                if (matched_id.has_value()) {
+                    return; // Ambiguous evidence must never retire an arbitrary probe.
                 }
+                matched_id = id;
             }
         }
-    }
-
-    if (observation.valid() && observation.ipv4.has_value() && observation.icmp.has_value() &&
-        observation.ipv4->destination_address() == source_ipv4_ &&
-        observation.icmp->type() == packet::IcmpType::DestinationUnreachable) {
-        const std::span<const std::uint8_t> quoted_bytes{observation.icmp->payload()};
-        const auto quoted_ip = packet::IPv4::parse(quoted_bytes);
-        if (quoted_ip.has_value() && quoted_ip->protocol() == kTcpProtocol &&
-            quoted_bytes.size() >= quoted_ip->serialized_size()) {
-            const auto quoted_tcp = packet::TCP::parse(quoted_bytes.subspan(quoted_ip->serialized_size()));
-            if (quoted_tcp.has_value()) {
-                const core::IpAddress quoted_source = core::IpAddress::from_ipv4(quoted_ip->source_address());
-                const core::IpAddress quoted_destination = core::IpAddress::from_ipv4(quoted_ip->destination_address());
-                for (const auto &[id, pending] : pending_) {
-                    if (pending.submission.probe != portscan::ScanProbeType::TcpSyn ||
-                        pending.submission.source_ip.bytes != quoted_source.bytes ||
-                        pending.submission.target_ip.bytes != quoted_destination.bytes ||
-                        quoted_tcp->source_port() != pending.submission.source_port ||
-                        quoted_tcp->destination_port() != pending.submission.port.number ||
-                        quoted_tcp->sequence_number() != pending.submission.sequence_number) {
-                        continue;
-                    }
-                    complete_unreachable(id);
-                    return;
-                }
-            }
+        if (matched_id.has_value()) {
+            complete_unreachable(*matched_id);
         }
+        return;
     }
 
     if (observation.valid() && observation.ipv6.has_value() && observation.tcp.has_value()) {
         const packet::TCP &tcp = *observation.tcp;
         const core::IpAddress observed_source = core::IpAddress::from_ipv6(observation.ipv6->source_address());
-        const core::IpAddress observed_destination = core::IpAddress::from_ipv6(observation.ipv6->destination_address());
         std::optional<portscan::PortProbeId> matched_id;
         for (const auto &[id, pending] : pending_) {
-            if (!pending.submission.target_ip.is_ipv6() || !pending.submission.source_ip.is_ipv6() ||
-                pending.submission.target_ip.bytes != observed_source.bytes ||
-                pending.submission.source_ip.bytes != observed_destination.bytes ||
-                pending.submission.source_port != tcp.destination_port() ||
-                pending.submission.port.number != tcp.source_port()) {
-                continue;
-            }
-            const bool ack_matches = tcp.acknowledgment_number() == pending.submission.sequence_number + 1U;
-            const bool rst_without_ack = packet::has_flag(tcp.flags(), packet::TcpFlag::Rst) &&
-                                         tcp.acknowledgment_number() == 0U;
-            if (!ack_matches && !rst_without_ack) {
+            if (!matches_tcp_reply(pending.submission, observation)) {
                 continue;
             }
             if (matched_id.has_value()) {
@@ -786,7 +841,7 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
     const std::uint32_t source_address = observation.ipv4->source_address();
     const packet::TCP &tcp = *observation.tcp;
     std::optional<portscan::PortProbeId> matched_id;
-    if (tcp.acknowledgment_number() != 0U) {
+    if (packet::has_flag(tcp.flags(), packet::TcpFlag::Ack)) {
         const CorrelationKey key{
             source_address,
             tcp.destination_port(),
@@ -795,13 +850,15 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
             core::IpAddress::from_ipv4(source_address)};
         const CorrelationResult found = correlation_.lookup(key, std::chrono::steady_clock::now());
         if (found.status == CorrelationStatus::Found && found.entry.has_value()) {
+            const auto pending = pending_.find(static_cast<portscan::PortProbeId>(found.entry->token));
+            if (pending == pending_.end() || !matches_tcp_reply(pending->second.submission, observation)) {
+                return;
+            }
             matched_id = static_cast<portscan::PortProbeId>(found.entry->token);
         }
     } else {
         for (const auto &[id, pending] : pending_) {
-            if (pending.correlation_key.target_ipv4 == source_address &&
-                pending.submission.source_port == tcp.destination_port() &&
-                pending.submission.port.number == tcp.source_port()) {
+            if (matches_tcp_reply(pending.submission, observation)) {
                 if (matched_id.has_value()) {
                     matched_id.reset();
                     break;
