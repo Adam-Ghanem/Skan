@@ -93,3 +93,13 @@ if [[ "$skan_status" -ne 0 || "$nmap_status" -ne 0 ]]; then
   echo "Privileged validation failed; inspect the captured outputs." >&2
   exit 1
 fi
+
+# Any positive transport response proves the host is reachable. Keep the
+# canonical summary aligned with the port evidence so terminal and machine
+# consumers cannot regress to "reachable" alongside "0 up".
+if grep -Eq '(^|[[:space:]])[0-9]+/(tcp|udp)[[:space:]]+(OPEN|CLOSED|UNFILTERED)([[:space:]]|$)' "$skan_out"; then
+  if ! grep -Fq 'Summary: 1 hosts (1 up);' "$skan_out"; then
+    echo "Skan reachability summary contradicts positive port evidence." >&2
+    exit 1
+  fi
+fi
