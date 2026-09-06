@@ -19,6 +19,7 @@ import termios
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
+VERSION = (ROOT / "VERSION").read_text(encoding="ascii").strip().encode("ascii")
 SKAN = pathlib.Path(os.environ.get("SKAN_BIN", ROOT / "bin" / "skan"))
 SCAN = [str(SKAN), "-sS", "--transport", "offline", "-p", "80", "--reason", "192.0.2.1"]
 
@@ -111,7 +112,7 @@ def main() -> None:
 
     dumb = assert_success(run_pty(SCAN, environment=terminal_environment(TERM="dumb")))
     assert b"\x1b" not in dumb
-    assert dumb.startswith(b"SKAN v0.1.0\r\n")
+    assert dumb.startswith(b"SKAN v" + VERSION + b"\r\n")
     assert "◈".encode() not in dumb
 
     debug = assert_success(run_pty(SCAN + ["--debug"]))
@@ -124,14 +125,14 @@ def main() -> None:
         redirected_stderr = assert_success(run_pty(SCAN, stdout_path=redirected_path))
         redirected = redirected_path.read_bytes()
         assert redirected_stderr == b""
-        assert redirected.startswith(b"SKAN v0.1.0\n")
+        assert redirected.startswith(b"SKAN v" + VERSION + b"\n")
         assert b"\x1b" not in redirected and "◈".encode() not in redirected
 
         output_path = temporary / "file.nmap"
         file_stderr = assert_success(run_pty(SCAN + ["-oN", str(output_path)]))
         file_output = output_path.read_bytes()
         assert file_stderr == b""
-        assert file_output.startswith(b"SKAN v0.1.0\n")
+        assert file_output.startswith(b"SKAN v" + VERSION + b"\n")
         assert b"\x1b" not in file_output
 
     machine = assert_success(run_pty(SCAN + ["--output", "json"]))

@@ -18,7 +18,7 @@ make package-deb
 The build copies a clean source snapshot into a temporary Linux directory, applies Debian hardening flags, runs the registered test suite, and writes only the main binary package to `dist/`:
 
 ```text
-dist/skan_0.1.0-1_amd64.deb
+dist/skan_0.1.1-1_amd64.deb
 ```
 
 For an environment matching CI, use the pinned Debian 12 builder:
@@ -34,12 +34,12 @@ docker run --rm --volume "$PWD:/work" --workdir /work \
 ```bash
 docker run --rm --volume "$PWD/dist:/dist:ro" \
   skan-debian12-builder \
-  lintian --fail-on error /dist/skan_0.1.0-1_amd64.deb
+  lintian --fail-on error /dist/skan_0.1.1-1_amd64.deb
 
 bash scripts/test_deb_package.sh \
-  dist/skan_0.1.0-1_amd64.deb debian:12
+  dist/skan_0.1.1-1_amd64.deb debian:12
 bash scripts/test_deb_package.sh \
-  dist/skan_0.1.0-1_amd64.deb ubuntu:24.04
+  dist/skan_0.1.1-1_amd64.deb ubuntu:24.04
 ```
 
 The acceptance harness installs the package into a fresh image, then runs offline with raw-network capabilities dropped and the container network disabled. It verifies:
@@ -69,7 +69,7 @@ packaging harness's regression tests run with
 The release asset supports the immediately available flow:
 
 ```bash
-sudo apt install ./skan_0.1.0-1_amd64.deb
+sudo apt install ./skan_0.1.1-1_amd64.deb
 ```
 
 Official Debian/Ubuntu archive availability is separate and must not be claimed before external acceptance. The current automation builds a binary package; an archive submission still needs a policy-complete signed source package, sponsor review, and acceptance.

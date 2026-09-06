@@ -5,8 +5,9 @@ skan_bin=${SKAN_BIN:-./bin/skan}
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 
-test "$("$skan_bin" --version)" = "Skan 0.1.0"
-! "$skan_bin" --version | grep -F "Skan Skan"
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+version=$(<"$repo_root/VERSION")
+test "$("$skan_bin" --version)" = "Skan $version"
 
 "$skan_bin" -sT -p 1 --timeout-ms 50 --output json 127.0.0.1 >"$tmp_dir/connect.json"
 python3 -m json.tool "$tmp_dir/connect.json" >/dev/null

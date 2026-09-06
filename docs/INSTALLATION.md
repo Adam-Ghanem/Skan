@@ -2,10 +2,10 @@
 
 ## End-user installation on Ubuntu or Debian
 
-Download the `amd64` `.deb` attached to a Skan GitHub Release. For version 0.1.0, install it from the directory containing the download:
+Download the `amd64` `.deb` attached to a Skan GitHub Release. For version 0.1.1, install it from the directory containing the download:
 
 ```bash
-sudo apt install ./skan_0.1.0-1_amd64.deb
+sudo apt install ./skan_0.1.1-1_amd64.deb
 ```
 
 APT resolves the package's factual C++ runtime dependencies from the configured distribution repositories. The Skan package itself runs no maintainer scripts and performs no network activity during installation.

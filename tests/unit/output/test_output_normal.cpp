@@ -28,7 +28,7 @@ int main()
 
     const skan::output::ScanReport default_report;
     assert(default_report.scanner_name == "Skan");
-    assert(default_report.scanner_version == "0.1.0");
+    assert(default_report.scanner_version == skan::core::constants::SKAN_VERSION_STRING);
 
     std::ostringstream empty_output;
     assert(writer.write(skan::output::ScanReport{}, empty_output, interactive) ==
