@@ -32,7 +32,7 @@ int main()
 
     assert(status_to_exit_code(StatusCode::Ok) == ExitCode::Success);
     assert(status_to_exit_code(StatusCode::InvalidArgument) == ExitCode::Usage);
-    assert(status_to_exit_code(StatusCode::ParseError) == ExitCode::Usage);
+    assert(status_to_exit_code(StatusCode::ParseError) == ExitCode::Runtime);
     assert(status_to_exit_code(StatusCode::PermissionDenied) == ExitCode::Permission);
     assert(status_to_exit_code(StatusCode::MemoryError) == ExitCode::Runtime);
     assert(status_to_exit_code(StatusCode::IoError) == ExitCode::Runtime);
