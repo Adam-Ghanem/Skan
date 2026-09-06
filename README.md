@@ -20,7 +20,7 @@ It brings host discovery, TCP/UDP scanning, service detection, OS fingerprinting
 Download the validated `amd64` package from the GitHub Releases page, then install it with APT:
 
 ```bash
-sudo apt install ./skan_0.1.0-1_amd64.deb
+sudo apt install ./skan_0.1.1-1_amd64.deb
 skan --version
 ```
 
