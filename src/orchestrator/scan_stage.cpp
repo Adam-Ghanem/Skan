@@ -34,15 +34,7 @@ StageResult stage_cancelled()
 
 core::StatusCode network_failure_status(const net::NetworkScanResult &result) noexcept
 {
-    if (result.status == net::NetworkScanStatus::PermissionDenied ||
-        result.status == net::NetworkScanStatus::NotSupported ||
-        result.status == net::NetworkScanStatus::RoutingUnavailable) {
-        return core::StatusCode::PermissionDenied;
-    }
-    if (result.status == net::NetworkScanStatus::InterfaceNotFound) {
-        return core::StatusCode::NotFound;
-    }
-    return core::StatusCode::IoError;
+    return net::network_scan_status_to_status_code(result.status);
 }
 
 std::string network_failure_message(
@@ -501,10 +493,7 @@ StageResult OSDetectionStage::start(
             engine_, net::NetworkScanConfig{*config_.interface_name, 65535U, true, std::nullopt});
         const net::NetworkScanResult opened = linux->open();
         if (!opened.success()) {
-            const core::StatusCode status = opened.status == net::NetworkScanStatus::PermissionDenied ||
-                                                    opened.status == net::NetworkScanStatus::NotSupported
-                                                ? core::StatusCode::PermissionDenied
-                                                : core::StatusCode::IoError;
+            const core::StatusCode status = net::network_scan_status_to_status_code(opened.status);
             result_ = stage_failure(
                 status,
                 network_failure_message("OS raw transport unavailable", "af_packet_capture", *config_.interface_name, opened));
