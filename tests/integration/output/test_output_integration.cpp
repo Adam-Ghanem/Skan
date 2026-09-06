@@ -100,6 +100,45 @@ void assert_open_only_writer_parity()
     }
 }
 
+void assert_machine_os_detection_metadata_parity()
+{
+    const skan::output::ScanReport report = skan::output::test::make_report();
+    std::ostringstream json;
+    std::ostringstream xml;
+    std::ostringstream grepable;
+
+    assert(skan::output::OutputManager::write(skan::output::OutputFormat::Json, report, json) ==
+           skan::output::OutputStatus::Ok);
+    assert(skan::output::OutputManager::write(skan::output::OutputFormat::Xml, report, xml) ==
+           skan::output::OutputStatus::Ok);
+    assert(skan::output::OutputManager::write(skan::output::OutputFormat::Grepable, report, grepable) ==
+           skan::output::OutputStatus::Ok);
+
+    const std::string json_text = json.str();
+    assert(json_text.find("\"os_detection\"") != std::string::npos);
+    assert(json_text.find("\"vendor\": \"Skan\"") != std::string::npos);
+    assert(json_text.find("\"family\": \"Linux\"") != std::string::npos);
+    assert(json_text.find("\"generation\": \"generic\"") != std::string::npos);
+    assert(json_text.find("\"device_type\": \"server\"") != std::string::npos);
+
+    const std::string xml_text = xml.str();
+    assert(xml_text.find("<os-detection>") != std::string::npos);
+    assert(xml_text.find("<vendor>Skan</vendor>") != std::string::npos);
+    assert(xml_text.find("<family>Linux</family>") != std::string::npos);
+    assert(xml_text.find("<generation>generic</generation>") != std::string::npos);
+    assert(xml_text.find("<device-type>server</device-type>") != std::string::npos);
+
+    const std::string grepable_text = grepable.str();
+    const std::size_t os_status = grepable_text.find("OSStatus: address=\"192.0.2.20\"");
+    assert(os_status != std::string::npos);
+    const std::size_t os_status_end = grepable_text.find('\n', os_status);
+    const std::string os_status_row = grepable_text.substr(os_status, os_status_end - os_status);
+    assert(os_status_row.find("vendor=\"Skan\"") != std::string::npos);
+    assert(os_status_row.find("family=\"Linux\"") != std::string::npos);
+    assert(os_status_row.find("generation=\"generic\"") != std::string::npos);
+    assert(os_status_row.find("device_type=\"server\"") != std::string::npos);
+}
+
 } // namespace
 
 int main()
@@ -152,5 +191,6 @@ int main()
     assert(large_json.str().find("\"hosts\"") != std::string::npos);
     assert(large_xml.str().find("<host") != std::string::npos);
     assert_open_only_writer_parity();
+    assert_machine_os_detection_metadata_parity();
     return 0;
 }
