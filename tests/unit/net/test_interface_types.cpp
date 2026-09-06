@@ -69,6 +69,25 @@ int main()
     assert(invalid.status == skan::net::InterfaceStatus::InvalidName);
     assert(!invalid.success());
 
+    assert(skan::net::interface_status_to_exit_code(skan::net::InterfaceStatus::Success) ==
+           skan::core::ExitCode::Success);
+    assert(skan::net::interface_status_to_exit_code(skan::net::InterfaceStatus::InvalidName) ==
+           skan::core::ExitCode::Usage);
+    assert(skan::net::interface_status_to_exit_code(skan::net::InterfaceStatus::InterfaceNotFound) ==
+           skan::core::ExitCode::Usage);
+    assert(skan::net::interface_status_to_exit_code(skan::net::InterfaceStatus::PermissionDenied) ==
+           skan::core::ExitCode::Permission);
+    assert(skan::net::interface_status_to_exit_code(skan::net::InterfaceStatus::NotSupported) ==
+           skan::core::ExitCode::Permission);
+    assert(skan::net::interface_status_to_exit_code(skan::net::InterfaceStatus::RoutingUnavailable) ==
+           skan::core::ExitCode::Runtime);
+    assert(skan::net::interface_status_to_exit_code(skan::net::InterfaceStatus::EnumerationFailed) ==
+           skan::core::ExitCode::Runtime);
+    assert(skan::net::interface_status_to_exit_code(skan::net::InterfaceStatus::SystemError) ==
+           skan::core::ExitCode::Runtime);
+    assert(skan::net::interface_status_to_exit_code(static_cast<skan::net::InterfaceStatus>(999)) ==
+           skan::core::ExitCode::Runtime);
+
     const skan::net::InterfaceEnumerationResult enumeration = skan::net::enumerate_interfaces_result();
     assert(enumeration.status == skan::net::InterfaceStatus::Success);
     assert(std::all_of(enumeration.interfaces.begin(), enumeration.interfaces.end(),

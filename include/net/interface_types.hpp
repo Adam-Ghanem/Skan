@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "core/status.hpp"
 #include "core/types.hpp"
 
 namespace skan::net {
@@ -22,6 +23,7 @@ enum class InterfaceStatus {
 };
 
 const char *interface_status_name(InterfaceStatus status) noexcept;
+core::ExitCode interface_status_to_exit_code(InterfaceStatus status) noexcept;
 
 enum class CapabilityState : std::uint8_t {
     Available = 0,

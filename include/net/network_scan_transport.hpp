@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/status.hpp"
 #include "io/io_engine.hpp"
 #include "net/capture.hpp"
 #include "net/interface.hpp"
@@ -33,6 +34,30 @@ enum class NetworkScanStatus {
 };
 
 const char *network_scan_status_name(NetworkScanStatus status) noexcept;
+
+inline core::StatusCode network_scan_status_to_status_code(NetworkScanStatus status) noexcept
+{
+    switch (status) {
+    case NetworkScanStatus::Success:
+        return core::StatusCode::Ok;
+    case NetworkScanStatus::InvalidConfiguration:
+    case NetworkScanStatus::InterfaceNotFound:
+        return core::StatusCode::InvalidArgument;
+    case NetworkScanStatus::PermissionDenied:
+    case NetworkScanStatus::NotSupported:
+        return core::StatusCode::PermissionDenied;
+    case NetworkScanStatus::RoutingUnavailable:
+    case NetworkScanStatus::NotOpen:
+    case NetworkScanStatus::SystemError:
+    default:
+        return core::StatusCode::IoError;
+    }
+}
+
+inline core::ExitCode network_scan_status_to_exit_code(NetworkScanStatus status) noexcept
+{
+    return core::status_to_exit_code(network_scan_status_to_status_code(status));
+}
 
 struct NetworkScanConfig final {
     std::string interface_name;
