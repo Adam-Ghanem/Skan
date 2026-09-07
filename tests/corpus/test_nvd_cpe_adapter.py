@@ -4,8 +4,8 @@ import json
 import unittest
 
 from tools.corpus.adapters.common import AdapterContext
-from tools.corpus.adapters.nvd_cpe import parse_nvd_cpe_json
-from tools.corpus.cpe_index import build_cpe_index, lookup_cpe
+from tools.corpus.adapters.nvd_cpe import parse_cpe23_name, parse_nvd_cpe_json
+from tools.corpus.cpe_index import CpeCandidate, build_cpe_index, lookup_cpe
 
 
 CTX = AdapterContext(
@@ -23,9 +23,13 @@ class NvdCpeAdapterTests(unittest.TestCase):
             "products": [
                 {"cpe": {
                     "cpeNameId": "id-1",
-                    "cpeName": "cpe:2.3:a:nginx:nginx:1.25.4:*:*:*:*:*:*:*",
+                    "cpeName": "cpe:2.3:a:nginx:nginx:1.25.4:update:pro:en:server:linux:x86_64:other",
                     "deprecated": False,
                     "titles": [{"title": "nginx 1.25.4", "lang": "en"}],
+                    "refs": [
+                        {"ref": "https://nginx.org/en/CHANGES", "type": "Change Log"},
+                        {"ref": "https://nginx.org/", "type": "Vendor"},
+                    ],
                 }}
             ]
         }
@@ -36,22 +40,38 @@ class NvdCpeAdapterTests(unittest.TestCase):
         self.assertEqual(cpe.version, "1.25.4")
         self.assertEqual(cpe.confidence, None)
         self.assertEqual(cpe.confidence_basis, "metadata")
+        self.assertIn("reference:https://nginx.org/", cpe.evidence_requirements)
+        self.assertIn("reference:https://nginx.org/en/CHANGES", cpe.evidence_requirements)
+
+        identity = parse_cpe23_name(cpe.cpe[0])
+        self.assertEqual(identity.part, "a")
+        self.assertEqual(identity.update, "update")
+        self.assertEqual(identity.edition, "pro")
+        self.assertEqual(identity.language, "en")
+        self.assertEqual(identity.sw_edition, "server")
+        self.assertEqual(identity.target_sw, "linux")
+        self.assertEqual(identity.target_hw, "x86_64")
+        self.assertEqual(identity.other, "other")
 
     def test_deprecated_cpe_is_preserved_as_deprecated(self) -> None:
         raw = {"products": [{"cpe": {"cpeNameId": "old", "cpeName": "cpe:2.3:a:vendor:thing:1:*:*:*:*:*:*:*", "deprecated": True}}]}
         records = parse_nvd_cpe_json(json.dumps(raw), CTX)
         self.assertTrue(all(r.status == "deprecated" for r in records))
 
-    def test_lookup_preserves_ambiguity(self) -> None:
+    def test_lookup_preserves_ambiguity_as_structured_candidates(self) -> None:
         raw = {"products": [
             {"cpe": {"cpeNameId": "one", "cpeName": "cpe:2.3:a:vendor:thing:1:*:*:*:*:*:*:*", "deprecated": False}},
-            {"cpe": {"cpeNameId": "two", "cpeName": "cpe:2.3:a:vendor:thing:1:update:*:*:*:*:*:*", "deprecated": False}},
+            {"cpe": {"cpeNameId": "two", "cpeName": "cpe:2.3:a:vendor:thing:1:update:enterprise:en:*:linux:x86:*", "deprecated": False}},
         ]}
         records = parse_nvd_cpe_json(json.dumps(raw), CTX)
         index = build_cpe_index(records)
         candidates = lookup_cpe(index, vendor="vendor", product="thing", version="1")
         self.assertEqual(len(candidates), 2)
-        self.assertEqual(candidates, sorted(candidates))
+        self.assertTrue(all(isinstance(candidate, CpeCandidate) for candidate in candidates))
+        self.assertEqual([candidate.cpe for candidate in candidates], sorted(candidate.cpe for candidate in candidates))
+        enterprise = next(candidate for candidate in candidates if candidate.edition == "enterprise")
+        self.assertEqual(enterprise.target_sw, "linux")
+        self.assertEqual(enterprise.target_hw, "x86")
 
 
 if __name__ == "__main__":
