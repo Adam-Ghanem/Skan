@@ -1,20 +1,20 @@
 # Skan Fingerprint Corpus v2 — Design
 
 Date: 2026-09-07
-Status: Proposed design approved in chat; implementation not started
+Status: Draft for user review; architecture direction approved in chat; implementation not started
 Branch: `codex/fingerprint-corpus-v2-design`
 
 ## 1. Purpose
 
 Skan’s current first-party fingerprint corpus is intentionally small. The goal of Fingerprint Corpus v2 is to turn that data layer into a large, maintainable, legally clean, evidence-backed identification corpus for service, product, version, operating-system, device, protocol, and CPE classification.
 
-The objective is not to create the largest file. The objective is to maximize useful coverage while controlling false positives, preserving source provenance, keeping runtime behavior deterministic, and preventing incompatible third-party data from contaminating Skan’s license or implementation lineage.
+The objective is not to create the largest file. The objective is to maximize useful coverage while controlling false positives, preserving source provenance, keeping runtime behavior deterministic, and preventing incompatible third-party data from contaminating Skan’s distribution terms or implementation lineage.
 
 This design is independent from the current TRUST PR stack. It can be reviewed now and implemented after the TRUST work is stable.
 
 ## 2. Goals
 
-1. Build a project-owned canonical fingerprint corpus that can grow from tens of entries to tens of thousands or more.
+1. Build a Skan-managed canonical fingerprint corpus that can grow from tens of entries to tens of thousands or more.
 2. Import only data whose redistribution/use terms are explicitly compatible with Skan’s distribution model.
 3. Preserve provenance, license, source revision, and source hash for every imported record.
 4. Keep Nmap as a behavioral/reference comparator unless separate permission explicitly allows data reuse.
@@ -59,7 +59,7 @@ Requirements:
 - source repository/release/revision recorded;
 - attribution preserved when required;
 - importer must transform into Skan’s canonical model rather than treating the upstream syntax as a runtime contract;
-- imported entries remain traceable to their original source.
+- imported entries remain traceable to every original source that contributed to the canonical record.
 
 ### Tier C — authoritative factual registries
 
@@ -83,6 +83,8 @@ Use:
 - version vocabulary normalization.
 
 NVD/CPE records do not by themselves prove that a live network response belongs to a product. Detection must still come from Skan evidence.
+
+The adapter must use currently supported NVD/CPE interfaces at implementation time. Deprecated NVD 1.0/1.1 feed assumptions and legacy XML CPE feed assumptions are not part of this design.
 
 ### Reference-only sources
 
@@ -113,6 +115,8 @@ corpus/
     os.jsonl
     udp.jsonl
     products.jsonl
+  snapshots/
+    <source-id>/
   fixtures/
     services/
     os/
@@ -139,9 +143,13 @@ data/
   os-fingerprints-v6.db
   udp-probes.db
   corpus-manifest.json
+
+THIRD_PARTY_DATA.md
 ```
 
-The existing `data/*.db` files remain generated runtime artifacts in the first implementation. This avoids forcing a new runtime storage engine before corpus quality is proven.
+During delivery stages 1–2, the current `data/*.db` files remain authoritative until the canonical migration can round-trip them without behavioral regression. After that equivalence gate passes, the canonical corpus becomes the source of truth and `data/*.db` become generated runtime artifacts enforced by CI.
+
+This avoids forcing a new runtime storage engine before corpus quality is proven.
 
 A binary/indexed runtime format can be introduced later only if corpus scale demonstrates a measurable load-time or memory problem.
 
@@ -175,25 +183,39 @@ confidence
 confidence_basis
 evidence_requirements[]
 negative_constraints[]
+provenance[]
+first_imported_revision
+last_verified_revision
+status
+notes
+```
+
+Each `provenance[]` element contains:
+
+```text
 source_id
 source_record_id
 source_revision
 source_url
 source_license
 source_hash
-first_imported_at
-last_verified_at
-status
-notes
 ```
 
 ### Stable identifier
 
-The canonical `id` is generated from stable semantic fields plus source identity. It must not depend on import order.
+The canonical `id` is generated from normalized semantic fingerprint identity. It must not depend on source identity or import order.
+
+Source-specific identity stays inside `provenance[]`. Equivalent records contributed by multiple sources can therefore merge under one canonical ID while retaining all source attribution.
+
+A material semantic fingerprint change may produce a new canonical ID. Explicit aliases/overrides may preserve continuity where review determines that the record is still logically the same fingerprint.
 
 ### Source hash
 
-Each imported upstream record stores a deterministic hash of the normalized upstream source material used to create it. This allows change detection and reproducible audits.
+Each provenance record stores a deterministic hash of the normalized upstream source material used to create that contribution. This allows change detection and reproducible audits.
+
+### Revision metadata
+
+`first_imported_revision` and `last_verified_revision` are reproducible source/build revision identifiers, not wall-clock timestamps. Human review timestamps may exist in pull-request metadata but do not affect generated corpus bytes.
 
 ### Status
 
@@ -259,7 +281,7 @@ Examples:
 
 Raw source names are mapped to canonical vendor/product identities.
 
-The original source spelling is retained in provenance metadata.
+The original source spelling is retained in provenance metadata or source staging material.
 
 ### Version normalization
 
@@ -281,7 +303,7 @@ Two records may be considered equivalent when they share:
 - equivalent normalized identity fields;
 - compatible version extraction behavior.
 
-When equivalent records come from multiple sources, the canonical record retains all provenance references.
+When equivalent records come from multiple sources, the canonical record retains every provenance entry.
 
 No source attribution is discarded during merge.
 
@@ -350,6 +372,8 @@ CI fails if an importer references a source that is not present in this manifest
 
 A source with unknown or ambiguous redistribution terms is rejected by default.
 
+For sources that do not expose an immutable revision identifier, the explicit update workflow materializes a snapshot under `corpus/snapshots/<source-id>/`, records its SHA-256 plus upstream cursor/modified metadata, and normal builds consume only that pinned snapshot.
+
 ## 14. Import pipeline
 
 The pipeline is deterministic and staged:
@@ -369,9 +393,9 @@ fetch/pinned input
   -> manifest/statistics
 ```
 
-Network fetching is not required during normal runtime or normal unit tests.
+Network fetching is not required during normal runtime, normal unit tests, or deterministic corpus builds.
 
-CI should normally consume pinned fixtures/snapshots. A separate explicit update workflow refreshes external source revisions.
+CI normally consumes pinned snapshots. A separate explicit update workflow refreshes external source revisions/snapshots.
 
 ## 15. Reproducibility
 
@@ -389,14 +413,15 @@ Generated artifacts include:
 - source revisions;
 - aggregate source hashes;
 - record counts by source/kind/status;
-- rejected/suppressed counts;
-- corpus build timestamp only if it is excluded from byte-for-byte artifact comparison or sourced from reproducible build metadata.
+- rejected/suppressed counts.
+
+Canonical/generated artifacts must not include the current wall clock. If a date is necessary, it must come from pinned upstream metadata or reproducible build metadata such as `SOURCE_DATE_EPOCH`. Human update/review time belongs in version-control/review metadata, not byte-for-byte runtime artifacts.
 
 ## 16. Runtime integration
 
 Phase 1 of implementation keeps the current Skan runtime loaders.
 
-The compiler produces the existing runtime formats:
+After the stage-2 round-trip gate succeeds, the compiler produces the existing runtime formats:
 - `data/service-probes.db`
 - `data/os-fingerprints.db`
 - `data/os-fingerprints-v6.db`
@@ -470,7 +495,7 @@ A corpus change cannot pass if any of the following occur:
 - unresolved high-confidence conflict;
 - unsafe matcher;
 - missing required fixture;
-- generated runtime artifact drift;
+- generated runtime artifact drift after canonical corpus becomes authoritative;
 - runtime loader failure;
 - corpus statistics regress below configured quality thresholds without an explicit reviewed override.
 
@@ -493,12 +518,12 @@ External data updates are explicit, reviewable changes.
 
 The update command/workflow:
 1. fetches the configured upstream source;
-2. records the new revision/hash;
+2. records the new revision/hash or materialized snapshot hash;
 3. imports and normalizes;
 4. emits a source-diff report;
 5. highlights added/removed/changed fingerprints;
 6. reports license metadata changes;
-7. rebuilds runtime artifacts;
+7. rebuilds runtime artifacts when the canonical corpus is authoritative;
 8. runs corpus and runtime validation.
 
 It does not auto-merge.
@@ -562,12 +587,12 @@ Therefore:
 
 ## 23. Attribution and auditability
 
-The repository includes an attribution document generated from the active source manifest.
+`THIRD_PARTY_DATA.md` is generated or validated from the active source manifest and lists the third-party datasets shipped with Skan, their licenses, source revisions, and required attribution. Packaging must include equivalent attribution whenever external corpus data is distributed in a Skan package.
 
 `data/corpus-manifest.json` records sufficient metadata to answer:
 - which sources contributed to this release;
-- which upstream revisions were used;
-- how many records came from each source;
+- which upstream revisions/snapshots were used;
+- how many contributions came from each source;
 - which licenses/attributions apply;
 - which compiler version produced the runtime artifacts.
 
@@ -588,13 +613,13 @@ A Skan result should be considered better only when a controlled benchmark demon
 
 ## 25. Delivery sequence
 
-Implementation should be split into reviewable stages:
+Implementation is split into separate reviewable stages/PRs rather than one giant corpus change:
 
 1. Corpus schema, source manifest, validator, deterministic compiler skeleton.
-2. Migrate current Skan first-party corpus into the canonical model without changing runtime behavior.
+2. Migrate current Skan first-party corpus into the canonical model and prove round-trip behavior before switching the source of truth.
 3. Add IANA normalization adapter.
 4. Add Rapid7 Recog adapter for approved passive fingerprint classes.
-5. Add NVD/CPE normalization/enrichment adapter.
+5. Add current NVD/CPE normalization/enrichment adapter.
 6. Add dedupe/conflict engine and explicit override files.
 7. Expand fixtures and cross-protocol false-positive suite.
 8. Add source-update workflow and generated attribution/corpus statistics.
@@ -620,12 +645,12 @@ Fingerprint Corpus v2 is considered architecturally complete when:
 
 ## 27. Source-policy references
 
-The implementation should re-verify source terms at adapter introduction time rather than relying forever on this design note.
+The implementation re-verifies source terms at adapter introduction/update time rather than relying forever on this design note.
 
 Current design references:
 - Nmap Public Source License / legal guidance: `https://nmap.org/npsl/` and `https://nmap.org/book/man-legal.html`
 - IANA licensing terms for protocol registries: `https://www.iana.org/help/licensing-terms`
 - Rapid7 Recog repository/license: `https://github.com/rapid7/recog`
-- NIST/NVD public data and CPE resources: `https://nvd.nist.gov/`
+- NIST/NVD public data and current CPE resources: `https://nvd.nist.gov/`
 
 License compatibility decisions in code review are engineering/distribution safeguards, not legal advice. If source terms are ambiguous, the source stays disabled until clarified.
