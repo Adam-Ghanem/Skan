@@ -85,6 +85,8 @@ def record_to_dict(record: CanonicalRecord) -> dict[str, object]:
         "fingerprint_native_id": record.fingerprint_native_id,
         "specificity": record.specificity,
         "os_features": _serialized_os_features(record.os_features),
+        "probe_order": record.probe_order,
+        "rule_order": record.rule_order,
     }
 
 
@@ -214,6 +216,8 @@ def record_from_dict(raw_value: Mapping[str, Any]) -> CanonicalRecord:
         fingerprint_native_id=_optional_string(raw.get("fingerprint_native_id"), "fingerprint_native_id"),
         specificity=_optional_int(raw.get("specificity"), "specificity"),
         os_features=_os_features_tuple(raw.get("os_features", [])),
+        probe_order=_optional_int(raw.get("probe_order"), "probe_order"),
+        rule_order=_optional_int(raw.get("rule_order"), "rule_order"),
     )
 
 
