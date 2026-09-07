@@ -299,11 +299,11 @@ def validate_record(
             errors.append(f"unknown source_id: {provenance.source_id}")
             continue
         if record.kind not in source.approved_data_classes:
-            errors.append(f"source {provenance.source_id}: data class {record.kind} is not approved")
+            errors.append(f"source {provenance.source_id}: not approved for data class {record.kind}")
         if record.kind in source.blocked_data_classes:
-            errors.append(f"source {provenance.source_id}: data class {record.kind} is blocked")
+            errors.append(f"source {provenance.source_id}: blocked for data class {record.kind}")
         if not source.redistribution_allowed and record.status != "suppressed":
-            errors.append(f"source {provenance.source_id}: redistribution is not allowed")
+            errors.append(f"source {provenance.source_id} does not allow redistribution")
         if not provenance.source_record_id.strip():
             errors.append(f"source {provenance.source_id}: source_record_id is required")
         if not provenance.source_revision.strip():
