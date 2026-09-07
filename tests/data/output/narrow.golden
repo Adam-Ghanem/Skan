@@ -1,15 +1,15 @@
-◈ SKAN v0.1.0
+◈ SKAN v0.1.0  Modern Network Scanner
 
 Target  2001:db8::10
 
 ● 2001:db8::10 (edge?[31m?host)  reachable / 4.20 ms
 
-  PORT       STATE       SERVICE         VERSION
+  PORT       STATE         SERVICE           VERSION
   ──────────────────────────────────────────────────────────────────────
-  22/tcp     CLOSED      -               -
+  22/tcp     CLOSED        -                 -
     reason: CONNECTION_REFUSED
-  443/tcp    OPEN        https           nginx 1.25-very-long-version
-                        ssl/http        OpenSSL 3.0
+  443/tcp    OPEN          https             nginx 1.25-very-long-ver...
+                           ssl/http          OpenSSL 3.0
     reason: IMMEDIATE_SUCCESS
   ! banner?unsafe
 
