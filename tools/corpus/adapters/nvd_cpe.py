@@ -1,10 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from typing import Any
 
 from tools.corpus.adapters.common import AdapterContext, make_record
 from tools.corpus.model import CanonicalRecord
+
+
+@dataclass(frozen=True)
+class Cpe23Identity:
+    part: str | None
+    vendor: str | None
+    product: str | None
+    version: str | None
+    update: str | None
+    edition: str | None
+    language: str | None
+    sw_edition: str | None
+    target_sw: str | None
+    target_hw: str | None
+    other: str | None
 
 
 def _split_cpe23(value: str) -> list[str]:
@@ -48,6 +64,38 @@ def _unescape(value: str) -> str | None:
     return "".join(output)
 
 
+def parse_cpe23_name(value: str) -> Cpe23Identity:
+    fields = _split_cpe23(value)
+    values = [_unescape(field) for field in fields]
+    return Cpe23Identity(
+        part=values[0],
+        vendor=values[1],
+        product=values[2],
+        version=values[3],
+        update=values[4],
+        edition=values[5],
+        language=values[6],
+        sw_edition=values[7],
+        target_sw=values[8],
+        target_hw=values[9],
+        other=values[10],
+    )
+
+
+def _reference_requirements(cpe_obj: dict[str, Any]) -> tuple[str, ...]:
+    refs = cpe_obj.get("refs")
+    if not isinstance(refs, list):
+        return ()
+    values: set[str] = set()
+    for item in refs:
+        if not isinstance(item, dict):
+            continue
+        ref = item.get("ref")
+        if isinstance(ref, str) and ref.strip():
+            values.add(f"reference:{ref.strip()}")
+    return tuple(sorted(values))
+
+
 def parse_nvd_cpe_json(text: str, context: AdapterContext) -> list[CanonicalRecord]:
     try:
         raw = json.loads(text)
@@ -67,11 +115,8 @@ def parse_nvd_cpe_json(text: str, context: AdapterContext) -> list[CanonicalReco
             raise ValueError(f"NVD product {index} requires cpeName")
         if not isinstance(cpe_id, str) or not cpe_id:
             cpe_id = f"index:{index}"
-        fields = _split_cpe23(cpe_name)
-        vendor = _unescape(fields[1])
-        product = _unescape(fields[2])
-        version = _unescape(fields[3])
-        if not product:
+        identity = parse_cpe23_name(cpe_name)
+        if not identity.product:
             raise ValueError(f"NVD CPE product component is required: {cpe_name}")
         deprecated = cpe_obj.get("deprecated") is True
         status = "deprecated" if deprecated else "imported"
@@ -82,12 +127,14 @@ def parse_nvd_cpe_json(text: str, context: AdapterContext) -> list[CanonicalReco
                 if isinstance(title_obj, dict) and isinstance(title_obj.get("title"), str):
                     if title_obj.get("lang") in {"en", "en-US", "en_US"} or not title:
                         title = title_obj["title"]
+        references = _reference_requirements(cpe_obj)
         common = dict(
-            vendor=vendor,
-            product=product,
-            version=version,
+            vendor=identity.vendor,
+            product=identity.product,
+            version=identity.version,
             confidence=None,
             confidence_basis="metadata",
+            evidence_requirements=references,
             status=status,
             notes=title,
         )
