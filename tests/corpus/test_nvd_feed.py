@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tools.corpus.nvd_feed import split_nvd_cpe_feed
 
@@ -49,6 +50,21 @@ class NvdFeedSplitTests(unittest.TestCase):
                 len(json.loads((first / "page-00002.json").read_text(encoding="utf-8"))["products"]),
                 1,
             )
+
+    def test_accepts_array_close_in_next_read_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "boundary.json"
+            product = {"x": "12345678901234567890"}
+            source.write_text(
+                json.dumps({"products": [product]}, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            with patch("tools.corpus.nvd_feed._READ_SIZE", 20):
+                stats = split_nvd_cpe_feed(source, root / "out", chunk_size=1)
+            self.assertEqual(stats, {"products": 1, "chunks": 1, "chunk_size": 1})
+            payload = json.loads((root / "out/page-00000.json").read_text(encoding="utf-8"))
+            self.assertEqual(payload["products"], [product])
 
     def test_rejects_missing_products_array(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
