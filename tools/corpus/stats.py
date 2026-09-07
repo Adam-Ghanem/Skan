@@ -9,7 +9,12 @@ from tools.corpus.model import CanonicalRecord
 _DETECTION_KINDS = {"service_matcher", "active_probe", "os_fingerprint", "udp_probe", "web_fingerprint", "device_fingerprint"}
 
 
-def corpus_stats(records: Iterable[CanonicalRecord], *, conflict_count: int) -> dict[str, object]:
+def corpus_stats(
+    records: Iterable[CanonicalRecord],
+    *,
+    conflict_count: int,
+    unresolved_conflict_count: int = 0,
+) -> dict[str, object]:
     materialized = list(records)
     kinds = Counter(record.kind for record in materialized)
     statuses = Counter(record.status for record in materialized)
@@ -25,9 +30,11 @@ def corpus_stats(records: Iterable[CanonicalRecord], *, conflict_count: int) -> 
         "total_records": len(materialized),
         "detection_records": detection_records,
         "metadata_records": len(materialized) - detection_records,
+        "suppressed_records": int(statuses.get("suppressed", 0)),
         "records_by_kind": dict(sorted(kinds.items())),
         "records_by_status": dict(sorted(statuses.items())),
         "records_by_source": dict(sorted(sources.items())),
         "records_with_cpe": records_with_cpe,
         "conflict_count": conflict_count,
+        "unresolved_conflicts": unresolved_conflict_count,
     }
