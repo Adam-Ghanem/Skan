@@ -64,6 +64,7 @@ def make_record() -> CanonicalRecord:
         last_verified_revision="rev-1",
         status="imported",
         notes="",
+        match_strength="hard",
     )
     return replace(record, id=stable_record_id(record))
 
