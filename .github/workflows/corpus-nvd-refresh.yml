@@ -1,0 +1,235 @@
+name: NVD CPE Intelligence Refresh
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/fingerprint-corpus-v2-multisource
+    paths:
+      - .github/workflows/corpus-nvd-refresh.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build-nvd-cpe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: codex/fingerprint-corpus-v2-multisource
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Download complete NVD CPE dictionary
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/nvd-cpe-pages /tmp/nvd-cpe-out
+          mkdir -p /tmp/nvd-cpe-pages /tmp/nvd-cpe-out
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          from pathlib import Path
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          base = "https://services.nvd.nist.gov/rest/json/cpes/2.0"
+          out = Path("/tmp/nvd-cpe-pages")
+          per_page = 10000
+          start = 0
+          total = None
+          page_hashes: list[str] = []
+          revision = None
+
+          def fetch(url: str) -> bytes:
+              delay = 7.0
+              for attempt in range(1, 7):
+                  request = urllib.request.Request(
+                      url,
+                      headers={
+                          "User-Agent": "Skan-Corpus/0.1 (+https://github.com/Adam-Ghanem/Skan)",
+                          "Accept": "application/json",
+                      },
+                  )
+                  try:
+                      with urllib.request.urlopen(request, timeout=120) as response:
+                          return response.read()
+                  except urllib.error.HTTPError as exc:
+                      if exc.code not in {403, 429, 500, 502, 503, 504} or attempt == 6:
+                          raise
+                      retry_after = exc.headers.get("Retry-After")
+                      wait = float(retry_after) if retry_after and retry_after.isdigit() else delay
+                  except (TimeoutError, urllib.error.URLError):
+                      if attempt == 6:
+                          raise
+                      wait = delay
+                  print(f"NVD retry {attempt}/6 after {wait:.1f}s", flush=True)
+                  time.sleep(wait)
+                  delay = min(delay * 2, 60.0)
+              raise RuntimeError("unreachable")
+
+          page = 0
+          while total is None or start < total:
+              query = urllib.parse.urlencode({"resultsPerPage": per_page, "startIndex": start})
+              raw = fetch(f"{base}?{query}")
+              parsed = json.loads(raw)
+              if not isinstance(parsed, dict) or not isinstance(parsed.get("products"), list):
+                  raise SystemExit("NVD CPE response missing products array")
+              if total is None:
+                  total = int(parsed.get("totalResults", 0))
+                  if total < 100000:
+                      raise SystemExit(f"NVD CPE dictionary unexpectedly small: {total}")
+                  revision = str(parsed.get("timestamp") or "unknown")
+                  print(f"NVD totalResults={total} revision={revision}", flush=True)
+              returned_start = int(parsed.get("startIndex", start))
+              if returned_start != start:
+                  raise SystemExit(f"NVD startIndex mismatch: requested {start}, received {returned_start}")
+              products = parsed["products"]
+              if not products and start < total:
+                  raise SystemExit(f"NVD returned empty page before completion at {start}")
+              path = out / f"page-{page:05d}.json"
+              path.write_bytes(raw)
+              digest = hashlib.sha256(raw).hexdigest()
+              page_hashes.append(digest)
+              print(f"page={page} start={start} records={len(products)} sha256={digest}", flush=True)
+              start += len(products)
+              page += 1
+              if start < total:
+                  # NVD public API without a key is rate limited; stay below 5 requests / 30s.
+                  time.sleep(6.5)
+
+          aggregate = hashlib.sha256()
+          for digest in page_hashes:
+              aggregate.update(bytes.fromhex(digest))
+          manifest = {
+              "schema_version": 1,
+              "source_id": "nvd-cpe",
+              "source_url": base,
+              "revision": revision,
+              "total_results": total,
+              "pages": page,
+              "results_per_page": per_page,
+              "sha256": aggregate.hexdigest(),
+              "page_sha256": page_hashes,
+          }
+          Path("/tmp/nvd-cpe-out/download-manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build deterministic SQLite intelligence index
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import json
+          from pathlib import Path
+          import sqlite3
+
+          from tools.corpus.adapters.common import AdapterContext
+          from tools.corpus.cpe_sqlite import build_cpe_sqlite
+
+          root = Path("/tmp/nvd-cpe-out")
+          manifest = json.loads((root / "download-manifest.json").read_text(encoding="utf-8"))
+          context = AdapterContext(
+              source_id="nvd-cpe",
+              revision=str(manifest["revision"]),
+              source_url=str(manifest["source_url"]),
+              source_license="NIST-Public-Data",
+              source_hash="sha256:" + str(manifest["sha256"]),
+          )
+          sqlite_path = root / "skan-nvd-cpe.sqlite"
+          stats = build_cpe_sqlite(
+              sorted(Path("/tmp/nvd-cpe-pages").glob("page-*.json")),
+              sqlite_path,
+              context,
+          )
+          with sqlite3.connect(sqlite_path) as db:
+              integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+              actual = int(db.execute("SELECT COUNT(*) FROM cpe").fetchone()[0])
+              active = int(db.execute("SELECT COUNT(*) FROM cpe WHERE status != 'deprecated'").fetchone()[0])
+              vendors = int(db.execute("SELECT COUNT(DISTINCT vendor) FROM cpe WHERE vendor IS NOT NULL").fetchone()[0])
+              products = int(db.execute("SELECT COUNT(DISTINCT vendor || char(0) || product) FROM cpe").fetchone()[0])
+          if integrity != "ok":
+              raise SystemExit(f"SQLite integrity check failed: {integrity}")
+          if actual < 100000:
+              raise SystemExit(f"SQLite CPE row count unexpectedly small: {actual}")
+          report = {
+              **manifest,
+              **stats,
+              "sqlite_integrity": integrity,
+              "sqlite_rows": actual,
+              "active_rows": active,
+              "distinct_vendors": vendors,
+              "distinct_products": products,
+          }
+          (root / "nvd-cpe-stats.json").write_text(
+              json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          lock = {
+              "schema_version": 1,
+              "source_id": "nvd-cpe",
+              "source_url": manifest["source_url"],
+              "revision": manifest["revision"],
+              "sha256": manifest["sha256"],
+              "license_policy": "NIST-Public-Data",
+              "attribution": "NIST National Vulnerability Database",
+              "adapter_version": 1,
+          }
+          (root / "nvd-cpe-lock.json").write_text(
+              json.dumps(lock, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, sort_keys=True))
+          PY
+
+      - name: Compress intelligence database
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v zstd >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y zstd
+          fi
+          zstd -T0 -10 --force /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite \
+            -o /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst
+          sha256sum /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst > /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst.sha256
+          ls -lh /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst
+
+      - name: Publish NVD intelligence artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skan-nvd-cpe-intelligence
+          path: |
+            /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst
+            /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst.sha256
+            /tmp/nvd-cpe-out/nvd-cpe-stats.json
+            /tmp/nvd-cpe-out/download-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit NVD source lock and report
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p corpus/locks corpus/reports
+          cp /tmp/nvd-cpe-out/nvd-cpe-lock.json corpus/locks/nvd-cpe.json
+          cp /tmp/nvd-cpe-out/nvd-cpe-stats.json corpus/reports/nvd-cpe-stats.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add corpus/locks/nvd-cpe.json corpus/reports/nvd-cpe-stats.json
+          if git diff --cached --quiet; then
+            echo "NVD CPE report is already current"
+            exit 0
+          fi
+          git commit -m "data(corpus): refresh NVD CPE intelligence manifest"
+          git push origin HEAD:codex/fingerprint-corpus-v2-multisource
