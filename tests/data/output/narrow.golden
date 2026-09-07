@@ -4,14 +4,12 @@ Target  2001:db8::10
 
 ● 2001:db8::10 (edge?[31m?host)  reachable / 4.20 ms
 
-  PORT       STATE         SERVICE
+  PORT       STATE       SERVICE         VERSION
   ──────────────────────────────────────────────────────────────────────
-  22/tcp     CLOSED        -
+  22/tcp     CLOSED      -               -
     reason: CONNECTION_REFUSED
-  443/tcp    OPEN          https
-    version: nginx 1.25-very-long-version
-                           ssl/http
-    version: OpenSSL 3.0
+  443/tcp    OPEN        https           nginx 1.25-very-long-version
+                        ssl/http        OpenSSL 3.0
     reason: IMMEDIATE_SUCCESS
   ! banner?unsafe
 
