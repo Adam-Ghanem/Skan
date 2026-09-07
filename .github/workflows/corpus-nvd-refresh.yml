@@ -21,7 +21,7 @@ jobs:
         with:
           ref: codex/fingerprint-corpus-v2-multisource
           fetch-depth: 1
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Download complete NVD CPE dictionary
         shell: bash
@@ -101,7 +101,6 @@ jobs:
               start += len(products)
               page += 1
               if start < total:
-                  # NVD public API without a key is rate limited; stay below 5 requests / 30s.
                   time.sleep(6.5)
 
           aggregate = hashlib.sha256()
@@ -219,6 +218,8 @@ jobs:
 
       - name: Commit NVD source lock and report
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p corpus/locks corpus/reports
@@ -232,4 +233,7 @@ jobs:
             exit 0
           fi
           git commit -m "data(corpus): refresh NVD CPE intelligence manifest"
-          git push origin HEAD:codex/fingerprint-corpus-v2-multisource
+          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+            push https://github.com/${GITHUB_REPOSITORY}.git \
+            HEAD:codex/fingerprint-corpus-v2-multisource
