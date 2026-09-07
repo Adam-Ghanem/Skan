@@ -53,11 +53,11 @@ def _entries(value: Any, dimension: str) -> Iterable[tuple[str, str | None, str]
                 for index, pattern in enumerate(values):
                     if not isinstance(pattern, str):
                         raise ValueError("Wappalyzer meta pattern must be a string")
-                    yield f"{key}\u0000{pattern}" if pattern else key, None, f"{key}:{index}"
+                    yield f"{key}\u0000{pattern}", None, f"{key}:{index}"
                 continue
             if not isinstance(item, str):
                 raise ValueError(f"Wappalyzer {dimension} pattern must be a string")
-            yield f"{key}\u0000{item}" if item else key, None, key
+            yield f"{key}\u0000{item}", None, key
         return
     raise ValueError(f"Wappalyzer {dimension} data must be an array or object")
 
