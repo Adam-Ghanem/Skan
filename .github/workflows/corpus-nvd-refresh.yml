@@ -15,7 +15,7 @@ permissions:
 jobs:
   build-nvd-cpe:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Check out source branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -24,104 +24,103 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Download complete NVD CPE dictionary
+      - name: Download and verify complete NVD CPE dictionary feed
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/nvd-cpe-pages /tmp/nvd-cpe-out
-          mkdir -p /tmp/nvd-cpe-pages /tmp/nvd-cpe-out
+          rm -rf /tmp/nvd-cpe-feed /tmp/nvd-cpe-pages /tmp/nvd-cpe-out
+          mkdir -p /tmp/nvd-cpe-feed /tmp/nvd-cpe-pages /tmp/nvd-cpe-out
+
+          base="https://nvd.nist.gov/feeds/json/cpe/2.0/nvdcpe-2.0"
+          curl --fail --location --retry 4 --retry-all-errors \
+            "${base}.meta" --output /tmp/nvd-cpe-meta-before.txt
+          curl --fail --location --retry 4 --retry-all-errors \
+            "${base}.tar.gz" --output /tmp/nvdcpe-2.0.tar.gz
+          curl --fail --location --retry 4 --retry-all-errors \
+            "${base}.meta" --output /tmp/nvd-cpe-meta-after.txt
+
+          tar --no-same-owner -xzf /tmp/nvdcpe-2.0.tar.gz -C /tmp/nvd-cpe-feed
+          json_file="$(find /tmp/nvd-cpe-feed -type f -name '*.json' -print -quit)"
+          test -n "$json_file"
+          test -s "$json_file"
+          printf '%s\n' "$json_file" > /tmp/nvd-cpe-json-path.txt
+
           python3 - <<'PY'
           from __future__ import annotations
           import hashlib
           import json
           from pathlib import Path
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
 
-          base = "https://services.nvd.nist.gov/rest/json/cpes/2.0"
-          out = Path("/tmp/nvd-cpe-pages")
-          per_page = 10000
-          start = 0
-          total = None
-          page_hashes: list[str] = []
-          revision = None
+          def parse_meta(path: Path) -> dict[str, str]:
+              values: dict[str, str] = {}
+              for line in path.read_text(encoding="utf-8").splitlines():
+                  key, sep, value = line.partition(":")
+                  if sep:
+                      values[key.strip()] = value.strip()
+              required = {"lastModifiedDate", "size", "sha256"}
+              missing = sorted(required.difference(values))
+              if missing:
+                  raise SystemExit(f"NVD META missing fields: {missing}")
+              return values
 
-          def fetch(url: str) -> bytes:
-              delay = 7.0
-              for attempt in range(1, 7):
-                  request = urllib.request.Request(
-                      url,
-                      headers={
-                          "User-Agent": "Skan-Corpus/0.1 (+https://github.com/Adam-Ghanem/Skan)",
-                          "Accept": "application/json",
-                      },
-                  )
-                  try:
-                      with urllib.request.urlopen(request, timeout=120) as response:
-                          return response.read()
-                  except urllib.error.HTTPError as exc:
-                      if exc.code not in {403, 429, 500, 502, 503, 504} or attempt == 6:
-                          raise
-                      retry_after = exc.headers.get("Retry-After")
-                      wait = float(retry_after) if retry_after and retry_after.isdigit() else delay
-                  except (TimeoutError, urllib.error.URLError):
-                      if attempt == 6:
-                          raise
-                      wait = delay
-                  print(f"NVD retry {attempt}/6 after {wait:.1f}s", flush=True)
-                  time.sleep(wait)
-                  delay = min(delay * 2, 60.0)
-              raise RuntimeError("unreachable")
+          before = parse_meta(Path("/tmp/nvd-cpe-meta-before.txt"))
+          after = parse_meta(Path("/tmp/nvd-cpe-meta-after.txt"))
+          for key in ("lastModifiedDate", "size", "sha256"):
+              if before[key] != after[key]:
+                  raise SystemExit(f"NVD feed changed during download: {key}")
 
-          page = 0
-          while total is None or start < total:
-              query = urllib.parse.urlencode({"resultsPerPage": per_page, "startIndex": start})
-              raw = fetch(f"{base}?{query}")
-              parsed = json.loads(raw)
-              if not isinstance(parsed, dict) or not isinstance(parsed.get("products"), list):
-                  raise SystemExit("NVD CPE response missing products array")
-              if total is None:
-                  total = int(parsed.get("totalResults", 0))
-                  if total < 100000:
-                      raise SystemExit(f"NVD CPE dictionary unexpectedly small: {total}")
-                  revision = str(parsed.get("timestamp") or "unknown")
-                  print(f"NVD totalResults={total} revision={revision}", flush=True)
-              returned_start = int(parsed.get("startIndex", start))
-              if returned_start != start:
-                  raise SystemExit(f"NVD startIndex mismatch: requested {start}, received {returned_start}")
-              products = parsed["products"]
-              if not products and start < total:
-                  raise SystemExit(f"NVD returned empty page before completion at {start}")
-              path = out / f"page-{page:05d}.json"
-              path.write_bytes(raw)
-              digest = hashlib.sha256(raw).hexdigest()
-              page_hashes.append(digest)
-              print(f"page={page} start={start} records={len(products)} sha256={digest}", flush=True)
-              start += len(products)
-              page += 1
-              if start < total:
-                  time.sleep(6.5)
+          json_path = Path(Path("/tmp/nvd-cpe-json-path.txt").read_text(encoding="utf-8").strip())
+          expected_size = int(before["size"])
+          actual_size = json_path.stat().st_size
+          if actual_size != expected_size:
+              raise SystemExit(f"NVD feed size mismatch: expected {expected_size}, got {actual_size}")
 
-          aggregate = hashlib.sha256()
-          for digest in page_hashes:
-              aggregate.update(bytes.fromhex(digest))
-          manifest = {
-              "schema_version": 1,
-              "source_id": "nvd-cpe",
-              "source_url": base,
-              "revision": revision,
-              "total_results": total,
-              "pages": page,
-              "results_per_page": per_page,
-              "sha256": aggregate.hexdigest(),
-              "page_sha256": page_hashes,
+          digest = hashlib.sha256()
+          with json_path.open("rb") as handle:
+              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                  digest.update(chunk)
+          actual_sha = digest.hexdigest()
+          if actual_sha.lower() != before["sha256"].lower():
+              raise SystemExit(
+                  f"NVD feed SHA256 mismatch: expected {before['sha256']}, got {actual_sha}"
+              )
+
+          archive_sha = hashlib.sha256(Path("/tmp/nvdcpe-2.0.tar.gz").read_bytes()).hexdigest()
+          verified = {
+              "last_modified": before["lastModifiedDate"],
+              "size": actual_size,
+              "sha256": actual_sha.lower(),
+              "archive_sha256": archive_sha,
           }
-          Path("/tmp/nvd-cpe-out/download-manifest.json").write_text(
-              json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+          Path("/tmp/nvd-cpe-out/feed-verification.json").write_text(
+              json.dumps(verified, sort_keys=True, separators=(",", ":")) + "\n",
               encoding="utf-8",
           )
+          print(json.dumps(verified, sort_keys=True))
+          PY
+
+      - name: Split NVD feed into deterministic bounded-memory chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import json
+          from pathlib import Path
+
+          from tools.corpus.nvd_feed import split_nvd_cpe_feed
+
+          json_path = Path(Path("/tmp/nvd-cpe-json-path.txt").read_text(encoding="utf-8").strip())
+          stats = split_nvd_cpe_feed(json_path, Path("/tmp/nvd-cpe-pages"), chunk_size=10_000)
+          if stats["products"] < 1_000_000:
+              raise SystemExit(f"NVD CPE dictionary unexpectedly small: {stats['products']}")
+          if stats["chunks"] < 100:
+              raise SystemExit(f"NVD CPE chunk count unexpectedly small: {stats['chunks']}")
+          Path("/tmp/nvd-cpe-out/split-stats.json").write_text(
+              json.dumps(stats, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(stats, sort_keys=True))
           PY
 
       - name: Build deterministic SQLite intelligence index twice
@@ -139,7 +138,26 @@ jobs:
           from tools.corpus.cpe_sqlite import build_cpe_sqlite
 
           root = Path("/tmp/nvd-cpe-out")
-          manifest = json.loads((root / "download-manifest.json").read_text(encoding="utf-8"))
+          verification = json.loads((root / "feed-verification.json").read_text(encoding="utf-8"))
+          split_stats = json.loads((root / "split-stats.json").read_text(encoding="utf-8"))
+          source_url = "https://nvd.nist.gov/feeds/json/cpe/2.0/nvdcpe-2.0.tar.gz"
+          manifest = {
+              "schema_version": 1,
+              "source_id": "nvd-cpe",
+              "source_url": source_url,
+              "revision": verification["last_modified"],
+              "total_results": int(split_stats["products"]),
+              "pages": int(split_stats["chunks"]),
+              "results_per_page": int(split_stats["chunk_size"]),
+              "sha256": verification["sha256"],
+              "archive_sha256": verification["archive_sha256"],
+              "uncompressed_bytes": int(verification["size"]),
+          }
+          (root / "download-manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+
           context = AdapterContext(
               source_id="nvd-cpe",
               revision=str(manifest["revision"]),
@@ -169,8 +187,12 @@ jobs:
               products = int(db.execute("SELECT COUNT(DISTINCT vendor || char(0) || product) FROM cpe").fetchone()[0])
           if integrity != "ok":
               raise SystemExit(f"SQLite integrity check failed: {integrity}")
-          if actual < 100000:
+          if actual < 1_000_000:
               raise SystemExit(f"SQLite CPE row count unexpectedly small: {actual}")
+          if actual != int(manifest["total_results"]):
+              raise SystemExit(
+                  f"SQLite CPE row count mismatch: expected {manifest['total_results']}, got {actual}"
+              )
           report = {
               **manifest,
               **stats,
