@@ -60,7 +60,6 @@ def _tokenize(line: str, path: Path, line_number: int) -> list[str]:
             index += 1
         if index == len(line):
             break
-
         token: list[str] = []
         quoted = False
         while index < len(line):
@@ -83,13 +82,7 @@ def _tokenize(line: str, path: Path, line_number: int) -> list[str]:
                         continue
                     token.extend(("\\", escaped))
                     continue
-                decoded = {
-                    "r": "\r",
-                    "n": "\n",
-                    "t": "\t",
-                    "\\": "\\",
-                    '"': '"',
-                }.get(escaped)
+                decoded = {"r": "\r", "n": "\n", "t": "\t", "\\": "\\", '"': '"'}.get(escaped)
                 if decoded is None:
                     token.extend(("\\", escaped))
                 else:
@@ -98,7 +91,6 @@ def _tokenize(line: str, path: Path, line_number: int) -> list[str]:
             if not quoted and character.isspace():
                 break
             token.append(character)
-
         if quoted:
             raise _fail(path, line_number, "unterminated quoted token")
         tokens.append("".join(token))
@@ -136,9 +128,7 @@ def _parse_ports(value: str, path: Path, line_number: int) -> tuple[int, ...]:
         if not item:
             raise _fail(path, line_number, "ports contains an empty item")
         if "-" in item:
-            left_text, separator, right_text = item.partition("-")
-            if not separator:
-                raise _fail(path, line_number, f"invalid port range {item!r}")
+            left_text, _, right_text = item.partition("-")
             try:
                 left = int(left_text, 10)
                 right = int(right_text, 10)
@@ -282,10 +272,14 @@ def parse_service_db(path: Path) -> list[CanonicalRecord]:
                 values[key] = value
 
             rarity = _parse_positive_int(values.get("rarity", "1"), path, line_number, "rarity")
-            priority = _parse_positive_int(values.get("priority", "50"), path, line_number, "priority", maximum=100)
+            priority = _parse_positive_int(
+                values.get("priority", "50"), path, line_number, "priority", maximum=100
+            )
             if "timeout" not in values:
                 raise _fail(path, line_number, "timeout is required for lossless canonical migration")
-            timeout = _parse_positive_int(values["timeout"], path, line_number, "timeout", maximum=_MAX_TIMEOUT_MS)
+            timeout = _parse_positive_int(
+                values["timeout"], path, line_number, "timeout", maximum=_MAX_TIMEOUT_MS
+            )
             ports = _parse_ports(values["ports"], path, line_number) if "ports" in values else ()
             fallbacks = _parse_fallbacks(values["fallback"], path, line_number) if "fallback" in values else ()
             transport = tokens[1].lower()
@@ -321,13 +315,21 @@ def parse_service_db(path: Path) -> list[CanonicalRecord]:
             continue
 
         if tokens[0] in {"match", "softmatch"}:
-            values = {}
+            values: dict[str, str] = {}
             for token in tokens[1:]:
                 key, value = _assignment(token, path, line_number)
                 if key in values:
                     raise _fail(path, line_number, f"duplicate match field {key}")
                 if key not in {
-                    "type", "pattern", "service", "product", "version", "extra", "hostname", "tunnel", "confidence"
+                    "type",
+                    "pattern",
+                    "service",
+                    "product",
+                    "version",
+                    "extra",
+                    "hostname",
+                    "tunnel",
+                    "confidence",
                 }:
                     raise _fail(path, line_number, f"unsupported match field {key}")
                 values[key] = value
@@ -425,7 +427,17 @@ def parse_service_db(path: Path) -> list[CanonicalRecord]:
                 "ports": list(probe["ports"]),
                 "rarity": probe["rarity"],
                 "probe_order": probe["order"],
-                **rule,
+                "rule_order": rule["order"],
+                "strength": rule["strength"],
+                "type": rule["type"],
+                "pattern": rule["pattern"],
+                "service": rule["service"],
+                "product": rule["product"],
+                "version": rule["version"],
+                "extra": rule["extra"],
+                "hostname": rule["hostname"],
+                "tunnel": rule["tunnel"],
+                "confidence": rule["confidence"],
             }
             matcher = _base_record(
                 kind="service_matcher",
@@ -436,8 +448,7 @@ def parse_service_db(path: Path) -> list[CanonicalRecord]:
                 confidence=rule["confidence"],
                 confidence_basis="first-party runtime match",
                 provenance=_provenance(
-                    f"service-match:{probe['name']}:{rule['order']}",
-                    logical,
+                    f"service-match:{probe['name']}:{rule['order']}", logical
                 ),
                 probe_order=probe["order"],
                 rule_order=rule["order"],
@@ -492,7 +503,9 @@ def _format_confidence(value: float) -> str:
     return format(value, ".15g")
 
 
-def _ordered_unique(records: list[CanonicalRecord], field: str, context: str) -> list[CanonicalRecord]:
+def _ordered_unique(
+    records: list[CanonicalRecord], field: str, context: str
+) -> list[CanonicalRecord]:
     if any(getattr(record, field) is None for record in records):
         raise ValueError(f"{context} requires {field}")
     values = [getattr(record, field) for record in records]
@@ -506,9 +519,15 @@ def _ordered_unique(records: list[CanonicalRecord], field: str, context: str) ->
 
 def emit_service_db(records: Iterable[CanonicalRecord]) -> str:
     record_list = list(records)
-    unsupported = [record.kind for record in record_list if record.kind not in {"active_probe", "service_matcher"}]
+    unsupported = [
+        record.kind
+        for record in record_list
+        if record.kind not in {"active_probe", "service_matcher"}
+    ]
     if unsupported:
-        raise ValueError(f"service runtime emitter received unsupported kinds: {sorted(set(unsupported))}")
+        raise ValueError(
+            f"service runtime emitter received unsupported kinds: {sorted(set(unsupported))}"
+        )
 
     probes = _ordered_unique(
         [record for record in record_list if record.kind == "active_probe"],
@@ -521,7 +540,11 @@ def emit_service_db(records: Iterable[CanonicalRecord]) -> str:
             raise ValueError("active_probe requires probe_id")
         if probe.probe_id in by_name:
             raise ValueError(f"duplicate service probe id {probe.probe_id}")
-        if probe.probe_payload_hex is None or probe.probe_timeout_ms is None or probe.probe_priority is None:
+        if (
+            probe.probe_payload_hex is None
+            or probe.probe_timeout_ms is None
+            or probe.probe_priority is None
+        ):
             raise ValueError(f"probe {probe.probe_id} is missing payload/timeout/priority")
         by_name[probe.probe_id] = probe
 
@@ -530,7 +553,11 @@ def emit_service_db(records: Iterable[CanonicalRecord]) -> str:
         if matcher.probe_id not in by_name:
             raise ValueError(f"matcher references unknown probe {matcher.probe_id}")
         probe = by_name[matcher.probe_id]
-        if matcher.transport != probe.transport or matcher.ports != probe.ports or matcher.rarity != probe.rarity:
+        if (
+            matcher.transport != probe.transport
+            or matcher.ports != probe.ports
+            or matcher.rarity != probe.rarity
+        ):
             raise ValueError(f"matcher {matcher.id} disagrees with probe runtime context")
         if matcher.probe_order != probe.probe_order:
             raise ValueError(f"matcher {matcher.id} disagrees with probe_order")
@@ -556,9 +583,13 @@ def emit_service_db(records: Iterable[CanonicalRecord]) -> str:
             for fallback in probe.fallback_probe_ids:
                 target = by_name.get(fallback)
                 if target is None:
-                    raise ValueError(f"probe {probe.probe_id} references unknown fallback {fallback}")
+                    raise ValueError(
+                        f"probe {probe.probe_id} references unknown fallback {fallback}"
+                    )
                 if target.transport != probe.transport:
-                    raise ValueError(f"probe {probe.probe_id} fallback {fallback} uses a different transport")
+                    raise ValueError(
+                        f"probe {probe.probe_id} fallback {fallback} uses a different transport"
+                    )
             parts.append("fallback=" + ",".join(probe.fallback_probe_ids))
         lines.append(" ".join(parts))
         try:
@@ -567,7 +598,9 @@ def emit_service_db(records: Iterable[CanonicalRecord]) -> str:
             raise ValueError(f"probe {probe.probe_id} has invalid payload hex") from exc
         lines.append("send " + _quote_byte_value(payload))
 
-        matchers = _ordered_unique(matchers_by_probe[probe.probe_id], "rule_order", f"rules for {probe.probe_id}")
+        matchers = _ordered_unique(
+            matchers_by_probe[probe.probe_id], "rule_order", f"rules for {probe.probe_id}"
+        )
         for matcher in matchers:
             if (
                 matcher.matcher_type not in _ALLOWED_MATCH_TYPES
