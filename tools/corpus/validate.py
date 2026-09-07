@@ -47,6 +47,10 @@ def _validate_source_data_classes(
             if source is None:
                 # load_jsonl/validate_record reports this earlier; keep fail-closed here too.
                 raise ValueError(f"unknown source_id: {provenance.source_id}")
+            if not source.redistribution_allowed:
+                raise ValueError(
+                    f"source {source.id} does not allow redistribution"
+                )
             if record.kind in source.blocked_data_classes:
                 raise ValueError(
                     f"source {source.id} is blocked for data class {record.kind}"
@@ -90,9 +94,19 @@ def validate_root(root: Path) -> dict[str, object]:
     }
 
     records: list[CanonicalRecord] = []
+    seen_ids: dict[str, str] = {}
     canonical_dir = root / "corpus" / "canonical"
     for name in _CANONICAL_FILES:
-        records.extend(load_jsonl(canonical_dir / name, sources))
+        file_records = load_jsonl(canonical_dir / name, sources)
+        for record in file_records:
+            previous_file = seen_ids.get(record.id)
+            if previous_file is not None:
+                raise ValueError(
+                    f"duplicate canonical id across corpus files: {record.id} "
+                    f"appears in {previous_file} and {name}"
+                )
+            seen_ids[record.id] = name
+        records.extend(file_records)
 
     _validate_source_data_classes(records, sources)
     _verify_pinned_snapshots(root, sources)
