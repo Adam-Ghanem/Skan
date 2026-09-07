@@ -1,6 +1,6 @@
+#include <algorithm>
 #include <cassert>
 #include <string>
-
 
 #include "detect/service_db.hpp"
 
@@ -49,6 +49,14 @@ int main()
     assert(built_in.ordered_probe_indices({22U, skan::portscan::Protocol::Tcp}, 1U).size() == 1U);
     assert(built_in.probes()[built_in.ordered_probe_indices({22U, skan::portscan::Protocol::Tcp}, 1U)[0]].name ==
            "SSHBanner");
+
+    const auto ssh_port_probes = built_in.ordered_probe_indices({22U, skan::portscan::Protocol::Tcp}, 3U);
+    assert(ssh_port_probes.size() == 3U);
+    assert(built_in.probes()[ssh_port_probes[0]].name == "SSHBanner");
+    assert(std::any_of(ssh_port_probes.begin(), ssh_port_probes.end(), [&built_in](std::size_t index) {
+        return built_in.probes()[index].name == "HTTPGet";
+    }));
+
     const auto https_probes = built_in.ordered_probe_indices({443U, skan::portscan::Protocol::Tcp}, 3U);
     assert(https_probes.size() == 3U);
     assert(built_in.probes()[https_probes[0]].name == "TLSClientHello");
