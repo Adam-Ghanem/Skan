@@ -28,8 +28,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/nvd-cpe-feed /tmp/nvd-cpe-pages /tmp/nvd-cpe-out
-          mkdir -p /tmp/nvd-cpe-feed /tmp/nvd-cpe-pages /tmp/nvd-cpe-out
+          rm -rf /tmp/nvd-cpe-feed /tmp/nvd-cpe-pages /tmp/nvd-cpe-out /tmp/nvd-cpe-split
+          mkdir -p /tmp/nvd-cpe-feed /tmp/nvd-cpe-pages /tmp/nvd-cpe-out /tmp/nvd-cpe-split
 
           base="https://nvd.nist.gov/feeds/json/cpe/2.0/nvdcpe-2.0"
           curl --fail --location --retry 4 --retry-all-errors \
@@ -40,10 +40,6 @@ jobs:
             "${base}.meta" --output /tmp/nvd-cpe-meta-after.txt
 
           tar --no-same-owner -xzf /tmp/nvdcpe-2.0.tar.gz -C /tmp/nvd-cpe-feed
-          json_file="$(find /tmp/nvd-cpe-feed -type f -name '*.json' -print -quit)"
-          test -n "$json_file"
-          test -s "$json_file"
-          printf '%s\n' "$json_file" > /tmp/nvd-cpe-json-path.txt
 
           python3 - <<'PY'
           from __future__ import annotations
@@ -69,27 +65,41 @@ jobs:
               if before[key] != after[key]:
                   raise SystemExit(f"NVD feed changed during download: {key}")
 
-          json_path = Path(Path("/tmp/nvd-cpe-json-path.txt").read_text(encoding="utf-8").strip())
-          expected_size = int(before["size"])
-          actual_size = json_path.stat().st_size
-          if actual_size != expected_size:
-              raise SystemExit(f"NVD feed size mismatch: expected {expected_size}, got {actual_size}")
+          shards = sorted(Path("/tmp/nvd-cpe-feed").rglob("*.json"), key=lambda path: str(path))
+          if not shards:
+              raise SystemExit("NVD CPE archive contains no JSON shards")
+          empty = [str(path) for path in shards if path.stat().st_size == 0]
+          if empty:
+              raise SystemExit(f"NVD CPE archive contains empty JSON shards: {empty[:3]}")
 
-          digest = hashlib.sha256()
-          with json_path.open("rb") as handle:
-              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                  digest.update(chunk)
-          actual_sha = digest.hexdigest()
-          if actual_sha.lower() != before["sha256"].lower():
+          expected_size = int(before["size"])
+          actual_size = sum(path.stat().st_size for path in shards)
+          if actual_size != expected_size:
               raise SystemExit(
-                  f"NVD feed SHA256 mismatch: expected {before['sha256']}, got {actual_sha}"
+                  f"NVD feed aggregate size mismatch: expected {expected_size}, got {actual_size} "
+                  f"across {len(shards)} JSON shards"
               )
 
-          archive_sha = hashlib.sha256(Path("/tmp/nvdcpe-2.0.tar.gz").read_bytes()).hexdigest()
+          archive = Path("/tmp/nvdcpe-2.0.tar.gz")
+          digest = hashlib.sha256()
+          with archive.open("rb") as handle:
+              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                  digest.update(chunk)
+          archive_sha = digest.hexdigest()
+
+          shard_manifest = [
+              {"path": str(path), "bytes": path.stat().st_size}
+              for path in shards
+          ]
+          Path("/tmp/nvd-cpe-shards.json").write_text(
+              json.dumps(shard_manifest, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
           verified = {
               "last_modified": before["lastModifiedDate"],
-              "size": actual_size,
-              "sha256": actual_sha.lower(),
+              "uncompressed_bytes": actual_size,
+              "json_shards": len(shards),
+              "published_uncompressed_sha256": before["sha256"].lower(),
               "archive_sha256": archive_sha,
           }
           Path("/tmp/nvd-cpe-out/feed-verification.json").write_text(
@@ -99,7 +109,7 @@ jobs:
           print(json.dumps(verified, sort_keys=True))
           PY
 
-      - name: Split NVD feed into deterministic bounded-memory chunks
+      - name: Split all NVD shards into deterministic bounded-memory chunks
         shell: bash
         run: |
           set -euo pipefail
@@ -110,17 +120,40 @@ jobs:
 
           from tools.corpus.nvd_feed import split_nvd_cpe_feed
 
-          json_path = Path(Path("/tmp/nvd-cpe-json-path.txt").read_text(encoding="utf-8").strip())
-          stats = split_nvd_cpe_feed(json_path, Path("/tmp/nvd-cpe-pages"), chunk_size=10_000)
-          if stats["products"] < 1_000_000:
-              raise SystemExit(f"NVD CPE dictionary unexpectedly small: {stats['products']}")
-          if stats["chunks"] < 100:
-              raise SystemExit(f"NVD CPE chunk count unexpectedly small: {stats['chunks']}")
+          shard_manifest = json.loads(Path("/tmp/nvd-cpe-shards.json").read_text(encoding="utf-8"))
+          total_products = 0
+          global_chunk = 0
+          per_shard: list[dict[str, object]] = []
+          for shard_index, item in enumerate(shard_manifest):
+              source = Path(str(item["path"]))
+              split_root = Path("/tmp/nvd-cpe-split") / f"shard-{shard_index:05d}"
+              stats = split_nvd_cpe_feed(source, split_root, chunk_size=10_000)
+              total_products += int(stats["products"])
+              local_chunks = sorted(split_root.glob("page-*.json"))
+              if len(local_chunks) != int(stats["chunks"]):
+                  raise SystemExit(f"split chunk count mismatch for {source}")
+              for chunk in local_chunks:
+                  destination = Path("/tmp/nvd-cpe-pages") / f"page-{global_chunk:05d}.json"
+                  chunk.replace(destination)
+                  global_chunk += 1
+              per_shard.append({"source": source.name, **stats})
+
+          if total_products < 1_000_000:
+              raise SystemExit(f"NVD CPE dictionary unexpectedly small: {total_products}")
+          if global_chunk < 100:
+              raise SystemExit(f"NVD CPE chunk count unexpectedly small: {global_chunk}")
+          stats = {
+              "products": total_products,
+              "chunks": global_chunk,
+              "chunk_size": 10_000,
+              "source_shards": len(shard_manifest),
+              "per_shard": per_shard,
+          }
           Path("/tmp/nvd-cpe-out/split-stats.json").write_text(
               json.dumps(stats, sort_keys=True, separators=(",", ":")) + "\n",
               encoding="utf-8",
           )
-          print(json.dumps(stats, sort_keys=True))
+          print(json.dumps({key: value for key, value in stats.items() if key != "per_shard"}, sort_keys=True))
           PY
 
       - name: Build deterministic SQLite intelligence index twice
@@ -149,9 +182,10 @@ jobs:
               "total_results": int(split_stats["products"]),
               "pages": int(split_stats["chunks"]),
               "results_per_page": int(split_stats["chunk_size"]),
-              "sha256": verification["sha256"],
-              "archive_sha256": verification["archive_sha256"],
-              "uncompressed_bytes": int(verification["size"]),
+              "source_shards": int(verification["json_shards"]),
+              "sha256": verification["archive_sha256"],
+              "published_uncompressed_sha256": verification["published_uncompressed_sha256"],
+              "uncompressed_bytes": int(verification["uncompressed_bytes"]),
           }
           (root / "download-manifest.json").write_text(
               json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
