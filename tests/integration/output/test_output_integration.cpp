@@ -133,8 +133,9 @@ void assert_machine_os_detection_metadata_parity()
     assert(os_status != std::string::npos);
     const std::size_t os_status_end = grepable_text.find('\n', os_status);
     const std::string os_status_row = grepable_text.substr(os_status, os_status_end - os_status);
+    assert(os_status_row.find(" family=ipv4") != std::string::npos);
     assert(os_status_row.find("vendor=\"Skan\"") != std::string::npos);
-    assert(os_status_row.find("family=\"Linux\"") != std::string::npos);
+    assert(os_status_row.find("os_family=\"Linux\"") != std::string::npos);
     assert(os_status_row.find("generation=\"generic\"") != std::string::npos);
     assert(os_status_row.find("device_type=\"server\"") != std::string::npos);
 }
