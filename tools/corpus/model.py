@@ -77,6 +77,8 @@ class CanonicalRecord:
     fingerprint_native_id: str | None = None
     specificity: int | None = None
     os_features: tuple[tuple[str, str], ...] = ()
+    probe_order: int | None = None
+    rule_order: int | None = None
 
 
 def _normalized_strings(values: tuple[str, ...]) -> list[str]:
@@ -127,6 +129,8 @@ def _semantic_payload(record: CanonicalRecord) -> dict[str, object]:
         "fingerprint_native_id": record.fingerprint_native_id,
         "specificity": record.specificity,
         "os_features": _normalized_os_features(record.os_features),
+        "probe_order": record.probe_order,
+        "rule_order": record.rule_order,
     }
 
 
@@ -175,6 +179,14 @@ def _validate_os_features(values: object) -> list[str]:
     if len(keys) != len(set(keys)):
         return ["os_features must not contain duplicate keys"]
     return []
+
+
+def _validate_order(value: object, name: str) -> str | None:
+    if value is None:
+        return None
+    if type(value) is not int or value < 0:
+        return f"{name} must be a non-negative integer or null"
+    return None
 
 
 def validate_record(
@@ -238,6 +250,14 @@ def validate_record(
         type(record.specificity) is not int or record.specificity < 0
     ):
         errors.append("specificity must be a non-negative integer or null")
+
+    for order_name, order_value in (
+        ("probe_order", record.probe_order),
+        ("rule_order", record.rule_order),
+    ):
+        order_error = _validate_order(order_value, order_name)
+        if order_error is not None:
+            errors.append(order_error)
 
     errors.extend(_validate_os_features(record.os_features))
 
