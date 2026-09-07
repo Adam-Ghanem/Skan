@@ -50,6 +50,7 @@ def make_record(pattern: str, product: str) -> CanonicalRecord:
         last_verified_revision="repository",
         status="verified",
         notes="fixture",
+        match_strength="hard",
     )
     return replace(record, id=stable_record_id(record))
 
