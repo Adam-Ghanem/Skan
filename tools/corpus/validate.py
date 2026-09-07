@@ -14,9 +14,17 @@ from tools.corpus.sources import SourcePolicy, load_source_manifest
 from tools.corpus.stats import corpus_stats
 
 
-_CANONICAL_FILES = (
-    "services.jsonl", "os.jsonl", "udp.jsonl", "products.jsonl",
-    "web.jsonl", "devices.jsonl", "registry.jsonl", "cpe.jsonl",
+_CORE_CANONICAL_FILES = (
+    "services.jsonl",
+    "os.jsonl",
+    "udp.jsonl",
+    "products.jsonl",
+)
+_OPTIONAL_EXTERNAL_FILES = (
+    "web.jsonl",
+    "devices.jsonl",
+    "registry.jsonl",
+    "cpe.jsonl",
 )
 _OVERRIDE_FILES = ("aliases.json", "conflicts.json", "suppressions.json")
 
@@ -64,6 +72,20 @@ def _is_resolved(conflict: Conflict, overrides: dict[str, Any]) -> bool:
     return isinstance(entry, dict) and isinstance(entry.get("resolution"), str) and bool(entry["resolution"].strip())
 
 
+def _load_canonical_file(
+    path: Path,
+    name: str,
+    sources: dict[str, SourcePolicy],
+    *,
+    required: bool,
+) -> list[CanonicalRecord]:
+    if not path.is_file():
+        if required:
+            return load_jsonl(path, sources)
+        return []
+    return load_jsonl(path, sources)
+
+
 def validate_root(root: Path) -> dict[str, object]:
     root = root.resolve()
     sources = load_source_manifest(root / "corpus/sources/sources.json")
@@ -72,21 +94,33 @@ def validate_root(root: Path) -> dict[str, object]:
     records: list[CanonicalRecord] = []
     seen_ids: dict[str, str] = {}
     canonical_dir = root / "corpus/canonical"
-    for name in _CANONICAL_FILES:
-        file_records = load_jsonl(canonical_dir / name, sources)
+
+    for name in _CORE_CANONICAL_FILES + _OPTIONAL_EXTERNAL_FILES:
+        file_records = _load_canonical_file(
+            canonical_dir / name,
+            name,
+            sources,
+            required=name in _CORE_CANONICAL_FILES,
+        )
         for record in file_records:
             previous_file = seen_ids.get(record.id)
             if previous_file is not None:
-                raise ValueError(f"duplicate canonical id across corpus files: {record.id} appears in {previous_file} and {name}")
+                raise ValueError(
+                    f"duplicate canonical id across corpus files: {record.id} "
+                    f"appears in {previous_file} and {name}"
+                )
             seen_ids[record.id] = name
         records.extend(file_records)
+
     _validate_source_data_classes(records, sources)
     _verify_pinned_snapshots(root, sources)
     merged, conflicts = merge_records(records)
     conflict_overrides = overrides["conflicts.json"]
     unresolved = [conflict for conflict in conflicts if not _is_resolved(conflict, conflict_overrides)]
     if unresolved:
-        rendered = ", ".join(f"{c.left_id}|{c.right_id} ({','.join(c.differing_fields)})" for c in unresolved)
+        rendered = ", ".join(
+            f"{c.left_id}|{c.right_id} ({','.join(c.differing_fields)})" for c in unresolved
+        )
         raise ValueError(f"unresolved corpus conflict: {rendered}")
     return corpus_stats(merged, conflict_count=len(conflicts))
 
