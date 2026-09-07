@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "skan-first-party",
+      "name": "Skan first-party corpus",
+      "homepage": "https://github.com/Adam-Ghanem/Skan",
+      "source_url": "https://github.com/Adam-Ghanem/Skan/tree/main/data",
+      "license_spdx_or_policy": "MIT",
+      "redistribution_allowed": true,
+      "attribution_required": false,
+      "approved_data_classes": [
+        "service_matcher",
+        "active_probe",
+        "os_fingerprint",
+        "udp_probe"
+      ],
+      "blocked_data_classes": [],
+      "pinned_revision": "repository",
+      "expected_hash": null,
+      "adapter": "skan_existing",
+      "notes": "Repository-owned baseline data; runtime DBs remain authoritative until round-trip migration is complete."
+    }
+  ]
+}
