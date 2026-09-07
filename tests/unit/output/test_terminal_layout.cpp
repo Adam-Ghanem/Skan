@@ -17,8 +17,8 @@ int main()
 
     constexpr std::array<Case, 7U> cases{{
         {63U, TerminalLayoutMode::Plain},
-        {64U, TerminalLayoutMode::Narrow},
-        {87U, TerminalLayoutMode::Narrow},
+        {64U, TerminalLayoutMode::Medium},
+        {87U, TerminalLayoutMode::Medium},
         {88U, TerminalLayoutMode::Medium},
         {119U, TerminalLayoutMode::Medium},
         {120U, TerminalLayoutMode::Wide},
