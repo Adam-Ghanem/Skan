@@ -29,6 +29,9 @@ class CorpusCliTests(unittest.TestCase):
         self.assertIn("total_records", parsed)
         self.assertIn("detection_records", parsed)
         self.assertIn("metadata_records", parsed)
+        self.assertIn("suppressed_records", parsed)
+        self.assertIn("unresolved_conflicts", parsed)
+        self.assertEqual(parsed["unresolved_conflicts"], 0)
 
     def test_exposes_complete_offline_operator_command_set(self) -> None:
         result = _run("--help")
