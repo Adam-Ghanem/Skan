@@ -38,10 +38,15 @@ int main()
     assert(parse_tcp_ports("abc").status == skan::core::StatusCode::InvalidArgument);
 
     const std::vector<Port> defaults = default_tcp_ports();
-    assert(defaults.size() == 3U);
-    assert(defaults[0].number == 22U);
-    assert(defaults[1].number == 80U);
-    assert(defaults[2].number == 443U);
+    assert(defaults.size() == 100U);
+    assert(defaults[0].number == 80U);
+    assert(defaults[1].number == 443U);
+    assert(defaults[2].number == 22U);
+    assert(defaults[99].number == 1000U);
+    for (const Port &port : defaults) {
+        assert(port.protocol == Protocol::Tcp);
+        assert(port.number != 0U);
+    }
     assert(std::string{port_state_name(PortState::Open)} == "OPEN");
     assert(std::string{scan_probe_type_name(ScanProbeType::TcpSyn)} == "syn");
     assert(std::string{scan_reason_name(ScanReason::Timeout)} == "TIMEOUT");
