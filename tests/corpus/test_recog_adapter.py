@@ -52,6 +52,17 @@ class RecogAdapterTests(unittest.TestCase):
         self.assertEqual(record.service, "ftp")
         self.assertEqual(record.product, "IIS")
 
+    def test_supports_multiline_flag_without_changing_pattern(self) -> None:
+        xml = """<fingerprints matches="ftp.banner" protocol="ftp" database_type="service">
+          <fingerprint pattern="^Apple FTP$" flags="REG_ICASE,REG_MULTILINE">
+            <param pos="0" name="service.vendor" value="Apple"/>
+            <param pos="0" name="service.product" value="FTP"/>
+          </fingerprint>
+        </fingerprints>"""
+        record = parse_recog_xml(xml, CTX, source_path="ftp_banners.xml")[0]
+        self.assertEqual(record.matcher_expression, "^Apple FTP$")
+        self.assertIn("regex_flag:REG_MULTILINE", record.evidence_requirements)
+
     def test_rejects_unknown_regex_flags(self) -> None:
         xml = """<fingerprints matches="ftp.banner" protocol="ftp" database_type="service">
           <fingerprint pattern="x" flags="REG_UNSUPPORTED"/>
