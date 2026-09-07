@@ -1,13 +1,21 @@
-name: Corpus Foundation TDD
+name: Fingerprint Corpus CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'corpus/**'
+      - 'tools/corpus/**'
+      - 'tests/corpus/**'
+      - '.github/workflows/corpus-foundation.yml'
+      - 'GNUmakefile'
   pull_request:
     paths:
       - 'corpus/**'
       - 'tools/corpus/**'
       - 'tests/corpus/**'
       - '.github/workflows/corpus-foundation.yml'
-      - 'Makefile'
+      - 'GNUmakefile'
 
 permissions:
   contents: read
@@ -22,5 +30,5 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run corpus foundation tests
-        run: python3 -m unittest discover -s tests/corpus -p 'test_*.py' -v
+      - name: Verify fingerprint corpus
+        run: make corpus-verify
