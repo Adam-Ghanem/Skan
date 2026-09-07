@@ -109,6 +109,38 @@ class RepositoryValidatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown source_id"):
             validate_root(self.root)
 
+    def test_rejects_source_data_class_not_approved(self):
+        record = replace(
+            make_record("Probe"),
+            id="",
+            kind="active_probe",
+            matcher_type=None,
+            matcher_expression=None,
+            service=None,
+        )
+        record = replace(record, id=stable_record_id(record))
+        self.write_records([record])
+        with self.assertRaisesRegex(ValueError, "not approved for data class active_probe"):
+            validate_root(self.root)
+
+    def test_rejects_explicitly_blocked_data_class(self):
+        policy = source_policy()
+        policy["approved_data_classes"] = ["service_matcher", "active_probe"]
+        policy["blocked_data_classes"] = ["active_probe"]
+        self.write_sources([policy])
+        record = replace(
+            make_record("Probe"),
+            id="",
+            kind="active_probe",
+            matcher_type=None,
+            matcher_expression=None,
+            service=None,
+        )
+        record = replace(record, id=stable_record_id(record))
+        self.write_records([record])
+        with self.assertRaisesRegex(ValueError, "blocked for data class active_probe"):
+            validate_root(self.root)
+
     def test_rejects_malformed_override_json(self):
         (self.root / "corpus/overrides/aliases.json").write_text("{broken", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "aliases.json"):
