@@ -133,6 +133,18 @@ OutputStatus GrepableOutputWriter::write(
                    << " tcp_evidence=" << detection.observed.tcp_observations.size()
                    << " icmp_evidence=" << detection.observed.icmp_observations.size()
                    << " udp_evidence=" << detection.observed.udp_observations.size();
+            if (!detection.vendor.empty()) {
+                output << " vendor=\"" << detail::grep_escape(detection.vendor) << '"';
+            }
+            if (!detection.family.empty()) {
+                output << " os_family=\"" << detail::grep_escape(detection.family) << '"';
+            }
+            if (!detection.generation.empty()) {
+                output << " generation=\"" << detail::grep_escape(detection.generation) << '"';
+            }
+            if (!detection.device_type.empty()) {
+                output << " device_type=\"" << detail::grep_escape(detection.device_type) << '"';
+            }
             if (!detection.fingerprint_id.empty()) {
                 output << " fingerprint_id=\"" << detail::grep_escape(detection.fingerprint_id) << '"';
             }
