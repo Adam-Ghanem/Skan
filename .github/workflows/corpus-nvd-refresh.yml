@@ -1,5 +1,5 @@
 name: NVD CPE Intelligence Refresh
-# Final Task 12 refresh trigger: build and verify the complete pinned NVD CPE index.
+# Final Task 12 refresh trigger: build and verify the complete pinned NVD CPE index with the bounded-memory stream parser.
 
 on:
   workflow_dispatch:
