@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Exercise the acceptance harness's PATH guard with a real Bash command cache."""
+"""Exercise packaging guardrails that keep Debian builds reproducible."""
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -42,6 +43,33 @@ class PurgePathGuardTests(unittest.TestCase):
         result = self.check_guard(remove=False)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("skan remains on PATH after purge", result.stderr)
+
+
+class DebianBuildDependencyTests(unittest.TestCase):
+    def test_python_is_declared_for_corpus_tests(self):
+        rules = (ROOT / "debian/rules").read_text()
+        makefile = (ROOT / "GNUmakefile").read_text()
+        control = (ROOT / "debian/control").read_text()
+
+        self.assertIn("$(MAKE) -j2 test", rules)
+        self.assertRegex(makefile, r"(?m)^test:\s+corpus-test\s*$")
+        self.assertRegex(
+            control,
+            r"(?mi)^Build-Depends:.*(?:^|[ ,])python3(?:[ ,(]|$)",
+            "debian/control must declare python3 because dh_auto_test runs corpus-test",
+        )
+
+    def test_builder_installs_declared_python_test_runtime(self):
+        dockerfile = (ROOT / "tests/packaging/Dockerfile.builder").read_text()
+        install_line = next(
+            (line for line in dockerfile.splitlines() if "apt-get install" in line),
+            "",
+        )
+        self.assertRegex(
+            install_line,
+            r"(?:^|\s)python3(?:\s|$)",
+            "Debian 12 builder must install python3 before dpkg-buildpackage runs tests",
+        )
 
 
 if __name__ == "__main__":
