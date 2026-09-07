@@ -1209,6 +1209,10 @@ int run_scan(int argc, char **argv)
                      config.timing_profile.max_parallelism);
     }
     config.adaptive_timing = adaptive_timing;
+    if (config.os_detection_enabled && transport_mode.empty() && !config.udp_enabled) {
+        transport_mode = "linux";
+        config.port_method = skan::portscan::ScanProbeType::TcpSyn;
+    }
     if (transport_mode == "connect") {
         config.transport = skan::orchestrator::ScanTransport::Connect;
     } else if (transport_mode == "offline") {
@@ -1405,7 +1409,11 @@ int run_nmap_compatible(int argc, char **argv)
         }
     }
     if (targets.empty()) {
-        std::cerr << "Error: Nmap-compatible mode requires at least one target specification.\n";
+        if (std::find(options.begin(), options.end(), "-o") != options.end()) {
+            std::cerr << "Error: -o/--output-file requires a file path and a target; did you mean -O for OS detection?\n";
+        } else {
+            std::cerr << "Error: Nmap-compatible mode requires at least one target specification.\n";
+        }
         return EXIT_FAILURE;
     }
     std::string target_specification;

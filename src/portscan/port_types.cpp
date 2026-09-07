@@ -113,7 +113,22 @@ PortSelection parse_udp_ports(std::string_view specification)
 
 std::vector<Port> default_tcp_ports()
 {
-    return {{22U, Protocol::Tcp}, {kDefaultTcpPort, Protocol::Tcp}, {443U, Protocol::Tcp}};
+    static constexpr std::uint16_t common_ports[] = {
+        80U, 443U, 22U, 21U, 25U, 53U, 110U, 445U, 139U, 143U, 23U, 3389U, 3306U, 8080U, 1723U,
+        111U, 995U, 993U, 5900U, 1025U, 587U, 8888U, 199U, 1720U, 465U, 548U, 113U, 81U, 6001U,
+        10000U, 514U, 5060U, 179U, 1026U, 2000U, 8443U, 8000U, 32768U, 554U, 26U, 1433U, 49152U,
+        2001U, 515U, 8008U, 49154U, 1027U, 5666U, 646U, 5000U, 5631U, 631U, 49153U, 8081U, 2049U,
+        88U, 79U, 5800U, 106U, 2121U, 1110U, 49155U, 6000U, 513U, 990U, 5357U, 427U, 49156U, 543U,
+        544U, 5101U, 144U, 7U, 389U, 8009U, 3128U, 444U, 9999U, 5009U, 7070U, 5190U, 3000U, 5432U,
+        1900U, 3986U, 13U, 1029U, 9U, 5051U, 6646U, 49157U, 1028U, 873U, 1755U, 2717U, 4899U, 9100U,
+        119U, 37U, 1000U};
+
+    std::vector<Port> ports;
+    ports.reserve(std::size(common_ports));
+    for (const std::uint16_t port : common_ports) {
+        ports.push_back(Port{port, Protocol::Tcp});
+    }
+    return ports;
 }
 
 std::vector<Port> default_udp_ports()

@@ -37,12 +37,19 @@ test -s "$tmp_dir/aggregate.gnmap"
 "$skan_bin" -sT -p 1 -oX "$tmp_dir/connect.xml" 127.0.0.1
 test -s "$tmp_dir/connect.xml"
 
+if "$skan_bin" -o 62.233.173.90 >"$tmp_dir/lowercase-o.stdout" 2>"$tmp_dir/lowercase-o.stderr"; then
+  echo "lowercase -o without a target unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -q -- "-o/--output-file requires a file path and a target" "$tmp_dir/lowercase-o.stderr"
+grep -q -- "did you mean -O for OS detection" "$tmp_dir/lowercase-o.stderr"
+
 if "$skan_bin" -sU --transport offline --top-ports 10 192.0.2.1 >/dev/null 2>&1; then
   echo "TCP-only --top-ports unexpectedly accepted for UDP" >&2
   exit 1
 fi
 
-"$skan_bin" -sS --transport offline -p 80 --output json \
+"$skan_bin" -sS --transport offline --output json \
   192.0.2.1 192.0.2.2 >"$tmp_dir/multiple-targets.json"
 python3 - "$tmp_dir/multiple-targets.json" <<'PY'
 import json
@@ -87,7 +94,8 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     report = json.load(handle)
 ports = [port["port"] for host in report["hosts"] for port in host["ports"]]
-assert ports == [22, 443], ports
+assert 80 not in ports, ports
+assert len(ports) == 99, ports
 PY
 
 if "$skan_bin" -sS --transport offline -4 -6 -p 80 192.0.2.1 >/dev/null 2>&1; then

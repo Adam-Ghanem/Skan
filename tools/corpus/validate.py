@@ -14,17 +14,19 @@ from tools.corpus.sources import SourcePolicy, load_source_manifest
 from tools.corpus.stats import corpus_stats
 
 
-_CANONICAL_FILES = (
+_CORE_CANONICAL_FILES = (
     "services.jsonl",
     "os.jsonl",
     "udp.jsonl",
     "products.jsonl",
 )
-_OVERRIDE_FILES = (
-    "aliases.json",
-    "conflicts.json",
-    "suppressions.json",
+_OPTIONAL_EXTERNAL_FILES = (
+    "web.jsonl",
+    "devices.jsonl",
+    "registry.jsonl",
+    "cpe.jsonl",
 )
+_OVERRIDE_FILES = ("aliases.json", "conflicts.json", "suppressions.json")
 
 
 def _load_override_object(path: Path) -> dict[str, Any]:
@@ -37,28 +39,18 @@ def _load_override_object(path: Path) -> dict[str, Any]:
     return parsed
 
 
-def _validate_source_data_classes(
-    records: list[CanonicalRecord],
-    sources: dict[str, SourcePolicy],
-) -> None:
+def _validate_source_data_classes(records: list[CanonicalRecord], sources: dict[str, SourcePolicy]) -> None:
     for record in records:
         for provenance in record.provenance:
             source = sources.get(provenance.source_id)
             if source is None:
-                # load_jsonl/validate_record reports this earlier; keep fail-closed here too.
                 raise ValueError(f"unknown source_id: {provenance.source_id}")
             if not source.redistribution_allowed:
-                raise ValueError(
-                    f"source {source.id} does not allow redistribution"
-                )
+                raise ValueError(f"source {source.id} does not allow redistribution")
             if record.kind in source.blocked_data_classes:
-                raise ValueError(
-                    f"source {source.id} is blocked for data class {record.kind}"
-                )
+                raise ValueError(f"source {source.id} is blocked for data class {record.kind}")
             if record.kind not in source.approved_data_classes:
-                raise ValueError(
-                    f"source {source.id} is not approved for data class {record.kind}"
-                )
+                raise ValueError(f"source {source.id} is not approved for data class {record.kind}")
 
 
 def _verify_pinned_snapshots(root: Path, sources: dict[str, SourcePolicy]) -> None:
@@ -77,27 +69,39 @@ def _conflict_pair_key(conflict: Conflict) -> str:
 
 def _is_resolved(conflict: Conflict, overrides: dict[str, Any]) -> bool:
     entry = overrides.get(_conflict_pair_key(conflict))
-    if not isinstance(entry, dict):
-        return False
-    resolution = entry.get("resolution")
-    return isinstance(resolution, str) and bool(resolution.strip())
+    return isinstance(entry, dict) and isinstance(entry.get("resolution"), str) and bool(entry["resolution"].strip())
+
+
+def _load_canonical_file(
+    path: Path,
+    name: str,
+    sources: dict[str, SourcePolicy],
+    *,
+    required: bool,
+) -> list[CanonicalRecord]:
+    if not path.is_file():
+        if required:
+            return load_jsonl(path, sources)
+        return []
+    return load_jsonl(path, sources)
 
 
 def validate_root(root: Path) -> dict[str, object]:
     root = root.resolve()
-    sources = load_source_manifest(root / "corpus" / "sources" / "sources.json")
-
-    override_dir = root / "corpus" / "overrides"
-    overrides = {
-        name: _load_override_object(override_dir / name)
-        for name in _OVERRIDE_FILES
-    }
-
+    sources = load_source_manifest(root / "corpus/sources/sources.json")
+    override_dir = root / "corpus/overrides"
+    overrides = {name: _load_override_object(override_dir / name) for name in _OVERRIDE_FILES}
     records: list[CanonicalRecord] = []
     seen_ids: dict[str, str] = {}
-    canonical_dir = root / "corpus" / "canonical"
-    for name in _CANONICAL_FILES:
-        file_records = load_jsonl(canonical_dir / name, sources)
+    canonical_dir = root / "corpus/canonical"
+
+    for name in _CORE_CANONICAL_FILES + _OPTIONAL_EXTERNAL_FILES:
+        file_records = _load_canonical_file(
+            canonical_dir / name,
+            name,
+            sources,
+            required=name in _CORE_CANONICAL_FILES,
+        )
         for record in file_records:
             previous_file = seen_ids.get(record.id)
             if previous_file is not None:
@@ -110,22 +114,19 @@ def validate_root(root: Path) -> dict[str, object]:
 
     _validate_source_data_classes(records, sources)
     _verify_pinned_snapshots(root, sources)
-
     merged, conflicts = merge_records(records)
     conflict_overrides = overrides["conflicts.json"]
     unresolved = [conflict for conflict in conflicts if not _is_resolved(conflict, conflict_overrides)]
     if unresolved:
         rendered = ", ".join(
-            f"{conflict.left_id}|{conflict.right_id} ({','.join(conflict.differing_fields)})"
-            for conflict in unresolved
+            f"{c.left_id}|{c.right_id} ({','.join(c.differing_fields)})" for c in unresolved
         )
         raise ValueError(f"unresolved corpus conflict: {rendered}")
-
     return corpus_stats(merged, conflict_count=len(conflicts))
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Validate Skan fingerprint corpus foundation")
+    parser = argparse.ArgumentParser(description="Validate Skan fingerprint corpus")
     parser.add_argument("--root", type=Path, default=Path("."), help="repository root")
     return parser
 

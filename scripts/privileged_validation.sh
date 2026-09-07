@@ -53,6 +53,7 @@ base="$validation_dir/${stamp}_${safe_target}"
 skan_out="${base}_skan.txt"
 nmap_out="${base}_nmap.txt"
 meta_out="${base}_meta.txt"
+implicit_os_out="${base}_implicit_os.txt"
 
 skan_cmd=("$skan_bin" scan "$target" --tcp-ports "$port_range" --method syn --transport linux --service-detect)
 nmap_cmd=(nmap -Pn -sS -sV -p "$port_range")
@@ -91,5 +92,23 @@ echo "Metadata: $meta_out"
 
 if [[ "$skan_status" -ne 0 || "$nmap_status" -ne 0 ]]; then
   echo "Privileged validation failed; inspect the captured outputs." >&2
+  exit 1
+fi
+
+# Nmap-compatible -O must choose an OS-capable raw path when the caller did not
+# explicitly force another transport. This runs only inside the authorized,
+# isolated private-lab harness above.
+set +e
+"$skan_bin" -O -p "$port_range" "$target" >"$implicit_os_out" 2>&1
+implicit_os_status=$?
+set -e
+if [[ "$implicit_os_status" -ne 0 ]]; then
+  cat "$implicit_os_out" >&2
+  echo "Implicit -O validation failed to run." >&2
+  exit 1
+fi
+if grep -q "OS detection unavailable" "$implicit_os_out"; then
+  cat "$implicit_os_out" >&2
+  echo "Implicit -O unexpectedly selected a transport that cannot perform OS detection." >&2
   exit 1
 fi
