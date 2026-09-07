@@ -87,6 +87,8 @@ def record_to_dict(record: CanonicalRecord) -> dict[str, object]:
         "os_features": _serialized_os_features(record.os_features),
         "probe_order": record.probe_order,
         "rule_order": record.rule_order,
+        "evidence_dimension": record.evidence_dimension,
+        "alias": record.alias,
     }
 
 
@@ -218,6 +220,8 @@ def record_from_dict(raw_value: Mapping[str, Any]) -> CanonicalRecord:
         os_features=_os_features_tuple(raw.get("os_features", [])),
         probe_order=_optional_int(raw.get("probe_order"), "probe_order"),
         rule_order=_optional_int(raw.get("rule_order"), "rule_order"),
+        evidence_dimension=_optional_string(raw.get("evidence_dimension"), "evidence_dimension"),
+        alias=_optional_string(raw.get("alias"), "alias"),
     )
 
 
