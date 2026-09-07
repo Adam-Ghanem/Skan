@@ -40,6 +40,23 @@ class CpeSqliteTests(unittest.TestCase):
                 ),
             )
 
+    def test_indexes_valid_cpe_with_not_applicable_product_as_null(self) -> None:
+        context = AdapterContext("nvd-cpe", "r1", "https://nvd.nist.gov", "NIST-Public-Data", "sha256:" + "d" * 64)
+        sample = {"products": [{"cpe": {
+            "cpeNameId": "intel-na-product",
+            "cpeName": "cpe:2.3:h:intel:-:-:*:*:*:*:*:*:*",
+            "deprecated": False,
+        }}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "chunk.json"
+            source.write_text(json.dumps(sample), encoding="utf-8")
+            output = Path(tmp) / "skan-cpe.sqlite"
+            summary = build_cpe_sqlite([source], output, context)
+            self.assertEqual(summary["cpe_records"], 1)
+            with sqlite3.connect(output) as db:
+                row = db.execute("SELECT part,vendor,product,version FROM cpe").fetchone()
+            self.assertEqual(row, ("h", "intel", None, None))
+
 
 if __name__ == "__main__":
     unittest.main()
