@@ -19,7 +19,128 @@
       "pinned_revision": "repository",
       "expected_hash": null,
       "adapter": "skan_existing",
-      "notes": "Repository-owned baseline data; runtime DBs remain authoritative until round-trip migration is complete."
+      "notes": "Repository-owned baseline data; current runtime DBs are verified by lossless round-trip tests."
+    },
+    {
+      "id": "rapid7-recog",
+      "name": "Rapid7 Recog",
+      "homepage": "https://github.com/rapid7/recog",
+      "source_url": "https://github.com/rapid7/recog/tree/v3.1.29/xml",
+      "license_spdx_or_policy": "BSD-2-Clause",
+      "redistribution_allowed": true,
+      "attribution_required": true,
+      "approved_data_classes": [
+        "service_matcher",
+        "web_fingerprint",
+        "device_fingerprint",
+        "product_record",
+        "product_alias"
+      ],
+      "blocked_data_classes": [
+        "active_probe",
+        "udp_probe"
+      ],
+      "pinned_revision": "v3.1.29",
+      "expected_hash": null,
+      "adapter": "recog",
+      "notes": "Passive service/device/web fingerprints only. Unsupported matcher semantics are rejected instead of approximated."
+    },
+    {
+      "id": "iana-services",
+      "name": "IANA Service Name and Transport Protocol Port Number Registry",
+      "homepage": "https://www.iana.org/assignments/service-names-port-numbers",
+      "source_url": "https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.csv",
+      "license_spdx_or_policy": "CC0-1.0",
+      "redistribution_allowed": true,
+      "attribution_required": false,
+      "approved_data_classes": [
+        "port_registry",
+        "product_alias"
+      ],
+      "blocked_data_classes": [
+        "service_matcher",
+        "active_probe",
+        "os_fingerprint",
+        "udp_probe"
+      ],
+      "pinned_revision": "2026-09-04",
+      "expected_hash": null,
+      "adapter": "iana_services",
+      "notes": "Authoritative registry metadata only; a port assignment is not detection evidence."
+    },
+    {
+      "id": "wappalyzergo",
+      "name": "ProjectDiscovery WappalyzerGo fingerprints",
+      "homepage": "https://github.com/projectdiscovery/wappalyzergo",
+      "source_url": "https://github.com/projectdiscovery/wappalyzergo/blob/c881bf2d7f88b11b9b32e2b0fdd050e638f6b20a/fingerprints_data.json",
+      "license_spdx_or_policy": "MIT",
+      "redistribution_allowed": true,
+      "attribution_required": true,
+      "approved_data_classes": [
+        "web_fingerprint",
+        "product_alias"
+      ],
+      "blocked_data_classes": [
+        "active_probe",
+        "udp_probe",
+        "os_fingerprint"
+      ],
+      "pinned_revision": "c881bf2d7f88b11b9b32e2b0fdd050e638f6b20a",
+      "expected_hash": null,
+      "adapter": "wappalyzergo",
+      "notes": "Normalized web-technology fingerprints; evidence dimensions remain distinct."
+    },
+    {
+      "id": "nvd-cpe",
+      "name": "NIST NVD CPE Dictionary 2.0",
+      "homepage": "https://nvd.nist.gov/products/cpe",
+      "source_url": "https://nvd.nist.gov/feeds/json/cpe/2.0/",
+      "license_spdx_or_policy": "NIST-Public-Data",
+      "redistribution_allowed": true,
+      "attribution_required": true,
+      "approved_data_classes": [
+        "product_record",
+        "product_alias",
+        "cpe_record"
+      ],
+      "blocked_data_classes": [
+        "service_matcher",
+        "active_probe",
+        "web_fingerprint",
+        "device_fingerprint",
+        "os_fingerprint",
+        "udp_probe"
+      ],
+      "pinned_revision": null,
+      "expected_hash": null,
+      "adapter": "nvd_cpe",
+      "notes": "Product/CPE intelligence only; contributes zero detection confidence. Modified-data acknowledgement is required."
+    },
+    {
+      "id": "nmap-reference",
+      "name": "Nmap local comparator",
+      "homepage": "https://nmap.org/",
+      "source_url": "local-installation-only",
+      "license_spdx_or_policy": "NPSL",
+      "redistribution_allowed": false,
+      "attribution_required": true,
+      "approved_data_classes": [],
+      "blocked_data_classes": [
+        "service_matcher",
+        "active_probe",
+        "os_fingerprint",
+        "udp_probe",
+        "web_fingerprint",
+        "device_fingerprint",
+        "port_registry",
+        "product_record",
+        "product_alias",
+        "cpe_record"
+      ],
+      "pinned_revision": null,
+      "expected_hash": null,
+      "adapter": "nmap_comparator",
+      "notes": "Comparator only. Nmap fingerprint databases must never enter committed canonical corpus records."
     }
   ]
 }
