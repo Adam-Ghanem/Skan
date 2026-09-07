@@ -1,0 +1,97 @@
+name: Corpus Source Refresh
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/fingerprint-corpus-v2-multisource
+    paths:
+      - .github/workflows/corpus-source-refresh.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: codex/fingerprint-corpus-v2-multisource
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Fetch pinned public sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/skan-upstreams
+
+          curl --fail --location --retry 3 \
+            https://github.com/rapid7/recog/archive/refs/tags/v3.1.29.tar.gz \
+            --output /tmp/skan-upstreams/recog.tar.gz
+          tar -xzf /tmp/skan-upstreams/recog.tar.gz -C /tmp/skan-upstreams
+
+          curl --fail --location --retry 3 \
+            https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.csv \
+            --output /tmp/skan-upstreams/iana-services.csv
+
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/projectdiscovery/wappalyzergo/c881bf2d7f88b11b9b32e2b0fdd050e638f6b20a/fingerprints_data.json \
+            --output /tmp/skan-upstreams/wappalyzer.json
+
+          test -d /tmp/skan-upstreams/recog-3.1.29/xml
+          test -s /tmp/skan-upstreams/iana-services.csv
+          test -s /tmp/skan-upstreams/wappalyzer.json
+
+      - name: Compile external corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/skan-corpus
+          python3 -m tools.corpus.bulk_refresh \
+            --repo-root . \
+            --recog-dir /tmp/skan-upstreams/recog-3.1.29/xml \
+            --iana-csv /tmp/skan-upstreams/iana-services.csv \
+            --wappalyzer-json /tmp/skan-upstreams/wappalyzer.json \
+            --output-root /tmp/skan-corpus
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          stats = json.loads(Path('/tmp/skan-corpus/stats.json').read_text())
+          detection = int(stats.get('detection_records', 0))
+          registry = int(stats.get('port_registry_records', 0))
+          if detection < 1000:
+              raise SystemExit(f'detection corpus unexpectedly small: {detection}')
+          if registry < 1000:
+              raise SystemExit(f'IANA registry corpus unexpectedly small: {registry}')
+          print(json.dumps(stats, sort_keys=True))
+          PY
+
+      - name: Install generated corpus and verify offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp /tmp/skan-corpus/canonical/*.jsonl corpus/canonical/
+          mkdir -p corpus/locks corpus/reports
+          cp /tmp/skan-corpus/locks/*.json corpus/locks/
+          cp /tmp/skan-corpus/stats.json corpus/reports/external-stats.json
+          cp /tmp/skan-corpus/THIRD_PARTY_NOTICES.md corpus/THIRD_PARTY_NOTICES.md
+          make corpus-external-verify
+
+      - name: Commit deterministic generated corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add corpus/canonical corpus/locks corpus/reports corpus/THIRD_PARTY_NOTICES.md
+          if git diff --cached --quiet; then
+            echo "Generated corpus is already current"
+            exit 0
+          fi
+          git commit -m "data(corpus): refresh pinned Recog IANA and Wappalyzer corpus"
+          git push origin HEAD:codex/fingerprint-corpus-v2-multisource
