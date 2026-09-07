@@ -21,7 +21,7 @@ jobs:
         with:
           ref: codex/fingerprint-corpus-v2-multisource
           fetch-depth: 1
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Fetch pinned public sources
         shell: bash
@@ -84,6 +84,8 @@ jobs:
 
       - name: Commit deterministic generated corpus
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -94,4 +96,7 @@ jobs:
             exit 0
           fi
           git commit -m "data(corpus): refresh pinned Recog IANA and Wappalyzer corpus"
-          git push origin HEAD:codex/fingerprint-corpus-v2-multisource
+          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+            push https://github.com/${GITHUB_REPOSITORY}.git \
+            HEAD:codex/fingerprint-corpus-v2-multisource
