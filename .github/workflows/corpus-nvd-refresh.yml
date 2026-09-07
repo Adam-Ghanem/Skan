@@ -290,18 +290,30 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p corpus/locks corpus/reports
-          cp /tmp/nvd-cpe-out/nvd-cpe-lock.json corpus/locks/nvd-cpe.json
-          cp /tmp/nvd-cpe-out/nvd-cpe-stats.json corpus/reports/nvd-cpe-stats.json
+          branch="codex/fingerprint-corpus-v2-multisource"
+          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add corpus/locks/nvd-cpe.json corpus/reports/nvd-cpe-stats.json
-          if git diff --cached --quiet; then
-            echo "NVD CPE report is already current"
-            exit 0
-          fi
-          git commit -m "data(corpus): refresh NVD CPE intelligence manifest"
-          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
-          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
-            push https://github.com/${GITHUB_REPOSITORY}.git \
-            HEAD:codex/fingerprint-corpus-v2-multisource
+
+          for attempt in 1 2 3; do
+            git fetch --no-tags origin "$branch"
+            git reset --hard "origin/$branch"
+            mkdir -p corpus/locks corpus/reports
+            cp /tmp/nvd-cpe-out/nvd-cpe-lock.json corpus/locks/nvd-cpe.json
+            cp /tmp/nvd-cpe-out/nvd-cpe-stats.json corpus/reports/nvd-cpe-stats.json
+            git add corpus/locks/nvd-cpe.json corpus/reports/nvd-cpe-stats.json
+            if git diff --cached --quiet; then
+              echo "NVD CPE report is already current"
+              exit 0
+            fi
+            git commit -m "data(corpus): refresh NVD CPE intelligence manifest"
+            if git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+              push https://github.com/${GITHUB_REPOSITORY}.git \
+              HEAD:"$branch"; then
+              exit 0
+            fi
+            echo "NVD publish raced with another branch update; retrying from latest head ($attempt/3)"
+          done
+
+          echo "NVD CPE report publish failed after 3 race-safe retries" >&2
+          exit 1
