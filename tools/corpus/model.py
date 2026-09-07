@@ -15,11 +15,31 @@ _ALLOWED_KINDS = {
     "udp_probe",
     "product_vocab",
     "registry",
+    "web_fingerprint",
+    "device_fingerprint",
+    "port_registry",
+    "product_record",
+    "product_alias",
+    "cpe_record",
 }
-_ALLOWED_TRANSPORTS = {"tcp", "udp", "any", "none"}
+_METADATA_ONLY_KINDS = {"port_registry", "product_record", "product_alias", "cpe_record"}
+_ALLOWED_TRANSPORTS = {"tcp", "udp", "sctp", "dccp", "any", "none"}
 _ALLOWED_ADDRESS_FAMILIES = {"ipv4", "ipv6", "any", "none"}
 _ALLOWED_STATUSES = {"verified", "imported", "experimental", "suppressed", "deprecated"}
 _ALLOWED_MATCH_STRENGTHS = {"hard", "soft"}
+_ALLOWED_EVIDENCE_DIMENSIONS = {
+    "banner",
+    "http_header",
+    "http_cookie",
+    "http_html",
+    "http_script",
+    "http_url",
+    "http_meta",
+    "tls",
+    "protocol",
+    "device",
+    "os",
+}
 _HEX_CHARS = frozenset("0123456789abcdefABCDEF")
 
 
@@ -79,6 +99,8 @@ class CanonicalRecord:
     os_features: tuple[tuple[str, str], ...] = ()
     probe_order: int | None = None
     rule_order: int | None = None
+    evidence_dimension: str | None = None
+    alias: str | None = None
 
 
 def _normalized_strings(values: tuple[str, ...]) -> list[str]:
@@ -131,6 +153,8 @@ def _semantic_payload(record: CanonicalRecord) -> dict[str, object]:
         "os_features": _normalized_os_features(record.os_features),
         "probe_order": record.probe_order,
         "rule_order": record.rule_order,
+        "evidence_dimension": record.evidence_dimension,
+        "alias": record.alias,
     }
 
 
@@ -207,6 +231,8 @@ def validate_record(
     if record.confidence is not None:
         if type(record.confidence) not in (int, float) or not 0.0 <= float(record.confidence) <= 1.0:
             errors.append("confidence must be within [0.0, 1.0]")
+    if record.kind in _METADATA_ONLY_KINDS and record.confidence is not None:
+        errors.append(f"metadata kind {record.kind} cannot carry detection confidence")
     if record.rarity is not None and (type(record.rarity) is not int or record.rarity < 0):
         errors.append("rarity must be a non-negative integer or null")
 
@@ -250,6 +276,10 @@ def validate_record(
         type(record.specificity) is not int or record.specificity < 0
     ):
         errors.append("specificity must be a non-negative integer or null")
+    if record.evidence_dimension is not None and record.evidence_dimension not in _ALLOWED_EVIDENCE_DIMENSIONS:
+        errors.append(f"unsupported evidence_dimension: {record.evidence_dimension}")
+    if record.alias is not None and (not isinstance(record.alias, str) or not record.alias.strip()):
+        errors.append("alias must be a non-empty string or null")
 
     for order_name, order_value in (
         ("probe_order", record.probe_order),
@@ -268,6 +298,12 @@ def validate_record(
         if source is None:
             errors.append(f"unknown source_id: {provenance.source_id}")
             continue
+        if record.kind not in source.approved_data_classes:
+            errors.append(f"source {provenance.source_id}: data class {record.kind} is not approved")
+        if record.kind in source.blocked_data_classes:
+            errors.append(f"source {provenance.source_id}: data class {record.kind} is blocked")
+        if not source.redistribution_allowed and record.status != "suppressed":
+            errors.append(f"source {provenance.source_id}: redistribution is not allowed")
         if not provenance.source_record_id.strip():
             errors.append(f"source {provenance.source_id}: source_record_id is required")
         if not provenance.source_revision.strip():
@@ -315,6 +351,32 @@ def validate_record(
             errors.append("os_fingerprint requires os_family")
         if not record.os_features:
             errors.append("os_fingerprint requires os_features")
+    elif record.kind == "web_fingerprint":
+        if not record.matcher_type or not record.matcher_expression:
+            errors.append("web_fingerprint requires matcher_type and matcher_expression")
+        if not record.evidence_dimension:
+            errors.append("web_fingerprint requires evidence_requirements evidence dimension")
+        if not record.evidence_requirements:
+            errors.append("web_fingerprint requires evidence_requirements")
+    elif record.kind == "device_fingerprint":
+        if not record.matcher_type or not record.matcher_expression:
+            errors.append("device_fingerprint requires matcher_type and matcher_expression")
+        if not record.device_type and not record.product:
+            errors.append("device_fingerprint requires device_type or product")
+    elif record.kind == "port_registry":
+        if not record.service:
+            errors.append("port_registry requires service")
+        if not record.ports:
+            errors.append("port_registry requires at least one port")
+    elif record.kind == "product_record":
+        if not record.product:
+            errors.append("product_record requires product")
+    elif record.kind == "product_alias":
+        if not record.product or not record.alias:
+            errors.append("product_alias requires product and alias")
+    elif record.kind == "cpe_record":
+        if not record.cpe:
+            errors.append("cpe_record requires at least one CPE 2.3 name")
 
     expected_id = stable_record_id(record)
     if record.id and record.id != expected_id:
