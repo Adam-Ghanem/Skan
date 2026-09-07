@@ -1,6 +1,6 @@
 # Skan Multi-Source Fingerprint Corpus Design
 
-**Status:** Design approved in chat; written specification pending maintainer review.
+**Status:** Design approved in chat; specification self-reviewed and pending maintainer review.
 
 ## 1. Purpose
 
@@ -40,11 +40,11 @@ The corpus validator remains fail-closed: an unknown source, disallowed data cla
 
 **Source:** Skan-owned fingerprints, probes, fixtures, and lab captures.
 
-**Priority:** Highest.
+**Trust tier:** Highest for review expectations and fixture quality. This trust tier does not silently override a conflicting third-party record.
 
-**Allowed classes:** `service_matcher`, `active_probe`, `udp_probe`, `os_fingerprint`, `web_fingerprint`, `product_alias`, and future first-party device fingerprints.
+**Allowed classes:** `service_matcher`, `active_probe`, `udp_probe`, `os_fingerprint`, `web_fingerprint`, `device_fingerprint`, `product_alias`, and future first-party detection classes approved by the source manifest.
 
-First-party entries must retain the strongest trust level because they can be validated against controlled positive and negative fixtures and can be changed without third-party licensing constraints.
+First-party entries receive the strongest trust label because they can be validated against controlled positive and negative fixtures and can be changed without third-party licensing constraints. Conflicts still follow the explicit conflict rules in Section 5.5.
 
 ### 3.2 Tier 1: Redistributable detection datasets
 
@@ -73,6 +73,7 @@ First-party entries must retain the strongest trust level because they can be va
 
 #### NVD CPE Dictionary
 
+- Policy: ingest NIST/NVD data under the applicable NIST public-use terms, retain NIST acknowledgement, preserve any source-specific notices, and mark Skan-modified normalized derivatives as modified data.
 - Role: normalize vendor, product, version, edition, target platform, and CPE identity.
 - Intended imported class: `product_record` / `cpe_record` enrichment, not a service matcher.
 - CPE data is a product intelligence layer and does not create detection evidence by itself.
@@ -112,6 +113,8 @@ Skan must not:
 
 When Nmap identifies something Skan misses, that result creates a gap ticket or benchmark observation. The replacement Skan fingerprint must be independently authored from protocol documentation, vendor documentation, first-party captures, or another redistribution-approved source.
 
+Every benchmark records the exact Nmap version used so later comparisons remain reproducible.
+
 ## 4. Canonical data model extensions
 
 The existing canonical model remains the source of truth. It is extended only where a new source requires a semantically distinct field.
@@ -135,7 +138,8 @@ All detection records require:
 - ordered provenance list;
 - matcher/evidence type;
 - normalized identity output;
-- source-specific confidence input or evidence quality label;
+- Skan evidence quality label;
+- preserved upstream confidence/priority metadata when the source supplies it, without treating it as Skan's final confidence;
 - positive fixture reference where practical;
 - negative fixture reference for rules with realistic collision risk;
 - optional deprecation/suppression status.
@@ -219,11 +223,11 @@ Conflicts are resolved only by:
 3. suppressing a known-bad rule with a documented reason; or
 4. adding an explicit reviewed conflict resolution entry.
 
-No source wins merely because it has higher priority.
+No source wins merely because it has higher trust tier, source priority, or record count.
 
 ## 6. Confidence model
 
-Confidence is evidence-driven, not source-count-driven.
+Confidence is evidence-driven, not source-count-driven and not copied from an upstream source score.
 
 The first implementation uses discrete evidence quality bands rather than pretending to have statistically calibrated probabilities:
 
@@ -231,6 +235,8 @@ The first implementation uses discrete evidence quality bands rather than preten
 - `strong`: multiple independent response features or a highly specific protocol/banner pattern identify the result;
 - `medium`: a useful but potentially shared signature that requires supporting context;
 - `weak`: heuristic evidence that may contribute to a result but cannot produce a high-confidence identity alone.
+
+An upstream confidence, rank, or priority field is preserved for audit and source-semantic fidelity but does not directly determine the Skan evidence band.
 
 A final detection may combine compatible evidence from active probe response, banner, TLS, HTTP, web fingerprint, device hint, and OS fingerprint. Contradictory evidence lowers confidence or yields an explicit ambiguity instead of arbitrary selection.
 
@@ -344,12 +350,12 @@ Report separately:
 - corpus load/startup time;
 - peak memory attributable to detection data.
 
-Skan may claim better service/product identification than the benchmarked Nmap version only when, on the published internal benchmark definition:
+Skan may claim better service/product identification than the benchmarked Nmap version only when, on the recorded internal benchmark definition:
 
 1. Skan product precision is at least Nmap's;
 2. Skan product recall is greater than Nmap's for the supported benchmark set;
 3. Skan false-positive rate is no worse than Nmap's; and
-4. the exact benchmark target set, versions, and commands are recorded with the result.
+4. the exact benchmark target set, versions, scanner versions, and commands are recorded with the result.
 
 OS detection remains a separate claim until Skan's OS benchmark independently satisfies equivalent quality gates.
 
@@ -416,6 +422,7 @@ Deliverables:
 - vendor/product alias linking;
 - lookup from a detected normalized product/version to CPE candidates;
 - ambiguity-preserving lookup when multiple CPEs remain valid;
+- NIST acknowledgement and modified-data notice in redistribution metadata;
 - package-size and lookup-performance report.
 
 ### Phase D: Active protocol breadth
