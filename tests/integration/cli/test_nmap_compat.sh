@@ -15,6 +15,9 @@ python3 -m json.tool "$tmp_dir/connect.json" >/dev/null
 "$skan_bin" -sS --transport offline -p 80 --output json 192.0.2.1 >"$tmp_dir/syn.json"
 python3 -m json.tool "$tmp_dir/syn.json" >/dev/null
 
+"$skan_bin" -sS --transport offline -p80 --output json 192.0.2.1 >"$tmp_dir/attached-port.json"
+python3 -m json.tool "$tmp_dir/attached-port.json" >/dev/null
+
 "$skan_bin" -sU --transport offline --udp-ports 53 --output json 192.0.2.1 >"$tmp_dir/udp.json"
 python3 -m json.tool "$tmp_dir/udp.json" >/dev/null
 
