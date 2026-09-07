@@ -123,12 +123,13 @@ jobs:
           )
           PY
 
-      - name: Build deterministic SQLite intelligence index
+      - name: Build deterministic SQLite intelligence index twice
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from __future__ import annotations
+          import hashlib
           import json
           from pathlib import Path
           import sqlite3
@@ -145,12 +146,20 @@ jobs:
               source_license="NIST-Public-Data",
               source_hash="sha256:" + str(manifest["sha256"]),
           )
+          pages = sorted(Path("/tmp/nvd-cpe-pages").glob("page-*.json"))
+          sqlite_a = root / "skan-nvd-cpe-a.sqlite"
+          sqlite_b = root / "skan-nvd-cpe-b.sqlite"
+          stats = build_cpe_sqlite(pages, sqlite_a, context)
+          build_cpe_sqlite(pages, sqlite_b, context)
+          bytes_a = sqlite_a.read_bytes()
+          bytes_b = sqlite_b.read_bytes()
+          if bytes_a != bytes_b:
+              raise SystemExit("NVD SQLite regeneration is not byte deterministic")
+          sqlite_sha256 = hashlib.sha256(bytes_a).hexdigest()
           sqlite_path = root / "skan-nvd-cpe.sqlite"
-          stats = build_cpe_sqlite(
-              sorted(Path("/tmp/nvd-cpe-pages").glob("page-*.json")),
-              sqlite_path,
-              context,
-          )
+          sqlite_a.replace(sqlite_path)
+          sqlite_b.unlink()
+
           with sqlite3.connect(sqlite_path) as db:
               integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
               actual = int(db.execute("SELECT COUNT(*) FROM cpe").fetchone()[0])
@@ -169,6 +178,8 @@ jobs:
               "active_rows": active,
               "distinct_vendors": vendors,
               "distinct_products": products,
+              "sqlite_sha256": sqlite_sha256,
+              "byte_deterministic_regeneration": True,
           }
           (root / "nvd-cpe-stats.json").write_text(
               json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n",
