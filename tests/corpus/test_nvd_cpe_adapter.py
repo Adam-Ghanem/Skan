@@ -53,6 +53,19 @@ class NvdCpeAdapterTests(unittest.TestCase):
         self.assertEqual(identity.target_hw, "x86_64")
         self.assertEqual(identity.other, "other")
 
+    def test_preserves_valid_cpe_with_not_applicable_product(self) -> None:
+        raw = {"products": [{"cpe": {
+            "cpeNameId": "intel-na-product",
+            "cpeName": "cpe:2.3:h:intel:-:-:*:*:*:*:*:*:*",
+            "deprecated": False,
+        }}]}
+        records = parse_nvd_cpe_json(json.dumps(raw), CTX)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0].kind, "cpe_record")
+        self.assertEqual(records[0].vendor, "intel")
+        self.assertIsNone(records[0].product)
+        self.assertEqual(records[0].cpe, ("cpe:2.3:h:intel:-:-:*:*:*:*:*:*:*",))
+
     def test_deprecated_cpe_is_preserved_as_deprecated(self) -> None:
         raw = {"products": [{"cpe": {"cpeNameId": "old", "cpeName": "cpe:2.3:a:vendor:thing:1:*:*:*:*:*:*:*", "deprecated": True}}]}
         records = parse_nvd_cpe_json(json.dumps(raw), CTX)
