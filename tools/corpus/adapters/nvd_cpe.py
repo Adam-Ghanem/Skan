@@ -116,8 +116,6 @@ def parse_nvd_cpe_json(text: str, context: AdapterContext) -> list[CanonicalReco
         if not isinstance(cpe_id, str) or not cpe_id:
             cpe_id = f"index:{index}"
         identity = parse_cpe23_name(cpe_name)
-        if not identity.product:
-            raise ValueError(f"NVD CPE product component is required: {cpe_name}")
         deprecated = cpe_obj.get("deprecated") is True
         status = "deprecated" if deprecated else "imported"
         title = ""
@@ -147,12 +145,13 @@ def parse_nvd_cpe_json(text: str, context: AdapterContext) -> list[CanonicalReco
                 **common,
             )
         )
-        records.append(
-            make_record(
-                context,
-                f"{cpe_id}:product",
-                "product_record",
-                **common,
+        if identity.product is not None:
+            records.append(
+                make_record(
+                    context,
+                    f"{cpe_id}:product",
+                    "product_record",
+                    **common,
+                )
             )
-        )
     return sorted(records, key=lambda record: record.id)
