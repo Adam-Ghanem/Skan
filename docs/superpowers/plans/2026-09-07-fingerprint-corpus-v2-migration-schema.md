@@ -19,6 +19,7 @@
 - Canonical/generated artifacts must be deterministic and contain no wall-clock timestamps.
 - External data import does not start in this plan.
 - Unsupported or lossy runtime constructs fail closed; they are never silently discarded.
+- Runtime declaration order is semantic: service probe order participates in probe tie-breaking and per-probe rule order participates in matcher tie-breaking. Canonical migration must preserve both.
 
 ---
 
@@ -27,133 +28,50 @@
 **Files:**
 - Modify: `tools/corpus/model.py`
 - Test: `tests/corpus/test_model_runtime_fidelity.py`
+- Test: `tests/corpus/test_runtime_order_fidelity.py`
 
-**Interfaces:**
-- Consumes: existing `CanonicalRecord`, `stable_record_id()`, and `validate_record()`.
-- Produces these additional `CanonicalRecord` fields:
-  - `probe_payload_hex: str | None`
-  - `probe_priority: int | None`
-  - `probe_timeout_ms: int | None`
-  - `fallback_probe_ids: tuple[str, ...]`
-  - `match_strength: str | None` (`hard` or `soft`)
-  - `extra_template: str | None`
-  - `hostname_template: str | None`
-  - `tunnel_template: str | None`
-  - `protocol_hint: str | None`
-  - `max_response_bytes: int | None`
-  - `fingerprint_name: str | None`
-  - `fingerprint_native_id: str | None`
-  - `specificity: int | None`
-  - `os_features: tuple[tuple[str, str], ...]`
+**Additional `CanonicalRecord` fields:**
+- `probe_payload_hex: str | None`
+- `probe_priority: int | None`
+- `probe_timeout_ms: int | None`
+- `fallback_probe_ids: tuple[str, ...]`
+- `match_strength: str | None` (`hard` or `soft`)
+- `extra_template: str | None`
+- `hostname_template: str | None`
+- `tunnel_template: str | None`
+- `protocol_hint: str | None`
+- `max_response_bytes: int | None`
+- `fingerprint_name: str | None`
+- `fingerprint_native_id: str | None`
+- `specificity: int | None`
+- `os_features: tuple[tuple[str, str], ...]`
+- `probe_order: int | None`
+- `rule_order: int | None`
 
-- [ ] **Step 1: Write failing runtime-fidelity model tests**
+`probe_order` and `rule_order` were added after inspecting the actual C++ loader: both declaration orders can affect runtime tie-breaking and therefore must participate in the semantic ID.
 
-Add tests that construct records with each runtime-fidelity field and assert:
+- [x] Write RED runtime-fidelity model tests.
+- [x] Verify RED before implementation.
+- [x] Implement typed fields, semantic hashing, normalization, and fail-closed validation.
+- [x] Add RED declaration-order tests and verify only those new tests fail.
+- [x] Implement `probe_order` / `rule_order` semantic fidelity.
+- [x] Verify corpus model suite GREEN.
 
-```python
-self.assertNotEqual(stable_record_id(base), stable_record_id(replace(base, probe_priority=99)))
-self.assertNotEqual(stable_record_id(base), stable_record_id(replace(base, probe_timeout_ms=2000)))
-self.assertNotEqual(stable_record_id(base), stable_record_id(replace(base, fallback_probe_ids=("B", "A"))))
-self.assertNotEqual(stable_record_id(base), stable_record_id(replace(base, match_strength="soft")))
-self.assertNotEqual(stable_record_id(base), stable_record_id(replace(base, probe_payload_hex="00ff")))
-```
-
-Also assert `os_features` ordering is semantic-order independent, while fallback order remains semantic:
-
-```python
-left = replace(os_record, os_features=(("TTL", "64"), ("DF", "Y")))
-right = replace(os_record, os_features=(("DF", "Y"), ("TTL", "64")))
-self.assertEqual(stable_record_id(left), stable_record_id(right))
-
-ordered = replace(base, fallback_probe_ids=("HTTPGet", "GenericBanner"))
-reversed_order = replace(base, fallback_probe_ids=("GenericBanner", "HTTPGet"))
-self.assertNotEqual(stable_record_id(ordered), stable_record_id(reversed_order))
-```
-
-Validation tests must reject odd/non-hex payload text, negative timeout/priority/specificity, non-positive `max_response_bytes`, invalid `match_strength`, duplicate OS feature keys, and empty fallback IDs.
-
-- [ ] **Step 2: Run corpus tests and verify RED**
-
-Run: `make corpus-test`
-
-Expected: FAIL because the new `CanonicalRecord` fields do not exist yet.
-
-- [ ] **Step 3: Implement minimal typed fields, semantic normalization, and validation**
-
-Update `_semantic_payload()` so all runtime-significant new fields affect canonical ID. Normalize `probe_payload_hex` to lowercase for semantic hashing; sort `os_features` by key for hashing; preserve tuple order for `fallback_probe_ids`.
-
-Validation rules:
-
-```python
-probe_payload_hex is None or even-length lowercase/uppercase hex text
-probe_priority is None or integer >= 0
-probe_timeout_ms is None or integer > 0
-fallback_probe_ids contains non-empty unique strings
-match_strength is None, "hard", or "soft"
-max_response_bytes is None or integer > 0
-specificity is None or integer >= 0
-os_features has non-empty unique keys and string values
-```
-
-Kind-specific requirements:
-- `active_probe`: requires `probe_id`, `probe_payload_hex`, and `probe_timeout_ms`.
-- `service_matcher`: requires `probe_id`, `matcher_type`, `matcher_expression`, `service`, and `match_strength`.
-- `udp_probe`: requires `probe_id`, exactly one port, `protocol_hint`, `max_response_bytes`, and `probe_payload_hex`.
-- `os_fingerprint`: requires `fingerprint_name`, `os_family`, and at least one `os_features` entry.
-
-- [ ] **Step 4: Run corpus tests and verify GREEN**
-
-Run: `make corpus-test`
-
-Expected: all existing and new tests PASS.
-
-- [ ] **Step 5: Commit**
-
-Commit message: `feat(corpus): model runtime fidelity fields`
+Validation includes payload hex shape, priority/timeout/response bounds, fallback uniqueness/order, match strength, specificity, OS feature uniqueness, and non-negative integer declaration-order fields.
 
 ---
 
-### Task 2: Extend deterministic JSONL serialization for the new fields
+### Task 2: Extend deterministic JSONL serialization
 
 **Files:**
 - Modify: `tools/corpus/io.py`
 - Test: `tests/corpus/test_io_runtime_fidelity.py`
 
-**Interfaces:**
-- Consumes: extended `CanonicalRecord` from Task 1.
-- Produces deterministic JSON representations for all runtime-fidelity fields.
-
-- [ ] **Step 1: Write failing round-trip tests**
-
-Create one record for each kind (`active_probe`, `service_matcher`, `udp_probe`, `os_fingerprint`) using non-default runtime fields. Write it with `write_jsonl()`, read it with `load_jsonl()`, and assert exact dataclass equality.
-
-Assert serialized OS features are deterministic objects encoded as sorted two-element arrays:
-
-```json
-"os_features":[["DF","Y"],["TTL","64"]]
-```
-
-Assert fallback order is preserved exactly.
-
-- [ ] **Step 2: Run corpus tests and verify RED**
-
-Run: `make corpus-test`
-
-Expected: FAIL because `record_to_dict()` / `record_from_dict()` do not serialize the new fields.
-
-- [ ] **Step 3: Implement strict serializer/parser support**
-
-Add every Task-1 field to `record_to_dict()` and `record_from_dict()`. Do not coerce strings into booleans/integers. Require `os_features` to be an array of two-string arrays and `fallback_probe_ids` to be an array of strings.
-
-- [ ] **Step 4: Run corpus tests and verify GREEN**
-
-Run: `make corpus-test`
-
-Expected: all tests PASS and byte determinism remains unchanged across input order.
-
-- [ ] **Step 5: Commit**
-
-Commit message: `feat(corpus): serialize runtime fidelity fields`
+- [x] Write RED round-trip tests for active probes, service matchers, UDP probes, and OS fingerprints.
+- [x] Verify old tests remain green while new serialization expectations fail.
+- [x] Serialize/parse every runtime-fidelity field with strict JSON types.
+- [x] Preserve ordered fallbacks and declaration order; normalize OS features by key and payload hex to lowercase.
+- [x] Verify byte determinism across input order.
 
 ---
 
@@ -169,72 +87,46 @@ Commit message: `feat(corpus): serialize runtime fidelity fields`
 
 **Interfaces:**
 - `parse_service_db(path: Path) -> list[CanonicalRecord]`
-- `emit_service_db(records: list[CanonicalRecord]) -> str`
+- `emit_service_db(records: Iterable[CanonicalRecord]) -> str`
 - `parse_udp_db(path: Path) -> list[CanonicalRecord]`
-- `emit_udp_db(records: list[CanonicalRecord]) -> str`
+- `emit_udp_db(records: Iterable[CanonicalRecord]) -> str`
 - `parse_os_db(path: Path, address_family: str) -> list[CanonicalRecord]`
-- `emit_os_db(records: list[CanonicalRecord]) -> str`
+- `emit_os_db(records: Iterable[CanonicalRecord]) -> str`
 
-All first-party records use provenance source `skan-first-party`, revision `repository`, license `MIT`, and deterministic `source_hash` computed from normalized logical source entry bytes, not from wall-clock metadata.
+All first-party records use provenance source `skan-first-party`, revision `repository`, license `MIT`, and deterministic logical-record hashes. Physical source line numbers are diagnostic only and must not enter semantic/provenance hashes.
 
-- [ ] **Step 1: Write service parser/emitter tests from current grammar**
+Service coverage:
+- TCP/UDP probe declarations;
+- rarity, priority, timeout, ports, ordered fallbacks, probe declaration order;
+- empty/binary payloads and Skan escape grammar;
+- hard `match` and `softmatch`;
+- exact/prefix/suffix/substring/regex;
+- product/version/extra/hostname/tunnel templates;
+- rule declaration order.
 
-Fixtures must cover:
-- `Probe TCP` and `Probe UDP` declarations;
-- rarity, priority, timeout, ports, ordered fallbacks;
-- empty and binary `send` payloads;
-- `match` and `softmatch`;
-- matcher types `regex`, `prefix`, `suffix`, `substring`, `exact`;
-- capture templates in product/version/extra/hostname/tunnel;
-- escaped `\r`, `\n`, `\t`, `\\`, `\"`, and `\xNN`.
+UDP coverage:
+- exact `probe NAME PORT PROTOCOL_HINT MAX_RESPONSE_BYTES PAYLOAD_HEX` grammar;
+- port, protocol hint, response bound, payload, declaration order.
 
-Assert `parse -> emit -> parse` produces the same semantic record list.
+OS coverage:
+- IPv4/IPv6;
+- optional `ID`, `SPECIFICITY`, declared address family;
+- `Class` metadata;
+- arbitrary uppercase feature keys, including ranges and ordered option values;
+- fingerprint declaration order.
 
-- [ ] **Step 2: Write UDP parser/emitter tests**
-
-Cover the exact runtime line grammar:
-
-```text
-probe NAME PORT PROTOCOL_HINT MAX_RESPONSE_BYTES PAYLOAD_HEX
-```
-
-Assert exact preservation of port, protocol hint, response bound, and payload hex.
-
-- [ ] **Step 3: Write OS parser/emitter tests**
-
-Cover both IPv4 and IPv6 forms, including optional `ID`, optional `SPECIFICITY`, `Class`, scalar features, comma-valued `TCP_OPTIONS`, and range features such as `TTL_RANGE` / `WINDOW_RANGE`.
-
-Assert unknown uppercase feature keys are preserved instead of discarded.
-
-- [ ] **Step 4: Run corpus tests and verify RED**
-
-Run: `make corpus-test`
-
-Expected: import failures for the three new runtime parser modules.
-
-- [ ] **Step 5: Implement minimal parsers/emitters**
-
-Implement only syntax accepted by Skan's current first-party runtime files. Reject malformed, duplicate, unsupported, or lossy constructs with `ValueError` including file/line context.
-
-- [ ] **Step 6: Run corpus tests and verify GREEN**
-
-Run: `make corpus-test`
-
-Expected: all parser/emitter tests PASS.
-
-- [ ] **Step 7: Commit**
-
-Commit message: `feat(corpus): round trip first-party runtime dbs`
+- [x] Write RED parser/emitter suites and verify only the three missing modules fail.
+- [x] Implement strict parsers/emitters with file/line diagnostics.
+- [x] Fix provenance hashing to exclude physical line numbers.
+- [x] Verify parse → emit → parse semantic equality and deterministic output GREEN.
 
 ---
 
-### Task 4: Add repository round-trip equivalence gate and canonical migration command
+### Task 4: Add real repository round-trip equivalence gate
 
 **Files:**
 - Create: `tools/corpus/migrate_first_party.py`
-- Modify: `tools/corpus/validate.py`
 - Modify: `GNUmakefile`
-- Modify: `.github/workflows/corpus-foundation.yml`
 - Test: `tests/corpus/test_first_party_migration.py`
 
 **Interfaces:**
@@ -242,36 +134,27 @@ Commit message: `feat(corpus): round trip first-party runtime dbs`
 - CLI: `python3 -m tools.corpus.migrate_first_party --root . --check`
 - Make target: `make corpus-roundtrip`
 
-- [ ] **Step 1: Write failing repository-level migration tests**
-
-Tests copy the four runtime DBs to a temporary repository fixture, parse them into canonical records, emit generated DBs, parse generated DBs again, and assert semantic equality for every record.
-
-Also assert migration is deterministic across two independent output directories and that generated DB bytes are identical across runs.
-
-- [ ] **Step 2: Run tests and verify RED**
-
-Run: `make corpus-test`
-
-Expected: FAIL because migration orchestration does not exist.
-
-- [ ] **Step 3: Implement migration orchestration**
-
-`migrate_first_party()` must:
+Migration behavior:
 1. parse `data/service-probes.db`;
 2. parse `data/udp-probes.db`;
 3. parse `data/os-fingerprints.db` as IPv4;
 4. parse `data/os-fingerprints-v6.db` as IPv6;
-5. validate all canonical records against the source manifest;
-6. write canonical JSONL files deterministically to the requested output root;
-7. regenerate all four runtime DBs from those canonical records;
-8. parse regenerated runtime DBs and require semantic equality;
-9. return deterministic counts/hashes.
+5. validate every record against source/license/data-class policy;
+6. write deterministic canonical JSONL under a requested output root;
+7. regenerate all four runtime DBs;
+8. parse generated DBs again and require exact semantic equality;
+9. return deterministic counts and SHA-256 hashes.
 
-`--check` must use a temporary directory and never mutate repository `data/*.db` or committed canonical files.
+`--check` always uses a temporary directory and never mutates repository runtime or committed canonical files.
 
-- [ ] **Step 4: Add `corpus-roundtrip` gate**
+- [x] Write RED repository-level migration tests against the real four runtime DBs.
+- [x] Verify RED is only missing migration orchestration.
+- [x] Implement migration orchestration and deterministic summary hashes.
+- [x] Verify real current DB round trip GREEN: 58 service records, 7 UDP records, 3 IPv4 OS records, 5 IPv6 OS records.
+- [x] Add `corpus-roundtrip` as a dependency of `corpus-verify`.
+- [x] Verify `make corpus-verify` GREEN without tracked runtime/canonical mutation.
 
-Add:
+Current Make contract:
 
 ```make
 corpus-roundtrip:
@@ -281,17 +164,7 @@ corpus-verify: corpus-test corpus-roundtrip
 	python3 -m tools.corpus.validate --root .
 ```
 
-The existing corpus workflow continues to run only `make corpus-verify`.
-
-- [ ] **Step 5: Run complete corpus verification**
-
-Run: `make corpus-verify`
-
-Expected: tests PASS, round-trip PASS, repository validation PASS, and no tracked runtime DB changes.
-
-- [ ] **Step 6: Commit**
-
-Commit message: `test(corpus): gate first-party runtime round trip`
+The existing fingerprint-corpus workflow already runs `make corpus-verify`, so no duplicate workflow command is needed.
 
 ---
 
@@ -300,27 +173,9 @@ Commit message: `test(corpus): gate first-party runtime round trip`
 **Files:**
 - No production runtime file changes expected.
 
-- [ ] **Step 1: Verify diff scope**
-
-Confirm this branch does not modify `src/**`, `include/**`, or committed `data/*.db` runtime artifacts.
-
-- [ ] **Step 2: Run `Fingerprint Corpus CI`**
-
-Expected: `make corpus-verify` PASS.
-
-- [ ] **Step 3: Run full `Skan CI`**
-
-Required green jobs: core tests, Nmap CLI regression, repository clean, debug, release, ASan, UBSan, coverage, fuzz, benchmark, static/security audit, and privileged IPv4/IPv6 lab.
-
-- [ ] **Step 4: Review PR diff for lossiness**
-
-Specifically inspect that every current runtime field is represented canonically:
-- service probe priority/timeout/fallback/payload;
-- hard vs soft match;
-- extra/hostname/tunnel templates;
-- UDP response limit/protocol hint/payload;
-- OS fingerprint name/native ID/specificity/arbitrary feature map.
-
-- [ ] **Step 5: Keep the PR unmerged until explicit user approval**
-
-No automatic merge or auto-merge.
+- [ ] Verify diff scope contains no `src/**`, `include/**`, or committed `data/*.db` changes.
+- [x] Verify `Fingerprint Corpus CI` passes the official `make corpus-verify` gate.
+- [ ] Verify full `Skan CI`: core tests, Nmap CLI regression, repository clean, debug, release, ASan, UBSan, coverage, fuzz, benchmark, static/security audit, and privileged IPv4/IPv6 lab.
+- [ ] Review PR diff specifically for lossiness of service priority/timeout/fallback/payload/order, hard/soft rules/templates/order, UDP bounds/hints/payload/order, and OS name/native-ID/specificity/arbitrary features/order.
+- [ ] Update PR summary with RED→GREEN evidence.
+- [ ] Keep PR unmerged until explicit user approval. No auto-merge.
