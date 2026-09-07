@@ -63,15 +63,28 @@ def split_nvd_cpe_feed(
         eof = False
 
         while True:
+            # Reach a real token before deciding whether the next array element is
+            # an object or the closing bracket. This matters when a comma or the
+            # closing bracket lands exactly in the next streaming read.
             while True:
                 while cursor < len(buffer) and buffer[cursor].isspace():
                     cursor += 1
                 if cursor < len(buffer) and buffer[cursor] == ",":
                     cursor += 1
                     continue
-                break
+                if cursor < len(buffer):
+                    break
+                if eof:
+                    raise ValueError("unterminated NVD CPE products array")
+                buffer = ""
+                cursor = 0
+                more = handle.read(_READ_SIZE)
+                if more:
+                    buffer = more
+                else:
+                    eof = True
 
-            if cursor < len(buffer) and buffer[cursor] == "]":
+            if buffer[cursor] == "]":
                 break
 
             while True:
