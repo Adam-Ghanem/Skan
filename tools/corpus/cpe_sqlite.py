@@ -35,7 +35,7 @@ def build_cpe_sqlite(
         db.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         db.execute(
             "CREATE TABLE cpe ("
-            "cpe TEXT PRIMARY KEY, part TEXT, vendor TEXT, product TEXT NOT NULL, version TEXT, "
+            "cpe TEXT PRIMARY KEY, part TEXT, vendor TEXT, product TEXT, version TEXT, "
             "update_value TEXT, edition TEXT, language TEXT, sw_edition TEXT, target_sw TEXT, "
             "target_hw TEXT, other TEXT, status TEXT NOT NULL, title TEXT NOT NULL, "
             "references_json TEXT NOT NULL)"
