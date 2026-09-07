@@ -54,7 +54,7 @@ class CorpusCliTests(unittest.TestCase):
                 encoding="utf-8",
             )
             wapp = base / "wapp.json"
-            wapp.write_text(json.dumps({"technologies": {"ExampleWeb": {"headers": {"server": "Example"}}}}), encoding="utf-8")
+            wapp.write_text(json.dumps({"apps": {"ExampleWeb": {"headers": {"server": "Example"}}}}), encoding="utf-8")
             output = base / "generated"
 
             result = _run(
