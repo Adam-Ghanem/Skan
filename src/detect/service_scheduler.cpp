@@ -1,6 +1,7 @@
 #include "detect/service_scheduler.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <new>
 #include <unordered_set>
@@ -210,6 +211,24 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
             DetectionError::ResponseTooLarge,
             nullptr,
             response.received_at == DetectionTimePoint{} ? DetectionClock::now() : response.received_at);
+        return;
+    } else if (assessment == core::StatusCode::IoError &&
+               response.kind == ServiceResponseKind::SocketError &&
+               response.system_error == ECONNRESET &&
+               pending.work.port_result.port.protocol == portscan::Protocol::Tcp &&
+               pending.work.next_probe + 1U < pending.work.probe_indices.size()) {
+        Pending reset = std::move(iterator->second);
+        (void)engine_.cancel(reset.timer_id);
+        (void)transport_.cancel(response.id);
+        pending_.erase(iterator);
+        ++reset.work.next_probe;
+        reset.work.retry_count = 0U;
+        try {
+            queue_.push_front(std::move(reset.work));
+        } catch (const std::bad_alloc &) {
+            status_ = core::StatusCode::MemoryError;
+        }
+        pump();
         return;
     } else if (assessment != core::StatusCode::Ok && response.kind != ServiceResponseKind::Closed) {
         complete_pending(
