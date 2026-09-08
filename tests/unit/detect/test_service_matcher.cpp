@@ -44,6 +44,22 @@ int main()
     assert(exact.service == "tls");
     assert(exact.priority == 4U);
 
+    const std::string anchored_text =
+        "Probe TCP Anchored rarity=1\n"
+        "send \"x\"\n"
+        "match type=regex pattern=\"^\\x20\\x02..\" service=mqtt product=MQTT version=3.1.1 confidence=0.99\n"
+        "match type=prefix pattern=\"\\x20\\x02\" service=mqtt product=MQTT confidence=0.98\n";
+    skan::core::StatusCode anchored_status = skan::core::StatusCode::InternalError;
+    const ServiceProbeDatabase anchored_database = ServiceProbeDatabase::parse(anchored_text, anchored_status);
+    assert(anchored_status == skan::core::StatusCode::Ok);
+    const ServiceMatchResult anchored = ServiceMatcher(anchored_database).match(
+        anchored_database.probes().front(), std::string{"\x20\x02\x00\x00", 4U});
+    assert(anchored.matched);
+    assert(anchored.service == "mqtt");
+    assert(anchored.version == "3.1.1");
+    assert(anchored.confidence == 0.99);
+    assert(anchored.priority == 4U);
+
     const std::string soft_text =
         "Probe TCP Soft rarity=1\n"
         "softmatch type=regex pattern=\"^220 ([A-Za-z0-9.-]+)\" service=smtp product=SMTP hostname=\"$1\" confidence=0.70\n";
