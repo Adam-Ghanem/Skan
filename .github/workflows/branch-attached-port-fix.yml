@@ -26,38 +26,21 @@ jobs:
 
           path = Path("src/main.cpp")
           text = path.read_text(encoding="utf-8")
-          old = """        if (!argument.empty() && argument.front() == '-') {
-              options.emplace_back(argument);
-              if (option_requires_value(argument)) {
-                  if (index + 1 >= argc) {
-                      std::cerr << \"Error: incomplete Nmap-compatible option.\\n\";
-                      return EXIT_FAILURE;
-                  }
-                  options.emplace_back(argv[++index]);
-              }
-          } else {
-              targets.emplace_back(argument);
-          }
-          """
-          new = """        if (argument.size() > 2U && argument.starts_with(\"-p\") && argument != \"-p-\") {
-              options.emplace_back(\"-p\");
-              options.emplace_back(argument.substr(2U));
-          } else if (!argument.empty() && argument.front() == '-') {
-              options.emplace_back(argument);
-              if (option_requires_value(argument)) {
-                  if (index + 1 >= argc) {
-                      std::cerr << \"Error: incomplete Nmap-compatible option.\\n\";
-                      return EXIT_FAILURE;
-                  }
-                  options.emplace_back(argv[++index]);
-              }
-          } else {
-              targets.emplace_back(argument);
-          }
-          """
-          if text.count(old) != 1:
-              raise SystemExit("expected Nmap-compatible parser block exactly once")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          marker = "int run_nmap_compatible(int argc, char **argv)"
+          before, separator, tail = text.partition(marker)
+          if not separator:
+              raise SystemExit("run_nmap_compatible marker not found")
+          needle = "        if (!argument.empty() && argument.front() == '-') {\n"
+          if tail.count(needle) != 1:
+              raise SystemExit("expected Nmap-compatible option branch exactly once")
+          attached = (
+              "        if (argument.size() > 2U && argument.starts_with(\"-p\") && argument != \"-p-\") {\n"
+              "            options.emplace_back(\"-p\");\n"
+              "            options.emplace_back(argument.substr(2U));\n"
+              "        } else "
+          )
+          tail = tail.replace(needle, attached + needle.lstrip(), 1)
+          path.write_text(before + separator + tail, encoding="utf-8")
           PY
 
       - name: Commit branch-only patch
