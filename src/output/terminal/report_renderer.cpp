@@ -141,6 +141,11 @@ std::string padded(std::string_view value, std::size_t cells)
     return result;
 }
 
+std::size_t available_after(std::size_t total, std::size_t prefix) noexcept
+{
+    return total > prefix ? total - prefix : 0U;
+}
+
 std::string endpoint_label(const portscan::PortResult &port)
 {
     return std::to_string(port.port.number) + "/" + portscan::protocol_name(port.port.protocol);
@@ -200,31 +205,9 @@ public:
             return;
         }
         const std::string mark = terminal.unicode ? "◈" : "*";
-        if (layout.mode != TerminalLayoutMode::Wide) {
-            output << theme.apply(mark + " SKAN", TerminalStyle::Brand) << ' '
-                   << theme.apply(version, TerminalStyle::Metadata);
-            if (layout.mode == TerminalLayoutMode::Medium) {
-                output << "  " << theme.apply("Modern Network Scanner", TerminalStyle::Metadata);
-            }
-            output << "\n\n";
-            return;
-        }
-        const std::string horizontal = terminal.unicode ? "─" : "-";
-        const std::string top_left = terminal.unicode ? "╭" : "+";
-        const std::string top_right = terminal.unicode ? "╮" : "+";
-        const std::string bottom_left = terminal.unicode ? "╰" : "+";
-        const std::string bottom_right = terminal.unicode ? "╯" : "+";
-        const std::string vertical = terminal.unicode ? "│" : "|";
-        output << top_left << repeat(horizontal, layout.columns - 2U) << top_right << '\n';
-        const std::string left = "  " + mark + " SKAN  Modern Network Scanner";
-        const std::size_t content_cells = layout.columns - 2U;
-        const std::size_t right_cells = display_width(version) + 2U;
-        const std::size_t gap = content_cells > display_width(left) + right_cells
-                                    ? content_cells - display_width(left) - right_cells
-                                    : 1U;
-        output << vertical << theme.apply(left, TerminalStyle::Brand) << std::string(gap, ' ')
-               << theme.apply(version, TerminalStyle::Metadata) << "  " << vertical << '\n';
-        output << bottom_left << repeat(horizontal, layout.columns - 2U) << bottom_right << "\n\n";
+        output << theme.apply(mark + " SKAN", TerminalStyle::Brand) << ' '
+               << theme.apply(version, TerminalStyle::Metadata) << "  "
+               << theme.apply("Modern Network Scanner", TerminalStyle::Metadata) << "\n\n";
     }
 };
 
@@ -243,7 +226,12 @@ public:
             suffix += " / " + format_ms(*latency);
         }
         if (layout.mode == TerminalLayoutMode::Plain) {
-            output << "Host " << ascii_safe(identity) << " - " << ascii_safe(suffix) << '\n';
+            if (terminal.interactive && layout.columns < 64U) {
+                output << "Host " << fit(ascii_safe(identity), available_after(layout.columns, 5U)) << '\n'
+                       << "  " << fit(ascii_safe(suffix), available_after(layout.columns, 2U)) << '\n';
+            } else {
+                output << "Host " << ascii_safe(identity) << " - " << ascii_safe(suffix) << '\n';
+            }
             return;
         }
         const bool reachable = host_status(host) == "reachable";
@@ -264,7 +252,11 @@ public:
     {
         const std::vector<const detect::ServiceResult *> services = detail::ordered_services(host);
         if (layout.mode == TerminalLayoutMode::Plain) {
-            render_plain(ports, services, output, context);
+            if (terminal.interactive && layout.columns < 64U) {
+                render_tiny(ports, services, output, context, layout);
+            } else {
+                render_plain(ports, services, output, context);
+            }
             return;
         }
         if (ports.empty()) {
@@ -273,9 +265,7 @@ public:
             return;
         }
         output << '\n';
-        if (layout.mode == TerminalLayoutMode::Wide) {
-            render_wide(ports, services, output, context, layout, terminal, theme);
-        } else if (layout.mode == TerminalLayoutMode::Medium) {
+        if (layout.mode == TerminalLayoutMode::Wide || layout.mode == TerminalLayoutMode::Medium) {
             render_medium(ports, services, output, context, layout, terminal, theme);
         } else {
             render_narrow(ports, services, output, context, layout, terminal, theme);
@@ -283,6 +273,48 @@ public:
     }
 
 private:
+    static void render_tiny(const std::vector<const portscan::PortResult *> &ports,
+                            const std::vector<const detect::ServiceResult *> &services,
+                            std::ostream &output, const OutputContext &context,
+                            const TerminalLayout &layout)
+    {
+        if (ports.empty()) {
+            output << fit("No port rows matched the selected output filters.", layout.columns) << '\n';
+            return;
+        }
+        output << '\n';
+        for (const portscan::PortResult *port : ports) {
+            std::vector<const detect::ServiceResult *> matches = services_for(services, *port);
+            if (matches.empty()) {
+                matches.push_back(nullptr);
+            }
+            for (std::size_t index = 0U; index < matches.size(); ++index) {
+                const detect::ServiceResult *service = matches[index];
+                const std::string version = ascii_safe(version_label(service, false));
+                if (index == 0U) {
+                    const std::string row = endpoint_label(*port) + "  " +
+                                            std::string(portscan::port_state_name(port->state)) + "  " +
+                                            ascii_safe(service_label(service));
+                    output << fit(row, layout.columns) << '\n';
+                    if (version != "-") {
+                        output << "  version: "
+                               << fit(version, available_after(layout.columns, 11U)) << '\n';
+                    }
+                } else {
+                    std::string detail = "  service: " + ascii_safe(service_label(service));
+                    if (version != "-") {
+                        detail += "  " + version;
+                    }
+                    output << fit(detail, layout.columns) << '\n';
+                }
+            }
+            if (context.include_reasons) {
+                output << "  reason: "
+                       << fit(portscan::scan_reason_name(port->reason), available_after(layout.columns, 10U)) << '\n';
+            }
+        }
+    }
+
     static void render_plain(const std::vector<const portscan::PortResult *> &ports,
                              const std::vector<const detect::ServiceResult *> &services,
                              std::ostream &output, const OutputContext &context)
@@ -453,6 +485,14 @@ public:
     {
         const ScanSummary summary = calculate_summary(report);
         if (layout.mode == TerminalLayoutMode::Plain) {
+            if (layout.columns < 64U) {
+                const std::string compact = std::to_string(summary.open_ports) + " open / " +
+                                            std::to_string(summary.closed_ports) + " closed / " +
+                                            std::to_string(summary.filtered_ports) + " filtered / " +
+                                            std::to_string(summary.ports_scanned) + " scanned";
+                output << "Summary  " << fit(compact, available_after(layout.columns, 9U)) << '\n';
+                return;
+            }
             output << "Summary: " << summary.hosts << " hosts (" << summary.hosts_up << " up); "
                    << summary.ports_scanned << " ports scanned; " << summary.open_ports << " open, "
                    << summary.closed_ports << " closed, " << summary.filtered_ports << " filtered; "
@@ -463,7 +503,7 @@ public:
             output << '\n';
             return;
         }
-        output << '\n' << theme.apply("Scan complete", TerminalStyle::Success);
+        output << theme.apply("Scan complete", TerminalStyle::Success);
         if (report.duration_ms.has_value()) {
             output << "  " << theme.apply(format_ms(*report.duration_ms), TerminalStyle::Metadata);
         }
@@ -520,7 +560,8 @@ void render_os(const HostResult &host, std::ostream &output, const TerminalLayou
     }
     label += " / " + std::to_string(static_cast<int>(std::lround(detection.confidence * 100.0))) + "%";
     if (layout.mode == TerminalLayoutMode::Plain) {
-        output << "OS: " << ascii_safe(label) << '\n';
+        const std::string line = "OS: " + ascii_safe(label);
+        output << (layout.columns < 64U ? fit(line, layout.columns) : line) << '\n';
     } else {
         output << "  " << theme.apply("OS", TerminalStyle::Brand) << "  "
                << fit(label, layout.columns - 6U) << '\n';
@@ -534,7 +575,8 @@ void render_messages(std::ostream &output, const std::vector<std::string> &messa
     const std::string marker = terminal.unicode && style == TerminalStyle::Closed ? "×" : "!";
     for (const std::string &message : messages) {
         if (layout.mode == TerminalLayoutMode::Plain) {
-            output << label << ": " << ascii_safe(message) << '\n';
+            const std::string line = std::string(label) + ": " + ascii_safe(message);
+            output << (terminal.interactive && layout.columns < 64U ? fit(line, layout.columns) : line) << '\n';
         } else {
             output << "  " << theme.apply(marker, style) << ' ' << fit(message, layout.columns - 4U) << '\n';
         }
@@ -554,10 +596,11 @@ OutputStatus TerminalReportRenderer::render(const ScanReport &report, std::ostre
     HeaderRenderer{}.render(report, output, layout, context.terminal, theme);
     if (report.target_spec.has_value()) {
         if (layout.mode == TerminalLayoutMode::Plain) {
-            output << "Target  " << ascii_safe(*report.target_spec) << "\n\n";
+            output << "Target  " << fit(ascii_safe(*report.target_spec), available_after(layout.columns, 8U));
+            output << (context.terminal.interactive && layout.columns < 64U ? "\n" : "\n\n");
         } else {
             output << theme.apply("Target", TerminalStyle::Metadata) << "  "
-                   << theme.apply(fit(*report.target_spec, layout.columns - 8U), TerminalStyle::Brand) << "\n\n";
+                   << theme.apply(fit(*report.target_spec, layout.columns - 8U), TerminalStyle::Brand) << '\n';
         }
     }
     for (const HostResult *host : detail::ordered_hosts(report)) {
