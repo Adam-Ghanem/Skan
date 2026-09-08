@@ -146,6 +146,32 @@ int main()
     }
 
     {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP OnlyProbe rarity=1 priority=100 timeout=100 ports=443\n"
+            "send \"ONLY\"\n"
+            "match type=prefix pattern=\"OK\" service=only product=Only confidence=0.9\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 32U, 1U});
+        assert(scheduler.submit({open_port("127.0.0.1", 443U)}) == skan::core::StatusCode::Ok);
+        assert(transport.submissions().size() == 1U);
+        const auto only = transport.submissions().front();
+        transport.deliver({only.id, only.target, ServiceResponseKind::SocketError, ECONNRESET, {}, false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(transport.submissions().size() == 1U);
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == DetectionState::Error);
+        assert(scheduler.results().front().error == DetectionError::TransportFailure);
+        assert(scheduler.results().front().probe_name == "OnlyProbe");
+    }
+
+    {
         skan::io::IOEngine engine;
         RecordingServiceTransport transport;
         ServiceDetectionConfig config{2U, std::chrono::milliseconds{100}, 32U, 1U};
