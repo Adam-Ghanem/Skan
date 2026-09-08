@@ -163,7 +163,9 @@ int main()
         {ScanProbeType::TcpNull, 0U, PortState::OpenOrFiltered},
         {ScanProbeType::TcpFin, static_cast<std::uint16_t>(skan::packet::TcpFlag::Fin), PortState::OpenOrFiltered},
         {ScanProbeType::TcpXmas,
-         skan::packet::TcpFlag::Fin | skan::packet::TcpFlag::Psh | skan::packet::TcpFlag::Urg,
+         static_cast<std::uint16_t>(skan::packet::TcpFlag::Fin) |
+             static_cast<std::uint16_t>(skan::packet::TcpFlag::Psh) |
+             static_cast<std::uint16_t>(skan::packet::TcpFlag::Urg),
          PortState::OpenOrFiltered},
         {ScanProbeType::TcpWindow, static_cast<std::uint16_t>(skan::packet::TcpFlag::Ack), PortState::Filtered},
         {ScanProbeType::TcpMaimon,
