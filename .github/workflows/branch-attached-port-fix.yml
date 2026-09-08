@@ -1,0 +1,77 @@
+name: Apply attached port parser patch
+
+on:
+  push:
+    branches: [fix/attached-port-option]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Apply focused parser change
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/main.cpp")
+          text = path.read_text(encoding="utf-8")
+          old = """        if (!argument.empty() && argument.front() == '-') {
+              options.emplace_back(argument);
+              if (option_requires_value(argument)) {
+                  if (index + 1 >= argc) {
+                      std::cerr << \"Error: incomplete Nmap-compatible option.\\n\";
+                      return EXIT_FAILURE;
+                  }
+                  options.emplace_back(argv[++index]);
+              }
+          } else {
+              targets.emplace_back(argument);
+          }
+          """
+          new = """        if (argument.size() > 2U && argument.starts_with(\"-p\") && argument != \"-p-\") {
+              options.emplace_back(\"-p\");
+              options.emplace_back(argument.substr(2U));
+          } else if (!argument.empty() && argument.front() == '-') {
+              options.emplace_back(argument);
+              if (option_requires_value(argument)) {
+                  if (index + 1 >= argc) {
+                      std::cerr << \"Error: incomplete Nmap-compatible option.\\n\";
+                      return EXIT_FAILURE;
+                  }
+                  options.emplace_back(argv[++index]);
+              }
+          } else {
+              targets.emplace_back(argument);
+          }
+          """
+          if text.count(old) != 1:
+              raise SystemExit("expected Nmap-compatible parser block exactly once")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
+      - name: Commit branch-only patch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git diff --check
+          if git diff --quiet -- src/main.cpp; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.cpp
+          git commit -m "fix: accept attached Nmap-style port options"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
