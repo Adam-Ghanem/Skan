@@ -44,17 +44,27 @@ int main()
     expect(database, "SSHBanner", "SSH-2.0-OpenSSH_9.8p1\r\n", "ssh", "9.8p1");
     expect(database, "FTPBanner", "220 ftp.example FTP server ready\r\n", "ftp");
     expect(database, "SMTPBanner", "220 mail.example ESMTP ready\r\n", "smtp");
-    expect(database, "POP3Banner", "+OK Dovecot POP3 ready\r\n", "pop3");
+    expect(database, "POP3Capability", "+OK Dovecot POP3 ready\r\n", "pop3");
     expect(database, "IMAPCapability", "* OK Dovecot IMAP ready\r\n", "imap");
-    expect(database, "DNSStatus", std::string{"\x53\x4b\x81\x80", 4U}, "dns");
-    expect(database, "RedisPing", "+PONG\r\n", "redis");
-    expect(database, "MySQLGreeting", std::string{"\x2a\x00\x00\x00" "8.0.36\x00", 11U}, "mysql", "8.0.36");
-    expect(database, "PostgreSQLStartup", "N", "postgresql");
+    expect(database, "DNSTCP", std::string{"\x00\x1e\x53\x4b", 4U}, "dns");
+    expect(database, "RedisInfo", "+PONG\r\n", "redis");
+    expect(
+        database,
+        "RedisInfo",
+        "$18\r\nredis_version:7.4.1\r\n",
+        "redis",
+        "7.4.1");
+    expect(database, "MySQLGreeting", std::string{"\x2a\x00\x00\x00\x0a" "8.0.36\x00", 12U}, "mysql", "8.0.36");
+    expect(database, "PostgreSQLSSLRequest", "N", "postgresql");
     expect(database, "MongoHello", "reply maxWireVersion value", "mongodb");
-    expect(database, "SMBNegotiate", std::string{"\x00\xfeSMB", 5U}, "microsoft-ds");
-    expect(database, "RDPConnection", std::string{"\x03\x00\x00\x0b", 4U}, "ms-wbt-server");
+    expect(database, "SMB2Negotiate", std::string{"\x00\xfeSMB", 5U}, "microsoft-ds");
+    expect(database, "RDPConnection", std::string{"\x03\x00\x00\x13\x0e\xd0", 6U}, "ms-wbt-server");
     expect(database, "VNCBanner", "RFB 003.008\n", "vnc", "003.008");
     expect(database, "TelnetBanner", std::string{"\xff\xfb\x01", 3U}, "telnet");
+    expect(database, "MemcachedVersion", "VERSION 1.6.32\r\n", "memcached", "1.6.32");
+    expect(database, "MQTTConnect", std::string{"\x20\x02\x00\x00", 4U}, "mqtt", "3.1.1");
+    expect(database, "AMQP091", "AMQP\x00\x00\x09\x01", "amqp");
+
     const auto irc = ServiceMatcher(database).match(
         probe_named(database, "IRCGreeting"), ":irc.example 001 skanprobe :welcome\r\n");
     assert(irc.matched && irc.service == "irc" && irc.hostname == "irc.example");
