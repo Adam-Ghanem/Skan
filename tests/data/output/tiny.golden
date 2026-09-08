@@ -1,13 +1,14 @@
 SKAN v0.1.0
 Target  2001:db8::10
+Host 2001:db8::10 (edge?[31m?host)
+  reachable / 4.20 ms
 
-Host 2001:db8::10 (edge?[31m?host) - reachable / 4.20 ms
-
-  PORT        STATE        SERVICE       VERSION                      REASON
-  ------------------------------------------------------------------------------------------
-  22/tcp      CLOSED       -             -                            CONNECTION_REFUSED
-  443/tcp     OPEN         https         nginx 1.25-very-long-version IMMEDIATE_SUCCESS
-                           ssl/http      OpenSSL 3.0
+22/tcp  CLOSED  -
+  reason: CONNECTION_REFUSED
+443/tcp  OPEN  https
+  version: nginx 1.25-very-long-version
+  service: ssl/http  OpenSSL 3.0
+  reason: IMMEDIATE_SUCCESS
 Warning: banner?unsafe
 
-Summary: 1 hosts (1 up); 2 ports scanned; 1 open, 1 closed, 0 filtered; 2 services duration=42.5 ms
+Summary  1 open / 1 closed / 0 filtered / 2 scanned
