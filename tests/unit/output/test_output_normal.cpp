@@ -106,7 +106,6 @@ int main()
     assert(filtered_output.str().find("22/tcp") == std::string::npos);
     assert(filtered_output.str().find("\n  443/tcp") == std::string::npos);
 
-
     skan::output::OutputContext narrow = interactive;
     narrow.terminal.columns = 72U;
     std::ostringstream narrow_output;
@@ -116,7 +115,10 @@ int main()
     while (std::getline(narrow_lines, narrow_line)) {
         assert(skan::output::display_width(narrow_line) <= 72U);
     }
-    assert(narrow_output.str().find("VERSION") == std::string::npos);
+    assert(narrow_output.str().find("VERSION") != std::string::npos);
+    const std::string narrow_open_line = line_containing(narrow_output.str(), "80/tcp");
+    assert(narrow_open_line.find("nginx") != std::string::npos);
+    assert(narrow_output.str().find("version:") == std::string::npos);
 
     skan::output::OutputContext reasons = interactive;
     reasons.include_reasons = true;
