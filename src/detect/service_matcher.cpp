@@ -54,10 +54,10 @@ std::size_t rule_priority(const ServiceMatchRule &rule) noexcept
     if (rule.type == ServiceMatchType::Substring) {
         return 2U;
     }
-    // Anchored capture rules carry structured protocol/version evidence.
-    return rule.pattern.find('(') != std::string::npos && !rule.pattern.empty() && rule.pattern.front() == '^'
-               ? 4U
-               : 1U;
+    // An anchored regex constrains the beginning of the protocol response and is
+    // structured evidence even when it does not need a capture group. This keeps
+    // product-specific rules such as a fixed MQTT CONNACK above generic prefixes.
+    return !rule.pattern.empty() && rule.pattern.front() == '^' ? 4U : 1U;
 }
 
 bool rule_matches(
