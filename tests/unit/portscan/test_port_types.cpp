@@ -52,5 +52,14 @@ int main()
     assert(std::string{scan_reason_name(ScanReason::Timeout)} == "TIMEOUT");
     assert(std::string{scan_reason_name(ScanReason::RstWindowOpen)} == "RST_WINDOW_OPEN");
     assert(std::string{scan_reason_name(ScanReason::RstWindowZero)} == "RST_WINDOW_ZERO");
+
+    static_assert(!is_raw_tcp_probe(ScanProbeType::TcpConnect));
+    static_assert(is_raw_tcp_probe(ScanProbeType::TcpSyn));
+    static_assert(is_raw_tcp_probe(ScanProbeType::TcpNull));
+    static_assert(is_raw_tcp_probe(ScanProbeType::TcpFin));
+    static_assert(is_raw_tcp_probe(ScanProbeType::TcpXmas));
+    static_assert(is_raw_tcp_probe(ScanProbeType::TcpWindow));
+    static_assert(is_raw_tcp_probe(ScanProbeType::TcpMaimon));
+    static_assert(!is_raw_tcp_probe(ScanProbeType::Udp));
     return 0;
 }
