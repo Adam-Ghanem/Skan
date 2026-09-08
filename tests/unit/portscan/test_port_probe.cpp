@@ -154,6 +154,76 @@ int main()
     assert(state == PortState::Open);
     assert(reason == ScanReason::SynAck);
 
+    struct RawScanCase final {
+        ScanProbeType type;
+        std::uint16_t flags;
+        PortState timeout_state;
+    };
+    const std::vector<RawScanCase> raw_cases{
+        {ScanProbeType::TcpNull, 0U, PortState::OpenOrFiltered},
+        {ScanProbeType::TcpFin, static_cast<std::uint16_t>(skan::packet::TcpFlag::Fin), PortState::OpenOrFiltered},
+        {ScanProbeType::TcpXmas,
+         skan::packet::TcpFlag::Fin | skan::packet::TcpFlag::Psh | skan::packet::TcpFlag::Urg,
+         PortState::OpenOrFiltered},
+        {ScanProbeType::TcpWindow, static_cast<std::uint16_t>(skan::packet::TcpFlag::Ack), PortState::Filtered},
+        {ScanProbeType::TcpMaimon,
+         skan::packet::TcpFlag::Fin | skan::packet::TcpFlag::Ack,
+         PortState::OpenOrFiltered}};
+
+    PortProbeId raw_id = 20U;
+    for (const RawScanCase &raw_case : raw_cases) {
+        TcpFlagProbe raw_probe(raw_case.type);
+        assert(raw_probe.type() == raw_case.type);
+        assert(raw_probe.timeout_state() == raw_case.timeout_state);
+        assert(raw_probe.timeout_reason() == ScanReason::Timeout);
+
+        PortSubmission raw_submission;
+        PortScanConfig raw_config;
+        raw_config.method = raw_case.type;
+        assert(raw_probe.build(raw_id, host, port, raw_config, raw_submission) == skan::core::StatusCode::Ok);
+        const auto raw_request = skan::packet::TCP::parse(raw_submission.packet);
+        assert(raw_request.has_value());
+        assert(raw_request->flags() == raw_case.flags);
+
+        skan::packet::TCP raw_rst;
+        raw_rst.set_source_port(port.number);
+        raw_rst.set_destination_port(raw_submission.source_port);
+        raw_rst.set_sequence_number(333U);
+        raw_rst.set_acknowledgment_number(0U);
+        raw_rst.set_flags(static_cast<std::uint16_t>(skan::packet::TcpFlag::Rst));
+        raw_rst.set_window(0U);
+        PortResponse raw_rst_response{raw_id, "127.0.0.1", PortResponseKind::Packet, 0,
+                                      serialize_tcp(raw_rst), PortScanClock::now()};
+        state = PortState::Unknown;
+        reason = ScanReason::InternalError;
+        assert(raw_probe.assess(raw_rst_response, raw_submission, state, reason) == skan::core::StatusCode::Ok);
+        assert(state == PortState::Closed);
+        assert(reason == (raw_case.type == ScanProbeType::TcpWindow ? ScanReason::RstWindowZero : ScanReason::Rst));
+
+        PortResponse raw_unreachable{raw_id, "127.0.0.1", PortResponseKind::Unreachable, 0, {},
+                                     PortScanClock::now()};
+        assert(raw_probe.assess(raw_unreachable, raw_submission, state, reason) == skan::core::StatusCode::Ok);
+        assert(state == PortState::Unreachable);
+        assert(reason == ScanReason::NetworkUnreachable);
+        ++raw_id;
+    }
+
+    TcpFlagProbe window_probe(ScanProbeType::TcpWindow);
+    PortSubmission window_submission;
+    PortScanConfig window_config;
+    window_config.method = ScanProbeType::TcpWindow;
+    assert(window_probe.build(50U, host, port, window_config, window_submission) == skan::core::StatusCode::Ok);
+    skan::packet::TCP window_rst;
+    window_rst.set_source_port(port.number);
+    window_rst.set_destination_port(window_submission.source_port);
+    window_rst.set_flags(static_cast<std::uint16_t>(skan::packet::TcpFlag::Rst));
+    window_rst.set_window(2048U);
+    PortResponse window_response{50U, "127.0.0.1", PortResponseKind::Packet, 0,
+                                 serialize_tcp(window_rst), PortScanClock::now()};
+    assert(window_probe.assess(window_response, window_submission, state, reason) == skan::core::StatusCode::Ok);
+    assert(state == PortState::Open);
+    assert(reason == ScanReason::RstWindowOpen);
+
     RecordingPortScanTransport recording;
     bool delivered = false;
     assert(recording.submit(connect_submission, [&delivered](const PortResponse &) { delivered = true; }) ==
