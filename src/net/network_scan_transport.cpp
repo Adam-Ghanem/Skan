@@ -503,7 +503,7 @@ bool LinuxNetworkScanTransport::is_open() const noexcept
 
 bool LinuxNetworkScanTransport::supports(portscan::ScanProbeType probe) const noexcept
 {
-    return is_open() && probe == portscan::ScanProbeType::TcpSyn;
+    return is_open() && portscan::is_raw_tcp_probe(probe);
 }
 
 core::StatusCode LinuxNetworkScanTransport::submit(
@@ -513,7 +513,7 @@ core::StatusCode LinuxNetworkScanTransport::submit(
     if (!is_open()) {
         return core::StatusCode::PermissionDenied;
     }
-    if (submission.id == 0U || submission.probe != portscan::ScanProbeType::TcpSyn || !callback ||
+    if (submission.id == 0U || !portscan::is_raw_tcp_probe(submission.probe) || !callback ||
         submission.target.empty()) {
         return core::StatusCode::InvalidArgument;
     }
@@ -687,7 +687,7 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
                 const core::IpAddress quoted_source = core::IpAddress::from_ipv6(quoted_ip->source_address());
                 const core::IpAddress quoted_destination = core::IpAddress::from_ipv6(quoted_ip->destination_address());
                 for (const auto &[id, pending] : pending_) {
-                    if (pending.submission.probe != portscan::ScanProbeType::TcpSyn ||
+                    if (!portscan::is_raw_tcp_probe(pending.submission.probe) ||
                         pending.submission.source_ip.bytes != quoted_source.bytes ||
                         pending.submission.target_ip.bytes != quoted_destination.bytes ||
                         quoted_tcp->source_port() != pending.submission.source_port ||
@@ -714,7 +714,7 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
                 const core::IpAddress quoted_source = core::IpAddress::from_ipv4(quoted_ip->source_address());
                 const core::IpAddress quoted_destination = core::IpAddress::from_ipv4(quoted_ip->destination_address());
                 for (const auto &[id, pending] : pending_) {
-                    if (pending.submission.probe != portscan::ScanProbeType::TcpSyn ||
+                    if (!portscan::is_raw_tcp_probe(pending.submission.probe) ||
                         pending.submission.source_ip.bytes != quoted_source.bytes ||
                         pending.submission.target_ip.bytes != quoted_destination.bytes ||
                         quoted_tcp->source_port() != pending.submission.source_port ||
