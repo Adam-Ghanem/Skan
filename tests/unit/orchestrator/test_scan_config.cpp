@@ -46,8 +46,17 @@ int main()
     invalid.interface_name = "lo";
     invalid.port_method = skan::portscan::ScanProbeType::TcpConnect;
     assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
-    invalid.port_method = skan::portscan::ScanProbeType::TcpSyn;
-    assert(invalid.validate() == skan::core::StatusCode::Ok);
+    const skan::portscan::ScanProbeType raw_methods[] = {
+        skan::portscan::ScanProbeType::TcpSyn,
+        skan::portscan::ScanProbeType::TcpNull,
+        skan::portscan::ScanProbeType::TcpFin,
+        skan::portscan::ScanProbeType::TcpXmas,
+        skan::portscan::ScanProbeType::TcpWindow,
+        skan::portscan::ScanProbeType::TcpMaimon};
+    for (const skan::portscan::ScanProbeType method : raw_methods) {
+        invalid.port_method = method;
+        assert(invalid.validate() == skan::core::StatusCode::Ok);
+    }
 
     invalid = valid_config();
     invalid.discovery_enabled = true;
