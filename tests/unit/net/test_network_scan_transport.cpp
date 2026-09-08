@@ -14,6 +14,8 @@ int main()
         io_engine, skan::net::NetworkScanConfig{});
     assert(!invalid.supports(skan::portscan::ScanProbeType::TcpSyn));
     assert(!invalid.supports(skan::portscan::ScanProbeType::TcpNull));
+    assert(!invalid.supports(skan::portscan::ScanProbeType::TcpConnect));
+    assert(!invalid.supports(skan::portscan::ScanProbeType::Udp));
     assert(invalid.open().status == skan::net::NetworkScanStatus::InvalidConfiguration);
 
     if (!skan::net::find_interface("lo").has_value()) {
@@ -42,6 +44,7 @@ int main()
         assert(transport.supports(method));
     }
     assert(!transport.supports(skan::portscan::ScanProbeType::TcpConnect));
+    assert(!transport.supports(skan::portscan::ScanProbeType::Udp));
     assert(transport.session().active);
     assert(transport.session().id != 0U);
     assert(transport.capture_file_descriptor() >= 0);
@@ -52,5 +55,7 @@ int main()
     for (const skan::portscan::ScanProbeType method : raw_methods) {
         assert(!transport.supports(method));
     }
+    assert(!transport.supports(skan::portscan::ScanProbeType::TcpConnect));
+    assert(!transport.supports(skan::portscan::ScanProbeType::Udp));
     return 0;
 }
