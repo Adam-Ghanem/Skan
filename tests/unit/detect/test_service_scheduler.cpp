@@ -108,6 +108,44 @@ int main()
     }
 
     {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP TLSClientHello rarity=1 priority=100 timeout=100 ports=443 fallback=HTTPGet\n"
+            "send \"TLS\"\n"
+            "softmatch type=prefix pattern=\"\\x16\\x03\" service=tls product=TLS confidence=0.9\n"
+            "Probe TCP HTTPGet rarity=1 priority=95 timeout=100 ports=443\n"
+            "send \"GET / HTTP/1.0\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\"\n"
+            "match type=regex pattern=\"^HTTP/([0-9.]+)[\\\\s\\\\S]*Server: ([A-Za-z0-9._-]+)/([0-9A-Za-z._-]+)\" service=http product=\"$2\" version=\"$3\" confidence=0.96\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 256U, 2U});
+        assert(scheduler.submit({open_port("127.0.0.1", 443U)}) == skan::core::StatusCode::Ok);
+        assert(transport.submissions().size() == 1U);
+        assert(transport.submissions().front().probe_name == "TLSClientHello");
+        const auto tls = transport.submissions().front();
+        transport.deliver({tls.id, tls.target, ServiceResponseKind::SocketError, ECONNRESET, {}, false,
+                           DetectionClock::now()});
+        assert(transport.submissions().size() == 2U);
+        assert(transport.submissions().back().probe_name == "HTTPGet");
+        const auto http = transport.submissions().back();
+        const std::string http_response =
+            "HTTP/1.1 200 OK\r\nServer: Apache/2.4.29\r\nConnection: close\r\n\r\n";
+        const std::vector<std::uint8_t> http_bytes(http_response.begin(), http_response.end());
+        transport.deliver({http.id, http.target, ServiceResponseKind::Data, 0, http_bytes, false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == DetectionState::Detected);
+        assert(scheduler.results().front().service == "http");
+        assert(scheduler.results().front().product == "Apache");
+        assert(scheduler.results().front().version == "2.4.29");
+    }
+
+    {
         skan::io::IOEngine engine;
         RecordingServiceTransport transport;
         ServiceDetectionConfig config{2U, std::chrono::milliseconds{100}, 32U, 1U};
