@@ -131,23 +131,6 @@ std::vector<Port> default_udp_ports()
         {514U, Protocol::Udp}};
 }
 
-bool is_raw_tcp_probe(ScanProbeType probe) noexcept
-{
-    switch (probe) {
-    case ScanProbeType::TcpSyn:
-    case ScanProbeType::TcpNull:
-    case ScanProbeType::TcpFin:
-    case ScanProbeType::TcpXmas:
-    case ScanProbeType::TcpWindow:
-    case ScanProbeType::TcpMaimon:
-        return true;
-    case ScanProbeType::TcpConnect:
-    case ScanProbeType::Udp:
-        return false;
-    }
-    return false;
-}
-
 const char *protocol_name(Protocol protocol) noexcept
 {
     switch (protocol) {
