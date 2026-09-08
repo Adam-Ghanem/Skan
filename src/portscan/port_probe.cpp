@@ -6,7 +6,7 @@ namespace skan::portscan {
 
 bool RecordingPortScanTransport::supports(ScanProbeType probe) const noexcept
 {
-    return probe == ScanProbeType::TcpConnect || probe == ScanProbeType::TcpSyn;
+    return probe == ScanProbeType::TcpConnect || is_raw_tcp_probe(probe);
 }
 
 core::StatusCode RecordingPortScanTransport::submit(
