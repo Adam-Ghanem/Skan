@@ -596,8 +596,13 @@ OutputStatus TerminalReportRenderer::render(const ScanReport &report, std::ostre
     HeaderRenderer{}.render(report, output, layout, context.terminal, theme);
     if (report.target_spec.has_value()) {
         if (layout.mode == TerminalLayoutMode::Plain) {
-            output << "Target  " << fit(ascii_safe(*report.target_spec), available_after(layout.columns, 8U));
-            output << (context.terminal.interactive && layout.columns < 64U ? "\n" : "\n\n");
+            const std::string target = ascii_safe(*report.target_spec);
+            output << "Target  ";
+            if (context.terminal.interactive && layout.columns < 64U) {
+                output << fit(target, available_after(layout.columns, 8U)) << '\n';
+            } else {
+                output << target << "\n\n";
+            }
         } else {
             output << theme.apply("Target", TerminalStyle::Metadata) << "  "
                    << theme.apply(fit(*report.target_spec, layout.columns - 8U), TerminalStyle::Brand) << '\n';
