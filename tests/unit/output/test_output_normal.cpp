@@ -124,9 +124,11 @@ int main()
     reasons.include_reasons = true;
     std::ostringstream reason_output;
     assert(writer.write(report, reason_output, reasons) == skan::output::OutputStatus::Ok);
-    assert(reason_output.str().find("REASON") != std::string::npos);
-    assert(line_containing(reason_output.str(), "22/tcp").find("CONNECTION_REFUSED") != std::string::npos);
-    assert(line_containing(reason_output.str(), "80/tcp").find("IMMEDIATE_SUCCESS") != std::string::npos);
+    assert(reason_output.str().find("REASON") == std::string::npos);
+    assert(reason_output.str().find("\n    reason: CONNECTION_REFUSED") != std::string::npos);
+    assert(reason_output.str().find("\n    reason: IMMEDIATE_SUCCESS") != std::string::npos);
+    assert(line_containing(reason_output.str(), "22/tcp").find("CONNECTION_REFUSED") == std::string::npos);
+    assert(line_containing(reason_output.str(), "80/tcp").find("IMMEDIATE_SUCCESS") == std::string::npos);
 
     skan::output::OutputContext open_only = interactive;
     open_only.open_only = true;
