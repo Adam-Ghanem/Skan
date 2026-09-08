@@ -1,8 +1,17 @@
-# Skan-owned reduced laboratory fingerprints.
-# This is intentionally not a broad public fingerprint corpus.
-Fingerprint SkanLinuxGeneric
-Class Skan | Linux | 5.x+ | general-purpose
-TTL=64
+# Skan project-owned IPv4 active OS fingerprint corpus.
+# Clean-room signatures derived from common TCP/IP stack behavior only.
+# These profiles intentionally describe stack "styles" rather than claiming that
+# a few packet fields uniquely identify a precise OS release or distribution.
+# TTL ranges account for ordinary routed-hop decrement from common initial values.
+
+# Modern Linux server/client style: 64-ish TTL, large initial receive window,
+# SACK+timestamps, and Linux-like SYN/SYN-ACK option ordering.
+Fingerprint LinuxModern64240
+ID=skan-v4-linux-modern-64240
+SPECIFICITY=18
+ADDRESS_FAMILY=IPv4
+Class Linux | Linux kernel | modern | general-purpose
+TTL_RANGE=45-64
 DF=Y
 WINDOW=64240
 MSS=1460
@@ -12,23 +21,288 @@ TIMESTAMP=Y
 TCP_OPTIONS=MSS,SACK,TS,NOP,WS
 RESPONSE_BEHAVIOR=SYN_ACK
 RESPONSE_PRESENCE=YES
-UDP_RESPONSE_BEHAVIOR=UDP_RESPONSE
+ICMP_TTL_RANGE=45-64
 
-Fingerprint SkanWindowsGeneric
-Class Skan | Windows | modern | general-purpose
-TTL=128
+# Alternate modern Linux window frequently produced by route/MSS-dependent stacks.
+Fingerprint LinuxModern65160
+ID=skan-v4-linux-modern-65160
+SPECIFICITY=18
+ADDRESS_FAMILY=IPv4
+Class Linux | Linux kernel | modern | general-purpose
+TTL_RANGE=45-64
+DF=Y
+WINDOW=65160
+MSS=1460
+WSCALE=7
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=45-64
+
+# Older/common Linux 3.x-4.x style with the classic 29200 receive window.
+Fingerprint LinuxClassic29200
+ID=skan-v4-linux-classic-29200
+SPECIFICITY=17
+ADDRESS_FAMILY=IPv4
+Class Linux | Linux kernel | 3.x-4.x style | general-purpose
+TTL_RANGE=45-64
+DF=Y
+WINDOW=29200
+MSS=1460
+WSCALE=7
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Linux-derived embedded/server stack with timestamps disabled.
+Fingerprint LinuxNoTimestamp
+ID=skan-v4-linux-no-ts
+SPECIFICITY=14
+ADDRESS_FAMILY=IPv4
+Class Linux | Linux kernel | minimal-no-timestamp | embedded
+TTL_RANGE=45-64
+DF=Y
+WINDOW_RANGE=5840-65535
+MSS=1460
+SACK=Y
+TIMESTAMP=N
+TCP_OPTIONS=MSS,SACK,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Modern Microsoft TCP/IP style with Windows option padding/order.
+Fingerprint WindowsModern64240
+ID=skan-v4-windows-modern-64240
+SPECIFICITY=19
+ADDRESS_FAMILY=IPv4
+Class Microsoft | Windows NT | 10.x-11 style | general-purpose
+TTL_RANGE=96-128
+DF=Y
+WINDOW=64240
+MSS=1460
+WSCALE=8
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=96-128
+
+# Alternate modern Windows window observed when scaling/tuning differs.
+Fingerprint WindowsModern65535
+ID=skan-v4-windows-modern-65535
+SPECIFICITY=18
+ADDRESS_FAMILY=IPv4
+Class Microsoft | Windows NT | modern | general-purpose
+TTL_RANGE=96-128
 DF=Y
 WINDOW=65535
 MSS=1460
 WSCALE=8
 SACK=Y
 TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=96-128
+
+# Older Windows family style with an 8192-byte initial receive window.
+Fingerprint WindowsLegacy8192
+ID=skan-v4-windows-legacy-8192
+SPECIFICITY=16
+ADDRESS_FAMILY=IPv4
+Class Microsoft | Windows NT | legacy style | general-purpose
+TTL_RANGE=96-128
+DF=Y
+WINDOW=8192
+MSS=1460
+WSCALE=2
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Older Windows family variant with a 16384 receive window.
+Fingerprint WindowsLegacy16384
+ID=skan-v4-windows-legacy-16384
+SPECIFICITY=15
+ADDRESS_FAMILY=IPv4
+Class Microsoft | Windows NT | legacy style | general-purpose
+TTL_RANGE=96-128
+DF=Y
+WINDOW=16384
+MSS=1460
+WSCALE=2
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Darwin/macOS-like TCP stack. This is intentionally a family-level style.
+Fingerprint AppleDarwinModern
+ID=skan-v4-apple-darwin-modern
+SPECIFICITY=16
+ADDRESS_FAMILY=IPv4
+Class Apple | Darwin | modern | general-purpose
+TTL_RANGE=45-64
+DF=Y
+WINDOW=65535
+MSS=1460
+WSCALE=6
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,TS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=45-64
+
+# Darwin/mobile family variant. Network evidence alone cannot reliably split
+# iOS from macOS, so the class remains deliberately broad.
+Fingerprint AppleDarwinMobileStyle
+ID=skan-v4-apple-darwin-mobile
+SPECIFICITY=13
+ADDRESS_FAMILY=IPv4
+Class Apple | Darwin | mobile-style | mobile-device
+TTL_RANGE=45-64
+DF=Y
+WINDOW_RANGE=32768-65535
+MSS=1460
+WSCALE=6
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,TS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# FreeBSD-like general-purpose stack with scaling, SACK and timestamps.
+Fingerprint FreeBSDModern
+ID=skan-v4-freebsd-modern
+SPECIFICITY=15
+ADDRESS_FAMILY=IPv4
+Class FreeBSD | BSD | modern | general-purpose
+TTL_RANGE=45-64
+DF=Y
+WINDOW=65535
+MSS=1460
+WSCALE=6
+SACK=Y
+TIMESTAMP=Y
 TCP_OPTIONS=MSS,NOP,WS,SACK,TS
 RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
 
-Fingerprint SkanEmbeddedGeneric
-Class Skan | Embedded | generic | network-device
-TTL=64
+# FreeBSD-like variant without timestamps.
+Fingerprint FreeBSDNoTimestamp
+ID=skan-v4-freebsd-no-ts
+SPECIFICITY=13
+ADDRESS_FAMILY=IPv4
+Class FreeBSD | BSD | conservative | general-purpose
+TTL_RANGE=45-64
+DF=Y
+WINDOW=65535
+MSS=1460
+WSCALE=6
+SACK=Y
+TIMESTAMP=N
+TCP_OPTIONS=MSS,NOP,WS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# OpenBSD-style conservative TCP window and option set.
+Fingerprint OpenBSDConservative
+ID=skan-v4-openbsd-conservative
+SPECIFICITY=14
+ADDRESS_FAMILY=IPv4
+Class OpenBSD | BSD | conservative | general-purpose
+TTL_RANGE=45-64
+DF=Y
+WINDOW=16384
+MSS=1460
+SACK=Y
+TIMESTAMP=N
+TCP_OPTIONS=MSS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# NetBSD-style family-level profile.
+Fingerprint NetBSDGeneral
+ID=skan-v4-netbsd-general
+SPECIFICITY=13
+ADDRESS_FAMILY=IPv4
+Class NetBSD | BSD | general | general-purpose
+TTL_RANGE=45-64
+DF=Y
+WINDOW=32768
+MSS=1460
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Mobile Linux kernels share the same TCP family traits as desktop/server Linux;
+# this profile deliberately does not claim Android from transport evidence alone.
+Fingerprint LinuxMobileStyle
+ID=skan-v4-linux-mobile-style
+SPECIFICITY=8
+ADDRESS_FAMILY=IPv4
+Class Linux | Linux kernel | mobile-style | mobile-device
+TTL_RANGE=45-64
+DF=Y
+MSS=1460
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Linux-derived SOHO/router stack with a smaller receive window.
+Fingerprint LinuxRouter5840
+ID=skan-v4-linux-router-5840
+SPECIFICITY=14
+ADDRESS_FAMILY=IPv4
+Class Linux | Linux kernel | embedded-router-style | network-device
+TTL_RANGE=45-64
+DF=Y
+WINDOW=5840
+MSS=1460
+WSCALE=2
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Linux-derived network appliance using a 29200-style receive window.
+Fingerprint LinuxNetwork29200
+ID=skan-v4-linux-network-29200
+SPECIFICITY=14
+ADDRESS_FAMILY=IPv4
+Class Linux | Linux kernel | network-appliance-style | network-device
+TTL_RANGE=45-64
+DF=Y
+WINDOW=29200
+MSS=1460
+WSCALE=2
+SACK=Y
+TIMESTAMP=N
+TCP_OPTIONS=MSS,SACK,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# High initial TTL and compact option set are common among router/network OSes.
+Fingerprint NetworkOS255Compact
+ID=skan-v4-networkos-255-compact
+SPECIFICITY=13
+ADDRESS_FAMILY=IPv4
+Class Network | Network OS | high-ttl-compact | network-device
+TTL_RANGE=220-255
 DF=Y
 WINDOW=4128
 MSS=1460
@@ -36,4 +310,137 @@ WSCALE=2
 SACK=N
 TIMESTAMP=N
 TCP_OPTIONS=MSS,NOP,WS
-RESPONSE_BEHAVIOR=RST
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=220-255
+
+# High-TTL router style with a larger classic receive window.
+Fingerprint NetworkOS255Large
+ID=skan-v4-networkos-255-large
+SPECIFICITY=13
+ADDRESS_FAMILY=IPv4
+Class Network | Network OS | high-ttl-large | network-device
+TTL_RANGE=220-255
+DF=Y
+WINDOW=16384
+MSS=1460
+SACK=Y
+TIMESTAMP=N
+TCP_OPTIONS=MSS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=220-255
+
+# High-hop-limit minimal router profile. Vendor identity must come from service
+# banners or other independent evidence, not these TCP traits alone.
+Fingerprint HighTTLRouterMinimal
+ID=skan-v4-high-ttl-router-minimal
+SPECIFICITY=12
+ADDRESS_FAMILY=IPv4
+Class Network | Router TCP/IP | high-ttl-minimal | network-device
+TTL_RANGE=220-255
+DF=Y
+WINDOW_RANGE=4096-16384
+MSS=1460
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=220-255
+
+# lwIP-like small-footprint TCP stack with no scaling/SACK/timestamps.
+Fingerprint EmbeddedLwIP5840
+ID=skan-v4-embedded-lwip-5840
+SPECIFICITY=15
+ADDRESS_FAMILY=IPv4
+Class Embedded | lwIP-like | compact | embedded
+TTL_RANGE=45-255
+WINDOW=5840
+MSS=1460
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Small-window lwIP-style variant seen on constrained controllers.
+Fingerprint EmbeddedLwIP2920
+ID=skan-v4-embedded-lwip-2920
+SPECIFICITY=15
+ADDRESS_FAMILY=IPv4
+Class Embedded | lwIP-like | small-window | embedded
+TTL_RANGE=45-255
+WINDOW=2920
+MSS=1460
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Generic embedded network stack retaining the original Skan 4128-byte profile.
+Fingerprint EmbeddedCompact4128
+ID=skan-v4-embedded-4128
+SPECIFICITY=14
+ADDRESS_FAMILY=IPv4
+Class Embedded | Compact TCP/IP | generic | embedded
+TTL_RANGE=45-255
+DF=Y
+WINDOW=4128
+MSS=1460
+WSCALE=2
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Printer/print-server style with high TTL and a minimal TCP option set.
+Fingerprint PrinterNetworkStyle
+ID=skan-v4-printer-network-style
+SPECIFICITY=10
+ADDRESS_FAMILY=IPv4
+Class Printer | Embedded TCP/IP | generic | printer
+TTL_RANGE=220-255
+WINDOW_RANGE=2048-16384
+MSS=1460
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Very broad Unix-like fallback used only when stronger signatures do not match.
+Fingerprint Unix64Generic
+ID=skan-v4-unix-64-generic
+SPECIFICITY=4
+ADDRESS_FAMILY=IPv4
+Class Unix-like | TCP/IP | generic | general-purpose
+TTL_RANGE=45-64
+DF=Y
+MSS=1460
+SACK=Y
+RESPONSE_PRESENCE=YES
+
+# Very broad Windows-like fallback using the common 128 initial TTL family.
+Fingerprint Windows128Generic
+ID=skan-v4-windows-128-generic
+SPECIFICITY=4
+ADDRESS_FAMILY=IPv4
+Class Microsoft | Windows NT | generic | general-purpose
+TTL_RANGE=96-128
+DF=Y
+MSS=1460
+SACK=Y
+RESPONSE_PRESENCE=YES
+
+# Broad high-TTL network-appliance fallback.
+Fingerprint Network255Generic
+ID=skan-v4-network-255-generic
+SPECIFICITY=3
+ADDRESS_FAMILY=IPv4
+Class Network | Network OS | generic | network-device
+TTL_RANGE=220-255
+MSS=1460
+RESPONSE_PRESENCE=YES

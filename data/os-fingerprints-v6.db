@@ -1,12 +1,14 @@
-# Original Skan IPv6 profiles; generic laboratory signatures, not authoritative fingerprints.
-# This file is independent from data/os-fingerprints.db.
+# Skan project-owned IPv6 active OS fingerprint corpus.
+# Clean-room family/style signatures. IPv6 has no IPv4 DF bit, so these profiles
+# focus on hop-limit, TCP window, MSS, scaling and option behavior.
 
-Fingerprint SkanIPv6LinuxGeneric
-ID=skan-v6-linux-generic
-SPECIFICITY=13
+# Modern Linux IPv6 style with 1440 MSS on a 1500-byte Ethernet path.
+Fingerprint IPv6LinuxModern64240
+ID=skan-v6-linux-modern-64240
+SPECIFICITY=17
 ADDRESS_FAMILY=IPv6
-Class Skan | Linux IPv6 | generic | general-purpose
-TTL=64
+Class Linux | Linux kernel IPv6 | modern | general-purpose
+TTL_RANGE=45-64
 WINDOW=64240
 MSS=1440
 WSCALE=7
@@ -15,29 +17,163 @@ TIMESTAMP=Y
 TCP_OPTIONS=MSS,SACK,TS,NOP,WS
 RESPONSE_BEHAVIOR=SYN_ACK
 RESPONSE_PRESENCE=YES
-UDP_RESPONSE_BEHAVIOR=UDP_RESPONSE
+ICMP_TTL_RANGE=45-64
 
-Fingerprint SkanIPv6WindowsGeneric
-ID=skan-v6-windows-generic
-SPECIFICITY=11
+# Alternate modern Linux IPv6 receive window.
+Fingerprint IPv6LinuxModern65160
+ID=skan-v6-linux-modern-65160
+SPECIFICITY=17
 ADDRESS_FAMILY=IPv6
-Class Skan | Windows IPv6 | generic | general-purpose
-TTL=128
+Class Linux | Linux kernel IPv6 | modern | general-purpose
+TTL_RANGE=45-64
+WINDOW=65160
+MSS=1440
+WSCALE=7
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=45-64
+
+# Classic Linux-family IPv6 profile with 29200 receive window.
+Fingerprint IPv6LinuxClassic29200
+ID=skan-v6-linux-classic-29200
+SPECIFICITY=16
+ADDRESS_FAMILY=IPv6
+Class Linux | Linux kernel IPv6 | classic style | general-purpose
+TTL_RANGE=45-64
+WINDOW=29200
+MSS=1440
+WSCALE=7
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Linux IPv6 profile for reduced MTU/tunnel paths.
+Fingerprint IPv6LinuxReducedMSS
+ID=skan-v6-linux-reduced-mss
+SPECIFICITY=12
+ADDRESS_FAMILY=IPv6
+Class Linux | Linux kernel IPv6 | reduced-mtu | general-purpose
+TTL_RANGE=45-64
+WINDOW_RANGE=29200-65535
+MSS=1280
+WSCALE=7
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Modern Windows IPv6 option order and 128-family hop limit.
+Fingerprint IPv6WindowsModern64240
+ID=skan-v6-windows-modern-64240
+SPECIFICITY=18
+ADDRESS_FAMILY=IPv6
+Class Microsoft | Windows NT IPv6 | 10.x-11 style | general-purpose
+TTL_RANGE=96-128
+WINDOW=64240
+MSS=1440
+WSCALE=8
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=96-128
+
+# Alternate modern Windows IPv6 receive window.
+Fingerprint IPv6WindowsModern65535
+ID=skan-v6-windows-modern-65535
+SPECIFICITY=17
+ADDRESS_FAMILY=IPv6
+Class Microsoft | Windows NT IPv6 | modern | general-purpose
+TTL_RANGE=96-128
 WINDOW=65535
 MSS=1440
 WSCALE=8
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=96-128
+
+# Older Windows-family IPv6 window style.
+Fingerprint IPv6WindowsLegacy8192
+ID=skan-v6-windows-legacy-8192
+SPECIFICITY=15
+ADDRESS_FAMILY=IPv6
+Class Microsoft | Windows NT IPv6 | legacy style | general-purpose
+TTL_RANGE=96-128
+WINDOW=8192
+MSS=1440
+WSCALE=2
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Apple Darwin IPv6 family profile.
+Fingerprint IPv6AppleDarwinModern
+ID=skan-v6-apple-darwin-modern
+SPECIFICITY=15
+ADDRESS_FAMILY=IPv6
+Class Apple | Darwin IPv6 | modern | general-purpose
+TTL_RANGE=45-64
+WINDOW=65535
+MSS=1440
+WSCALE=6
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,TS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=45-64
+
+# Darwin mobile-family IPv6 profile kept deliberately broad.
+Fingerprint IPv6AppleMobileStyle
+ID=skan-v6-apple-mobile-style
+SPECIFICITY=11
+ADDRESS_FAMILY=IPv6
+Class Apple | Darwin IPv6 | mobile-style | mobile-device
+TTL_RANGE=45-64
+WINDOW_RANGE=32768-65535
+MSS=1440
+WSCALE=6
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,NOP,NOP,TS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# FreeBSD-family IPv6 profile.
+Fingerprint IPv6FreeBSDModern
+ID=skan-v6-freebsd-modern
+SPECIFICITY=14
+ADDRESS_FAMILY=IPv6
+Class FreeBSD | BSD IPv6 | modern | general-purpose
+TTL_RANGE=45-64
+WINDOW=65535
+MSS=1440
+WSCALE=6
 SACK=Y
 TIMESTAMP=Y
 TCP_OPTIONS=MSS,NOP,WS,SACK,TS
 RESPONSE_BEHAVIOR=SYN_ACK
 RESPONSE_PRESENCE=YES
 
-Fingerprint SkanIPv6BSDGeneric
-ID=skan-v6-bsd-generic
-SPECIFICITY=9
+# FreeBSD-family variant without timestamps.
+Fingerprint IPv6FreeBSDNoTimestamp
+ID=skan-v6-freebsd-no-ts
+SPECIFICITY=12
 ADDRESS_FAMILY=IPv6
-Class Skan | BSD/macOS IPv6 | generic | general-purpose
-TTL=64
+Class FreeBSD | BSD IPv6 | conservative | general-purpose
+TTL_RANGE=45-64
 WINDOW=65535
 MSS=1440
 WSCALE=6
@@ -47,27 +183,184 @@ TCP_OPTIONS=MSS,NOP,WS,SACK
 RESPONSE_BEHAVIOR=SYN_ACK
 RESPONSE_PRESENCE=YES
 
-Fingerprint SkanIPv6EmbeddedGeneric
-ID=skan-v6-embedded-generic
-SPECIFICITY=9
+# OpenBSD-like conservative IPv6 profile.
+Fingerprint IPv6OpenBSDConservative
+ID=skan-v6-openbsd-conservative
+SPECIFICITY=13
 ADDRESS_FAMILY=IPv6
-Class Skan | Embedded IPv6 | generic | network-device
-TTL=64
+Class OpenBSD | BSD IPv6 | conservative | general-purpose
+TTL_RANGE=45-64
+WINDOW=16384
+MSS=1440
+SACK=Y
+TIMESTAMP=N
+TCP_OPTIONS=MSS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# NetBSD-style IPv6 family profile.
+Fingerprint IPv6NetBSDGeneral
+ID=skan-v6-netbsd-general
+SPECIFICITY=12
+ADDRESS_FAMILY=IPv6
+Class NetBSD | BSD IPv6 | general | general-purpose
+TTL_RANGE=45-64
+WINDOW=32768
+MSS=1440
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,NOP,WS,SACK,TS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Mobile Linux IPv6 profile; transport traits alone do not justify an Android label.
+Fingerprint IPv6LinuxMobileStyle
+ID=skan-v6-linux-mobile-style
+SPECIFICITY=7
+ADDRESS_FAMILY=IPv6
+Class Linux | Linux kernel IPv6 | mobile-style | mobile-device
+TTL_RANGE=45-64
+MSS=1440
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Linux-derived IPv6 network appliance with compact receive window.
+Fingerprint IPv6LinuxRouter5840
+ID=skan-v6-linux-router-5840
+SPECIFICITY=13
+ADDRESS_FAMILY=IPv6
+Class Linux | Linux kernel IPv6 | embedded-router-style | network-device
+TTL_RANGE=45-64
+WINDOW=5840
+MSS=1440
+WSCALE=2
+SACK=Y
+TIMESTAMP=Y
+TCP_OPTIONS=MSS,SACK,TS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# High-hop-limit network OS with compact options.
+Fingerprint IPv6Network255Compact
+ID=skan-v6-network-255-compact
+SPECIFICITY=12
+ADDRESS_FAMILY=IPv6
+Class Network | Network OS IPv6 | high-hop-limit-compact | network-device
+TTL_RANGE=220-255
+WINDOW=4128
+MSS=1440
+WSCALE=2
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS,NOP,WS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=220-255
+
+# High-hop-limit router/network stack with a larger window.
+Fingerprint IPv6Network255Large
+ID=skan-v6-network-255-large
+SPECIFICITY=12
+ADDRESS_FAMILY=IPv6
+Class Network | Network OS IPv6 | high-hop-limit-large | network-device
+TTL_RANGE=220-255
+WINDOW=16384
+MSS=1440
+SACK=Y
+TIMESTAMP=N
+TCP_OPTIONS=MSS,SACK
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=220-255
+
+# High-hop-limit IPv6 router profile; vendor confirmation must come from services.
+Fingerprint IPv6HighTTLRouterMinimal
+ID=skan-v6-high-ttl-router-minimal
+SPECIFICITY=10
+ADDRESS_FAMILY=IPv6
+Class Network | Router TCP/IP IPv6 | high-ttl-minimal | network-device
+TTL_RANGE=220-255
+WINDOW_RANGE=4096-16384
+MSS=1440
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+ICMP_TTL_RANGE=220-255
+
+# Embedded/lwIP-like IPv6 stack using the IPv6 minimum-link friendly MSS.
+Fingerprint IPv6EmbeddedLwIP1280
+ID=skan-v6-embedded-lwip-1280
+SPECIFICITY=14
+ADDRESS_FAMILY=IPv6
+Class Embedded | lwIP-like IPv6 | compact | embedded
+TTL_RANGE=45-255
+WINDOW=5840
+MSS=1280
+SACK=N
+TIMESTAMP=N
+TCP_OPTIONS=MSS
+RESPONSE_BEHAVIOR=SYN_ACK
+RESPONSE_PRESENCE=YES
+
+# Original Skan compact embedded shape, now constrained and explicitly IPv6.
+Fingerprint IPv6Embedded4128
+ID=skan-v6-embedded-4128
+SPECIFICITY=13
+ADDRESS_FAMILY=IPv6
+Class Embedded | Compact TCP/IP IPv6 | generic | embedded
+TTL_RANGE=45-255
 WINDOW=4128
 MSS=1280
 WSCALE=2
 SACK=N
 TIMESTAMP=N
 TCP_OPTIONS=MSS,NOP,WS
-RESPONSE_BEHAVIOR=RST
+RESPONSE_BEHAVIOR=SYN_ACK
 RESPONSE_PRESENCE=YES
 
-Fingerprint SkanIPv6ModernGeneric
-ID=skan-v6-modern-generic
-SPECIFICITY=5
+# Broad Unix-like IPv6 fallback.
+Fingerprint IPv6Unix64Generic
+ID=skan-v6-unix-64-generic
+SPECIFICITY=4
 ADDRESS_FAMILY=IPv6
-Class Skan | Generic IPv6 | modern | general-purpose
-TTL_RANGE=32-255
-WINDOW_RANGE=1024-65535
+Class Unix-like | TCP/IP IPv6 | generic | general-purpose
+TTL_RANGE=45-64
 MSS=1440
+SACK=Y
+RESPONSE_PRESENCE=YES
+
+# Broad Windows-like IPv6 fallback.
+Fingerprint IPv6Windows128Generic
+ID=skan-v6-windows-128-generic
+SPECIFICITY=4
+ADDRESS_FAMILY=IPv6
+Class Microsoft | Windows NT IPv6 | generic | general-purpose
+TTL_RANGE=96-128
+MSS=1440
+SACK=Y
+RESPONSE_PRESENCE=YES
+
+# Broad high-hop-limit network-device fallback.
+Fingerprint IPv6Network255Generic
+ID=skan-v6-network-255-generic
+SPECIFICITY=3
+ADDRESS_FAMILY=IPv6
+Class Network | Network OS IPv6 | generic | network-device
+TTL_RANGE=220-255
+MSS=1440
+RESPONSE_PRESENCE=YES
+
+# Generic reduced-MTU IPv6 fallback for tunnels and constrained links.
+Fingerprint IPv6ReducedMTUGeneric
+ID=skan-v6-reduced-mtu-generic
+SPECIFICITY=3
+ADDRESS_FAMILY=IPv6
+Class Generic | IPv6 TCP/IP | reduced-mtu | general-purpose
+TTL_RANGE=32-255
+MSS=1280
 RESPONSE_PRESENCE=YES

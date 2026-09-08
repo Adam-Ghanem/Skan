@@ -1,97 +1,301 @@
 # Skan project-owned service probe corpus.
-# Syntax is documented in docs/SERVICE_FINGERPRINTS.md. This is not derived from
-# or compatible with the Nmap service probe database.
+# Clean-room database built from public protocol behavior and implementation banners.
+# Syntax is documented in docs/SERVICE_FINGERPRINTS.md. It is intentionally not
+# derived from, copied from, or format-compatible with third-party fingerprint DBs.
+#
+# Design notes:
+# - High-confidence application handshakes are preferred over port-number guesses.
+# - Product/version fields are populated only when the response exposes them.
+# - TLS-only ports are handled by TLSClientHello instead of plaintext probes.
+# - The scheduler normally runs only a few probes per port, so port hints are kept tight.
 
-Probe TCP HTTPGet rarity=1 priority=95 timeout=1500 ports=80,81,443,8000,8008,8080,8081,8443,8888 fallback=GenericBanner
-send "GET / HTTP/1.0\r\nHost: localhost\r\nUser-Agent: Skan/1\r\nConnection: close\r\n\r\n"
-match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: ([A-Za-z0-9._ -]+)/([0-9A-Za-z._-]+)" service=http product="$2" version="$3" extra="HTTP/$1" confidence=0.96
+# HTTP/1.x request used for general web servers and HTTP-native APIs.
+Probe TCP HTTPGet rarity=1 priority=95 timeout=1800 ports=80,81,3000,5000,5601,5984,8000,8008,8080,8081,8088,8090,8091,8123,8181,8888,9000,9200,15672,2375 fallback=GenericBanner
+send "GET / HTTP/1.0\r\nHost: localhost\r\nUser-Agent: Skan/1\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: nginx/([0-9A-Za-z.+_-]+)" service=http product=nginx version="$2" extra="HTTP/$1" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: Apache/([0-9A-Za-z.+_-]+)" service=http product=Apache-httpd version="$2" extra="HTTP/$1" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: Microsoft-IIS/([0-9A-Za-z.+_-]+)" service=http product=Microsoft-IIS version="$2" extra="HTTP/$1" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: Caddy(?:/([0-9A-Za-z.+_-]+))?" service=http product=Caddy version="$2" extra="HTTP/$1" confidence=0.98
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: LiteSpeed(?:/([0-9A-Za-z.+_-]+))?" service=http product=LiteSpeed version="$2" extra="HTTP/$1" confidence=0.98
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: openresty/([0-9A-Za-z.+_-]+)" service=http product=OpenResty version="$2" extra="HTTP/$1" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: cloudflare" service=http product=Cloudflare extra="HTTP/$1" confidence=0.98
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: uvicorn" service=http product=Uvicorn extra="HTTP/$1" confidence=0.95
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: gunicorn(?:/([0-9A-Za-z.+_-]+))?" service=http product=Gunicorn version="$2" extra="HTTP/$1" confidence=0.96
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: Jetty(?:\\(([0-9A-Za-z.+_-]+)\\))?" service=http product=Jetty version="$2" extra="HTTP/$1" confidence=0.96
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: Apache-Coyote/([0-9A-Za-z.+_-]+)" service=http product=Apache-Tomcat version="$2" extra="HTTP/$1" confidence=0.98
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Xx]-[Pp]owered-[Bb]y: Express" service=http product=Express confidence=0.93
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*\"tagline\"[ ]*:[ ]*\"You Know, for Search\"[\\s\\S]*\"number\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=elasticsearch product=Elasticsearch version="$2" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*\"distribution\"[ ]*:[ ]*\"opensearch\"[\\s\\S]*\"number\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=opensearch product=OpenSearch version="$2" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*\"couchdb\"[ ]*:[ ]*\"Welcome\"[\\s\\S]*\"version\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=couchdb product=Apache-CouchDB version="$2" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: CouchDB/([0-9A-Za-z.+_-]+)" service=couchdb product=Apache-CouchDB version="$2" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: BaseHTTP/[0-9.]+ Python/[0-9.]+[\\s\\S]*MikroTik" service=http product=MikroTik confidence=0.90
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*(Ubiquiti|UniFi)" service=http product=Ubiquiti confidence=0.92
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*(Cisco IOS|Cisco Systems)" service=http product=Cisco confidence=0.94
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*AnyDesk" service=http product=AnyDesk confidence=0.88
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*TeamViewer" service=http product=TeamViewer confidence=0.88
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: ([A-Za-z0-9._-]+)/([0-9A-Za-z.+_-]+)" service=http product="$2" version="$3" extra="HTTP/$1" confidence=0.94
 match type=regex pattern="^HTTP/([0-9.]+)" service=http product=HTTP version="$1" confidence=0.88
-match type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.78
+match type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.80
 
-Probe TCP TLSClientHello rarity=1 priority=100 timeout=2000 ports=443,465,636,853,989,990,992,993,995,8443 fallback=HTTPGet,GenericBanner
+# TLS ClientHello used only to identify a TLS record layer/tunnel. Application
+# identity is intentionally not guessed from the TCP port alone.
+Probe TCP TLSClientHello rarity=1 priority=100 timeout=2200 ports=443,465,563,636,853,989,990,992,993,995,2376,6443,8443,8729,8883 fallback=HTTPGet,GenericBanner
 send "\x16\x03\x01\x00\x60\x01\x00\x00\x5c\x03\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\xc0\x2f\xc0\x30\x00\x9c\x00\x2f\x01\x00\x00\x2b\x00\x0a\x00\x06\x00\x04\x00\x17\x00\x1d\x00\x0b\x00\x02\x01\x00\x00\x0d\x00\x08\x00\x06\x04\x03\x05\x03\x04\x01\x00\x10\x00\x0b\x00\x09\x08http/1.1"
-softmatch type=prefix pattern="\x16\x03" service=tls product=TLS tunnel=tls confidence=0.90
-softmatch type=prefix pattern="\x15\x03" service=tls product=TLS tunnel=tls extra=alert confidence=0.86
+softmatch type=prefix pattern="\x16\x03" service=tls product=TLS tunnel=tls confidence=0.92
+softmatch type=prefix pattern="\x15\x03" service=tls product=TLS tunnel=tls extra=alert confidence=0.88
 
-Probe TCP SSHBanner rarity=1 priority=100 timeout=1200 ports=22,2222 fallback=HTTPGet,GenericBanner
+# SSH servers normally speak first. The newline is benign and allows banner capture.
+Probe TCP SSHBanner rarity=1 priority=100 timeout=1400 ports=22,2222,8022 fallback=GenericBanner
 send "\r\n"
-match type=regex pattern="^SSH-([0-9.]+)-OpenSSH_([0-9A-Za-z.p-]+)" service=ssh product=OpenSSH version="$2" extra="protocol $1" confidence=0.98
-match type=regex pattern="^SSH-([0-9.]+)-([A-Za-z0-9._-]+)" service=ssh product="$2" extra="protocol $1" confidence=0.92
-match type=prefix pattern="SSH-" service=ssh product=SSH confidence=0.82
+match type=regex pattern="^SSH-([0-9.]+)-OpenSSH_([0-9A-Za-z.p+_-]+)" service=ssh product=OpenSSH version="$2" extra="protocol $1" confidence=0.99
+match type=regex pattern="^SSH-([0-9.]+)-dropbear_([0-9A-Za-z.p+_-]+)" service=ssh product=Dropbear-SSH version="$2" extra="protocol $1" confidence=0.99
+match type=regex pattern="^SSH-([0-9.]+)-libssh-([0-9A-Za-z.p+_-]+)" service=ssh product=libssh version="$2" extra="protocol $1" confidence=0.98
+match type=regex pattern="^SSH-([0-9.]+)-ROSSSH" service=ssh product=ROSSSH extra="protocol $1" confidence=0.96
+match type=regex pattern="^SSH-([0-9.]+)-([A-Za-z0-9._+-]+)" service=ssh product="$2" extra="protocol $1" confidence=0.94
+match type=prefix pattern="SSH-" service=ssh product=SSH confidence=0.84
 
-Probe TCP FTPBanner rarity=1 priority=95 timeout=1200 ports=21,2121 fallback=GenericBanner
+# FTP FEAT is safe and often returns the greeting plus capability text.
+Probe TCP FTPBanner rarity=1 priority=96 timeout=1400 ports=21,2121 fallback=GenericBanner
 send "FEAT\r\n"
-match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[ -].*[Ff][Tt][Pp]" service=ftp product=FTP hostname="$1" confidence=0.92
+match type=regex pattern="^220[\\s\\S]*vsFTPd ([0-9A-Za-z.+_-]+)" service=ftp product=vsFTPd version="$1" confidence=0.99
+match type=regex pattern="^220[\\s\\S]*ProFTPD(?: ([0-9A-Za-z.+_-]+))?" service=ftp product=ProFTPD version="$1" confidence=0.98
+match type=regex pattern="^220[\\s\\S]*FileZilla Server(?: version)? ([0-9A-Za-z.+_-]+)" service=ftp product=FileZilla-Server version="$1" confidence=0.99
+match type=regex pattern="^220[\\s\\S]*Microsoft FTP Service" service=ftp product=Microsoft-FTP-Service confidence=0.99
+match type=regex pattern="^220[\\s\\S]*Pure-FTPd" service=ftp product=Pure-FTPd confidence=0.98
+match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*[Ff][Tt][Pp]" service=ftp product=FTP hostname="$1" confidence=0.93
 softmatch type=prefix pattern="220" service=ftp product=FTP confidence=0.72
 
-Probe TCP SMTPBanner rarity=1 priority=95 timeout=1200 ports=25,465,587,2525 fallback=GenericBanner
-send "EHLO localhost\r\n"
+# SMTP EHLO provides a standards-defined capability response without mail delivery.
+Probe TCP SMTPBanner rarity=1 priority=96 timeout=1500 ports=25,587,2525 fallback=GenericBanner
+send "EHLO scanner.invalid\r\n"
+match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*Postfix" service=smtp product=Postfix hostname="$1" confidence=0.99
+match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*Exim(?: ([0-9A-Za-z.+_-]+))?" service=smtp product=Exim version="$2" hostname="$1" confidence=0.99
+match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*Microsoft ESMTP MAIL Service" service=smtp product=Microsoft-ESMTP hostname="$1" confidence=0.99
+match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*Sendmail" service=smtp product=Sendmail hostname="$1" confidence=0.97
 match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[ -].*(ESMTP|SMTP)" service=smtp product="$2" hostname="$1" confidence=0.94
-softmatch type=prefix pattern="220" service=smtp product=SMTP confidence=0.70
+softmatch type=prefix pattern="220" service=smtp product=SMTP confidence=0.68
 
-Probe TCP POP3Banner rarity=1 priority=90 timeout=1200 ports=110,995 fallback=GenericBanner
+# POP3 CAPA is read-only capability discovery.
+Probe TCP POP3Capability rarity=1 priority=92 timeout=1300 ports=110 fallback=GenericBanner
 send "CAPA\r\n"
-match type=regex pattern="^\\+OK[ -]([A-Za-z0-9._-]+).*POP3" service=pop3 product="$1" confidence=0.92
-match type=prefix pattern="+OK" service=pop3 product=POP3 confidence=0.82
+match type=regex pattern="^\\+OK[\\s\\S]*Dovecot" service=pop3 product=Dovecot confidence=0.98
+match type=regex pattern="^\\+OK[\\s\\S]*Courier" service=pop3 product=Courier confidence=0.96
+match type=regex pattern="^\\+OK[\\s\\S]*Cyrus" service=pop3 product=Cyrus confidence=0.96
+match type=prefix pattern="+OK" service=pop3 product=POP3 confidence=0.84
 
-Probe TCP IMAPCapability rarity=1 priority=90 timeout=1200 ports=143,993 fallback=GenericBanner
+# IMAP CAPABILITY is a read-only standards request.
+Probe TCP IMAPCapability rarity=1 priority=92 timeout=1300 ports=143 fallback=GenericBanner
 send "a001 CAPABILITY\r\n"
-match type=regex pattern="^\\* OK.*(Dovecot|Cyrus|Courier)" service=imap product="$1" confidence=0.94
+match type=regex pattern="^\\* OK[\\s\\S]*Dovecot" service=imap product=Dovecot confidence=0.98
+match type=regex pattern="^\\* OK[\\s\\S]*Cyrus" service=imap product=Cyrus confidence=0.97
+match type=regex pattern="^\\* OK[\\s\\S]*Courier" service=imap product=Courier confidence=0.96
 match type=prefix pattern="* OK" service=imap product=IMAP confidence=0.84
+match type=substring pattern="* CAPABILITY" service=imap product=IMAP confidence=0.90
 
-Probe UDP DNSStatus rarity=1 priority=100 timeout=1200 ports=53
-send "\x53\x4b\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07version\x04bind\x00\x00\x10\x00\x03"
-match type=prefix pattern="\x53\x4b" service=dns product=DNS confidence=0.92
+# Redis RESP pipeline asks PING and INFO server. Both are read-only.
+Probe TCP RedisInfo rarity=1 priority=98 timeout=1300 ports=6379 fallback=GenericBanner
+send "*1\r\n$4\r\nPING\r\n*2\r\n$4\r\nINFO\r\n$6\r\nserver\r\n"
+match type=regex pattern="redis_version:([0-9][0-9A-Za-z.+_-]*)" service=redis product=Redis version="$1" confidence=0.99
+match type=substring pattern="+PONG\r\n" service=redis product=Redis confidence=0.98
+softmatch type=regex pattern="^-((NOAUTH|NOPERM|ERR))[\\s\\S]*" service=redis product=Redis extra="$1" confidence=0.84
 
-Probe TCP RedisPing rarity=1 priority=95 timeout=1000 ports=6379 fallback=GenericBanner
-send "PING\r\n"
-match type=exact pattern="+PONG\r\n" service=redis product=Redis confidence=0.98
-match type=substring pattern="redis_version:" service=redis product=Redis confidence=0.90
-softmatch type=prefix pattern="-ERR" service=redis product=Redis confidence=0.76
-
-Probe TCP MySQLGreeting rarity=1 priority=95 timeout=1200 ports=3306 fallback=GenericBanner
+# MySQL/MariaDB sends a protocol-v10 greeting before authentication.
+Probe TCP MySQLGreeting rarity=1 priority=98 timeout=1400 ports=3306 fallback=GenericBanner
 send ""
-match type=regex pattern="^...\x00([0-9]+\\.[0-9]+[0-9A-Za-z._-]*)\x00" service=mysql product=MySQL version="$1" confidence=0.96
-softmatch type=substring pattern="mysql_native_password" service=mysql product=MySQL confidence=0.82
+match type=regex pattern="^...\x00\x0a([0-9A-Za-z.+_~-]*MariaDB[0-9A-Za-z.+_~-]*)\x00" service=mysql product=MariaDB version="$1" confidence=0.99
+match type=regex pattern="^...\x00\x0a([0-9][0-9A-Za-z.+_~-]*)\x00" service=mysql product=MySQL version="$1" confidence=0.98
+softmatch type=substring pattern="mysql_native_password" service=mysql product=MySQL confidence=0.86
+softmatch type=substring pattern="caching_sha2_password" service=mysql product=MySQL confidence=0.86
 
-Probe TCP PostgreSQLStartup rarity=1 priority=95 timeout=1200 ports=5432 fallback=GenericBanner
+# PostgreSQL SSLRequest has a uniquely useful one-byte S/N response.
+Probe TCP PostgreSQLSSLRequest rarity=1 priority=99 timeout=1300 ports=5432 fallback=GenericBanner
 send "\x00\x00\x00\x08\x04\xd2\x16\x2f"
-match type=exact pattern="N" service=postgresql product=PostgreSQL extra=SSL-refused confidence=0.94
-match type=prefix pattern="\x00\x00\x00\x08\x00\x00\x00\x00" service=postgresql product=PostgreSQL confidence=0.92
-softmatch type=substring pattern="PostgreSQL" service=postgresql product=PostgreSQL confidence=0.82
+match type=exact pattern="S" service=postgresql product=PostgreSQL tunnel=tls extra=SSL-available confidence=0.99
+match type=exact pattern="N" service=postgresql product=PostgreSQL extra=SSL-unavailable confidence=0.99
+match type=prefix pattern="E\x00\x00\x00" service=postgresql product=PostgreSQL extra=protocol-error confidence=0.94
 
-Probe TCP MongoHello rarity=1 priority=90 timeout=1500 ports=27017,27018 fallback=GenericBanner
-send "\x3a\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\xdd\x07\x00\x00\x00\x00\x00\x00admin.$cmd\x00\x00\x00\x00\x00\xff\xff\xff\xff\x13\x00\x00\x00\x10isMaster\x00\x01\x00\x00\x00\x00"
-match type=substring pattern="maxWireVersion" service=mongodb product=MongoDB confidence=0.94
-softmatch type=substring pattern="ismaster" service=mongodb product=MongoDB confidence=0.74
+# MongoDB OP_MSG hello with a fixed request id. ResponseTo and opcode provide a
+# strong protocol discriminator before parsing BSON fields.
+Probe TCP MongoHello rarity=1 priority=97 timeout=1600 ports=27017,27018,27019 fallback=GenericBanner
+send "\x34\x00\x00\x00\x4e\x41\x4b\x53\x00\x00\x00\x00\xdd\x07\x00\x00\x00\x00\x00\x00\x00\x1f\x00\x00\x00\x10hello\x00\x01\x00\x00\x00\x02$db\x00\x06\x00\x00\x00admin\x00\x00"
+match type=regex pattern="^........\x4e\x41\x4b\x53\xdd\x07\x00\x00[\\s\\S]*version\x00....([0-9][0-9A-Za-z.+_-]*)\x00" service=mongodb product=MongoDB version="$1" confidence=0.99
+match type=regex pattern="^........\x4e\x41\x4b\x53\xdd\x07\x00\x00" service=mongodb product=MongoDB confidence=0.99
+match type=substring pattern="maxWireVersion" service=mongodb product=MongoDB confidence=0.96
 
-Probe TCP SMBNegotiate rarity=1 priority=95 timeout=1500 ports=139,445 fallback=GenericBanner
-send "\x00\x00\x00\x64\xfeSMB\x40\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x24\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x02"
+# Memcached text protocol exposes its version without authentication.
+Probe TCP MemcachedVersion rarity=1 priority=97 timeout=1100 ports=11211 fallback=GenericBanner
+send "version\r\n"
+match type=regex pattern="^VERSION ([0-9A-Za-z.+_-]+)" service=memcached product=Memcached version="$1" confidence=0.99
+match type=prefix pattern="VERSION " service=memcached product=Memcached confidence=0.96
+
+# Cassandra native protocol v4 OPTIONS -> SUPPORTED.
+Probe TCP CassandraOptions rarity=1 priority=97 timeout=1400 ports=9042 fallback=GenericBanner
+send "\x04\x00\x00\x00\x05\x00\x00\x00\x00"
+match type=regex pattern="^\x84...\x06...." service=cassandra product=Apache-Cassandra confidence=0.99
+match type=substring pattern="CQL_VERSION" service=cassandra product=Apache-Cassandra confidence=0.98
+
+# ClickHouse HTTP query returns the exact server version in a plain-text body.
+Probe TCP ClickHouseVersion rarity=1 priority=99 timeout=1400 ports=8123 fallback=HTTPGet,GenericBanner
+send "GET /?query=SELECT%20version%28%29 HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\\r\\n\\r\\n([0-9][0-9A-Za-z.+_-]*)" service=clickhouse product=ClickHouse version="$1" confidence=0.99
+match type=substring pattern="X-ClickHouse-" service=clickhouse product=ClickHouse confidence=0.98
+match type=regex pattern="ClickHouse server version ([0-9][0-9A-Za-z.+_-]*)" service=clickhouse product=ClickHouse version="$1" confidence=0.99
+
+# Docker Engine unauthenticated HTTP API version endpoint.
+Probe TCP DockerVersion rarity=1 priority=100 timeout=1400 ports=2375 fallback=HTTPGet,GenericBanner
+send "GET /version HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\"Version\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=docker product=Docker-Engine version="$1" confidence=0.99
+match type=substring pattern="Docker-Experimental" service=docker product=Docker-Engine confidence=0.97
+
+# Kubernetes read-only /version endpoint for plaintext API endpoints.
+Probe TCP KubernetesVersion rarity=2 priority=99 timeout=1400 ports=8080 fallback=HTTPGet,GenericBanner
+send "GET /version HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\"gitVersion\"[ ]*:[ ]*\"v?([0-9][0-9A-Za-z.+_-]*)\"" service=kubernetes product=Kubernetes version="$1" confidence=0.99
+match type=substring pattern="gitVersion" service=kubernetes product=Kubernetes confidence=0.94
+
+# Matrix client versions endpoint. M_UNRECOGNIZED still strongly indicates a
+# Matrix homeserver when paired with the protocol-specific URL.
+Probe TCP MatrixVersions rarity=2 priority=96 timeout=1400 ports=8008,8080 fallback=HTTPGet,GenericBanner
+send "GET /_matrix/client/versions HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\"versions\"[ ]*:[ ]*\\[" service=matrix product=Matrix-Homeserver confidence=0.99
+match type=substring pattern="M_UNRECOGNIZED" service=matrix product=Matrix-Homeserver confidence=0.94
+match type=substring pattern="Synapse" service=matrix product=Synapse confidence=0.96
+
+# SMB2 NEGOTIATE with a single SMB 2.0.2 dialect. The 4-byte Direct TCP
+# transport header declares the exact 102-byte SMB2 message that follows.
+Probe TCP SMB2Negotiate rarity=1 priority=99 timeout=1600 ports=445 fallback=GenericBanner
+send "\x00\x00\x00\x66\xfe\x53\x4d\x42\x40\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x4e\x41\x4b\x53\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x24\x00\x01\x00\x01\x00\x00\x00\x00\x00\x00\x00\x53\x4b\x41\x4e\x53\x4b\x41\x4e\x53\x4b\x41\x4e\x53\x4b\x41\x4e\x00\x00\x00\x00\x00\x00\x00\x00\x02\x02"
+match type=regex pattern="^....\xfeSMB.{8}\x00\x00" service=microsoft-ds product=SMB2 confidence=0.99
 match type=substring pattern="\xfeSMB" service=microsoft-ds product=SMB2 confidence=0.96
-match type=substring pattern="\xffSMB" service=netbios-ssn product=SMB1 confidence=0.94
 
-Probe TCP RDPConnection rarity=1 priority=90 timeout=1200 ports=3389 fallback=GenericBanner
+# Anonymous LDAPv3 BindRequest. A BindResponse application tag (0x61) with the
+# same message id confirms LDAP independently of directory vendor.
+Probe TCP LDAPBind rarity=1 priority=98 timeout=1400 ports=389 fallback=GenericBanner
+send "\x30\x0c\x02\x01\x01\x60\x07\x02\x01\x03\x04\x00\x80\x00"
+match type=regex pattern="^\x30.\x02\x01\x01\x61" service=ldap product=LDAPv3 confidence=0.99
+match type=substring pattern="OpenLDAP" service=ldap product=OpenLDAP confidence=0.98
+
+# RDP X.224 Connection Request with an 8-byte RDP Negotiation Request.
+Probe TCP RDPConnection rarity=1 priority=99 timeout=1500 ports=3389 fallback=GenericBanner
 send "\x03\x00\x00\x13\x0e\xe0\x00\x00\x00\x00\x00\x01\x00\x08\x00\x03\x00\x00\x00"
-match type=prefix pattern="\x03\x00\x00" service=ms-wbt-server product=RDP confidence=0.90
+match type=regex pattern="^\x03\x00..\x0e\xd0" service=ms-wbt-server product=RDP confidence=0.99
+match type=regex pattern="^\x03\x00[\\s\\S]*\x02\x00\x08\x00" service=ms-wbt-server product=RDP extra=negotiation-response confidence=0.98
+match type=regex pattern="^\x03\x00[\\s\\S]*\x03\x00\x08\x00" service=ms-wbt-server product=RDP extra=negotiation-failure confidence=0.98
 
-Probe TCP VNCBanner rarity=1 priority=90 timeout=1200 ports=5900,5901,5902 fallback=GenericBanner
+# RFB/VNC servers send a fixed ASCII protocol banner before authentication.
+Probe TCP VNCBanner rarity=1 priority=98 timeout=1400 ports=5900,5901,5902,5903 fallback=GenericBanner
 send ""
-match type=regex pattern="^RFB ([0-9]{3}\\.[0-9]{3})" service=vnc product=RFB version="$1" confidence=0.98
-match type=prefix pattern="RFB " service=vnc product=RFB confidence=0.88
+match type=regex pattern="^RFB ([0-9]{3}\\.[0-9]{3})\\n" service=vnc product=RFB version="$1" confidence=0.99
+match type=prefix pattern="RFB " service=vnc product=RFB confidence=0.96
 
-Probe TCP TelnetBanner rarity=2 priority=80 timeout=1200 ports=23,2323 fallback=GenericBanner
-send "\xff\xfd\x18\xff\xfd\x20\xff\xfd\x23"
-match type=prefix pattern="\xff\xfb" service=telnet product=Telnet confidence=0.88
-softmatch type=substring pattern="login:" service=telnet product=Telnet confidence=0.74
+# ONC RPC NULL call for the NFS program, version 3. It is side-effect free.
+Probe TCP NFS3Null rarity=2 priority=96 timeout=1600 ports=2049 fallback=GenericBanner
+send "\x80\x00\x00\x28\x53\x4b\x4e\x46\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa3\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+match type=regex pattern="^....\x53\x4b\x4e\x46\x00\x00\x00\x01" service=nfs product=NFSv3 confidence=0.99
 
-Probe TCP IRCGreeting rarity=2 priority=80 timeout=1200 ports=194,6667,6697,7000 fallback=GenericBanner
+# AMQP 0-9-1 protocol header. RabbitMQ replies with a connection.start frame or
+# a supported protocol header.
+Probe TCP AMQP091 rarity=1 priority=98 timeout=1500 ports=5672 fallback=GenericBanner
+send "AMQP\x00\x00\x09\x01"
+match type=prefix pattern="AMQP" service=amqp product=AMQP confidence=0.99
+match type=regex pattern="^\x01\x00\x00....\x00\x0a\x00\x0a" service=amqp product=RabbitMQ extra=connection.start confidence=0.99
+match type=substring pattern="RabbitMQ" service=amqp product=RabbitMQ confidence=0.98
+
+# MQTT 3.1.1 CONNECT with client id 'skan'. CONNACK is the mandatory first
+# server control packet after a valid CONNECT.
+Probe TCP MQTTConnect rarity=1 priority=98 timeout=1400 ports=1883 fallback=GenericBanner
+send "\x10\x10\x00\x04MQTT\x04\x02\x00\x0a\x00\x04skan"
+match type=regex pattern="^\x20\x02.." service=mqtt product=MQTT version=3.1.1 confidence=0.99
+match type=prefix pattern="\x20\x02" service=mqtt product=MQTT confidence=0.98
+
+# IRC registration uses a reserved scanner nickname and does not join channels.
+Probe TCP IRCGreeting rarity=2 priority=90 timeout=1500 ports=194,6667,7000 fallback=GenericBanner
 send "NICK skanprobe\r\nUSER skan 0 * :Skan probe\r\n"
-match type=regex pattern="^:([A-Za-z0-9.-]+) 001 " service=irc product=IRC hostname="$1" confidence=0.94
-match type=prefix pattern="NOTICE AUTH" service=irc product=IRC confidence=0.84
+match type=regex pattern="^:([A-Za-z0-9.-]+) 001 " service=irc product=IRC hostname="$1" confidence=0.98
+match type=regex pattern="^:([A-Za-z0-9.-]+) (NOTICE|ERROR) " service=irc product=IRC hostname="$1" confidence=0.90
+match type=prefix pattern="NOTICE AUTH" service=irc product=IRC confidence=0.88
 
-Probe TCP GenericBanner rarity=5 priority=10 timeout=1000
+# XMPP client stream open. A returned stream namespace is protocol-specific.
+Probe TCP XMPPStream rarity=2 priority=94 timeout=1600 ports=5222 fallback=GenericBanner
+send "<?xml version='1.0'?><stream:stream to='localhost' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>"
+match type=regex pattern="^<\\?xml[\\s\\S]*<stream:stream" service=xmpp product=XMPP confidence=0.98
+match type=substring pattern="urn:ietf:params:xml:ns:xmpp" service=xmpp product=XMPP confidence=0.97
+match type=substring pattern="ejabberd" service=xmpp product=ejabberd confidence=0.98
+match type=substring pattern="Prosody" service=xmpp product=Prosody confidence=0.98
+match type=substring pattern="Openfire" service=xmpp product=Openfire confidence=0.98
+
+# SIP OPTIONS is a non-dialog capability probe.
+Probe TCP SIPOptions rarity=2 priority=94 timeout=1400 ports=5060 fallback=GenericBanner
+send "OPTIONS sip:localhost SIP/2.0\r\nVia: SIP/2.0/TCP scanner.invalid;branch=z9hG4bK-skan\r\nFrom: <sip:skan@scanner.invalid>;tag=skan\r\nTo: <sip:localhost>\r\nCall-ID: skan@scanner.invalid\r\nCSeq: 1 OPTIONS\r\nMax-Forwards: 0\r\nContent-Length: 0\r\n\r\n"
+match type=regex pattern="^SIP/2.0 [0-9]{3}[\\s\\S]*[Ss]erver: ([A-Za-z0-9._+-]+)(?:/([0-9A-Za-z.+_-]+))?" service=sip product="$1" version="$2" confidence=0.99
+match type=regex pattern="^SIP/2.0 [0-9]{3}" service=sip product=SIP confidence=0.98
+
+# RTSP OPTIONS is read-only and usually exposes a Server header.
+Probe TCP RTSPOptions rarity=1 priority=97 timeout=1400 ports=554,8554 fallback=GenericBanner
+send "OPTIONS * RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Skan/1\r\n\r\n"
+match type=regex pattern="^RTSP/([0-9.]+) [0-9]{3}[\\s\\S]*[Ss]erver: ([A-Za-z0-9._+-]+)(?:/([0-9A-Za-z.+_-]+))?" service=rtsp product="$2" version="$3" extra="RTSP/$1" confidence=0.99
+match type=regex pattern="^RTSP/([0-9.]+) [0-9]{3}" service=rtsp product=RTSP version="$1" confidence=0.98
+
+# Minecraft Java status handshake followed by a status request. The JSON reply
+# contains a version name when status queries are enabled.
+Probe TCP MinecraftStatus rarity=2 priority=97 timeout=1600 ports=25565 fallback=GenericBanner
+send "\x0f\x00\x2f\x09localhost\x63\xdd\x01\x01\x00"
+match type=regex pattern="^[\\s\\S]*\"version\"[ ]*:[ ]*\\{[\\s\\S]*\"name\"[ ]*:[ ]*\"([^\"]+)\"" service=minecraft product=Minecraft-Java version="$1" confidence=0.98
+match type=substring pattern="\"players\"" service=minecraft product=Minecraft-Java confidence=0.90
+
+# TeamSpeak ServerQuery speaks a textual banner before authentication.
+Probe TCP TeamSpeakQuery rarity=2 priority=96 timeout=1400 ports=10011 fallback=GenericBanner
+send "help\n"
+match type=prefix pattern="TS3" service=teamspeak-query product=TeamSpeak-3 confidence=0.99
+match type=substring pattern="TeamSpeak 3 Server" service=teamspeak-query product=TeamSpeak-3 confidence=0.99
+match type=substring pattern="error id=" service=teamspeak-query product=TeamSpeak-ServerQuery confidence=0.92
+
+# Telnet option negotiation. Product labels require explicit textual evidence.
+Probe TCP TelnetBanner rarity=2 priority=88 timeout=1400 ports=23,2323 fallback=GenericBanner
+send "\xff\xfd\x18\xff\xfd\x20\xff\xfd\x23"
+match type=regex pattern="^[\\s\\S]*MikroTik[\\s\\S]*Login:" service=telnet product=MikroTik-RouterOS confidence=0.98
+match type=regex pattern="^[\\s\\S]*(Cisco IOS|Cisco Systems)[\\s\\S]*" service=telnet product=Cisco confidence=0.96
+match type=prefix pattern="\xff\xfb" service=telnet product=Telnet confidence=0.92
+match type=prefix pattern="\xff\xfd" service=telnet product=Telnet confidence=0.90
+softmatch type=substring pattern="login:" service=telnet product=Telnet confidence=0.72
+
+# HP-style PJL INFO ID request used by many JetDirect-compatible print servers.
+Probe TCP PJLInfo rarity=2 priority=96 timeout=1600 ports=9100 fallback=GenericBanner
+send "\x1b%-12345X@PJL INFO ID\r\n\x1b%-12345X"
+match type=regex pattern="@PJL INFO ID[\\s\\S]*\r?\n([^\r\n]+)" service=jetdirect product=Printer extra="$1" confidence=0.98
+match type=substring pattern="@PJL" service=jetdirect product=PJL-Printer confidence=0.96
+
+# MikroTik RouterOS API encodes '/login' as one short word followed by an empty word.
+Probe TCP MikroTikAPI rarity=2 priority=97 timeout=1400 ports=8728 fallback=GenericBanner
+send "\x06/login\x00"
+match type=substring pattern="!done" service=mikrotik-api product=MikroTik-RouterOS confidence=0.99
+match type=substring pattern="!trap" service=mikrotik-api product=MikroTik-RouterOS confidence=0.98
+
+# DNS over TCP: two-byte message length followed by a standard query for a
+# reserved .invalid name.
+Probe TCP DNSTCP rarity=2 priority=96 timeout=1400 ports=53 fallback=GenericBanner
+send "\x00\x1e\x53\x4b\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x04skan\x07invalid\x00\x00\x01\x00\x01"
+match type=regex pattern="^..\x53\x4b" service=dns product=DNS-over-TCP confidence=0.99
+
+
+# Kerberos v5 AS-REQ for the reserved INVALID realm. A framed KRB-ERROR or
+# AS-REP is a strong TCP/88 discriminator and does not authenticate.
+Probe TCP KerberosASReq rarity=2 priority=97 timeout=1600 ports=88 fallback=GenericBanner
+send "\x00\x00\x00\x7c\x6a\x7a\x30\x78\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\x0a\xa4\x6c\x30\x6a\xa0\x07\x03\x05\x00\x00\x00\x00\x00\xa1\x11\x30\x0f\xa0\x03\x02\x01\x01\xa1\x08\x30\x06\x1b\x04skan\xa2\x09\x1b\x07INVALID\xa3\x1c\x30\x1a\xa0\x03\x02\x01\x02\xa1\x13\x30\x11\x1b\x06krbtgt\x1b\x07INVALID\xa5\x11\x18\x0f20370101000000Z\xa7\x06\x02\x04SKAN\xa8\x08\x30\x06\x02\x01\x12\x02\x01\x11"
+match type=regex pattern="^....\x7e" service=kerberos product=Kerberos-v5 extra=KRB-ERROR confidence=0.99
+match type=regex pattern="^....\x6b" service=kerberos product=Kerberos-v5 extra=AS-REP confidence=0.99
+
+# Generic banner fallback deliberately uses only explicit protocol/product text.
+Probe TCP GenericBanner rarity=5 priority=10 timeout=1100
 send "\r\n"
-match type=regex pattern="^SSH-([0-9.]+)-OpenSSH_([0-9A-Za-z.p-]+)" service=ssh product=OpenSSH version="$2" extra="protocol $1" confidence=0.92
-match type=regex pattern="^HTTP/([0-9.]+)" service=http product=HTTP version="$1" confidence=0.84
+match type=regex pattern="^SSH-([0-9.]+)-OpenSSH_([0-9A-Za-z.p+_-]+)" service=ssh product=OpenSSH version="$2" extra="protocol $1" confidence=0.96
+match type=regex pattern="^SSH-([0-9.]+)-dropbear_([0-9A-Za-z.p+_-]+)" service=ssh product=Dropbear-SSH version="$2" extra="protocol $1" confidence=0.96
+match type=regex pattern="^HTTP/([0-9.]+)" service=http product=HTTP version="$1" confidence=0.88
+match type=regex pattern="^RFB ([0-9]{3}\\.[0-9]{3})" service=vnc product=RFB version="$1" confidence=0.96
+match type=substring pattern="TeamViewer" service=teamviewer product=TeamViewer confidence=0.88
+match type=substring pattern="AnyDesk" service=anydesk product=AnyDesk confidence=0.88
+match type=substring pattern="MikroTik" service=router-management product=MikroTik confidence=0.86
+match type=substring pattern="Ubiquiti" service=network-management product=Ubiquiti confidence=0.86
+match type=substring pattern="Cisco IOS" service=network-management product=Cisco-IOS confidence=0.90
 softmatch type=prefix pattern="220" service=banner product=TextBanner confidence=0.45
 softmatch type=substring pattern="login:" service=login product=TextBanner confidence=0.40
