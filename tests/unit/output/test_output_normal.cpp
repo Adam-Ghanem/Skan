@@ -75,6 +75,14 @@ int main()
     assert(plain_output.str().find("●") == std::string::npos);
     assert(plain_output.str().find("Skan —") == std::string::npos);
 
+    skan::output::ScanReport long_target_report = report;
+    long_target_report.target_spec = std::string(96U, 'x');
+    skan::output::OutputContext redirected;
+    redirected.terminal = {false, 80U, false, false};
+    std::ostringstream long_target_output;
+    assert(writer.write(long_target_report, long_target_output, redirected) == skan::output::OutputStatus::Ok);
+    assert(long_target_output.str().find(*long_target_report.target_spec) != std::string::npos);
+
     const std::string open_line = line_containing(first.str(), "80/tcp");
     assert(open_line.find("80/tcp") == 2U);
     assert(open_line.find("OPEN") > open_line.find("80/tcp"));
