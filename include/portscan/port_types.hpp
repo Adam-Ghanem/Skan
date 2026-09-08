@@ -110,7 +110,22 @@ std::vector<Port> default_tcp_ports();
 std::vector<Port> default_udp_ports();
 
 /** True only for the explicitly reviewed raw TCP scan families. */
-bool is_raw_tcp_probe(ScanProbeType probe) noexcept;
+constexpr bool is_raw_tcp_probe(ScanProbeType probe) noexcept
+{
+    switch (probe) {
+    case ScanProbeType::TcpSyn:
+    case ScanProbeType::TcpNull:
+    case ScanProbeType::TcpFin:
+    case ScanProbeType::TcpXmas:
+    case ScanProbeType::TcpWindow:
+    case ScanProbeType::TcpMaimon:
+        return true;
+    case ScanProbeType::TcpConnect:
+    case ScanProbeType::Udp:
+        return false;
+    }
+    return false;
+}
 
 const char *protocol_name(Protocol protocol) noexcept;
 const char *scan_probe_type_name(ScanProbeType probe) noexcept;
