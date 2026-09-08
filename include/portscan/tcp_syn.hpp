@@ -32,6 +32,35 @@ public:
 };
 
 /**
+ * Phase 34 raw-TCP flag probe used by NULL, FIN, Xmas, Window, and Maimon scans.
+ * Packet scheduling, correlation, capture, and transmission stay owned by the existing
+ * PortScanScheduler and PortScanTransport contracts; this class only defines TCP flags
+ * and the bounded response classification for the selected reviewed scan family.
+ */
+class TcpFlagProbe final : public PortProbe {
+public:
+    explicit TcpFlagProbe(ScanProbeType type) noexcept;
+
+    ScanProbeType type() const noexcept override;
+    core::StatusCode build(
+        PortProbeId id,
+        const core::Host &target,
+        const Port &port,
+        const PortScanConfig &config,
+        PortSubmission &submission) const override;
+    PortState timeout_state() const noexcept override;
+    ScanReason timeout_reason() const noexcept override;
+    core::StatusCode assess(
+        const PortResponse &response,
+        const PortSubmission &submission,
+        PortState &state,
+        ScanReason &reason) const override;
+
+private:
+    ScanProbeType type_{ScanProbeType::TcpNull};
+};
+
+/**
  * Legacy implicit-capability query. Explicit raw-packet capability is runtime-gated by
  * net::LinuxNetworkScanTransport after the caller selects a transport and interface.
  */
