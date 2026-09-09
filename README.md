@@ -168,10 +168,17 @@ sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 
 See [Nmap compatibility](docs/NMAP_COMPATIBILITY.md) for exact boundaries.
 See [Service fingerprinting](docs/SERVICE_FINGERPRINTS.md) for the clean-room probe format and corpus limits.
+See [Intelligence Database v2](docs/INTELLIGENCE_DATABASE.md) for governed
+source, canonical-record, and migration-gate contracts.
 
 ## 🏅 Security & Quality
 
-Skan CI enforces clean builds, the complete registered test suite, debug/release builds, ASan/LSan, UBSan, coverage, fuzz capability handling, static safety checks, Nmap-compatible and PTY terminal-policy regressions, isolated privileged dual-stack validation, Debian package policy checks, and installed-package acceptance on Debian 12 and Ubuntu 24.04.
+Skan CI enforces clean builds, the complete registered test suite, corpus
+governance/schema/serialization checks, debug/release builds, ASan/LSan, UBSan,
+coverage, fuzz capability handling, static safety checks, Nmap-compatible and
+PTY terminal-policy regressions, isolated privileged dual-stack validation,
+Debian package policy checks, and installed-package acceptance on Debian 12 and
+Ubuntu 24.04.
 
 > **Security note:** Skan is a network reconnaissance tool. Only scan systems and networks you are authorized to test.
 

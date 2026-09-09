@@ -26,3 +26,10 @@ The TLS probe sends a bounded TLS ClientHello. The detector recognizes TLS recor
 The bundled project-owned corpus includes deterministic signatures for HTTP, TLS, SSH, FTP, SMTP, POP3, IMAP, DNS, Redis, MySQL, PostgreSQL, MongoDB, SMB, RDP, VNC, Telnet, and IRC. Tests use byte fixtures and loopback only; they never contact public targets.
 
 Use `--service-db <path>` to select another database. An explicit path takes precedence over installed and development defaults. Invalid files fail visibly and are never silently replaced by the bundled corpus.
+
+## Intelligence Database v2 staging
+
+The runtime file above remains authoritative. Schema-v2 source governance and
+canonical staging are documented in [Intelligence Database v2](INTELLIGENCE_DATABASE.md).
+Skan will not switch to generated runtime databases until the migration compiler
+proves semantic round trips through the real C++ loaders.

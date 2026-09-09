@@ -2,7 +2,7 @@ Source: skan
 Section: net
 Priority: optional
 Maintainer: Adam Ghanem <adam.ghanem.it@gmail.com>
-Build-Depends: debhelper-compat (= 13), g++ (>= 10), make
+Build-Depends: debhelper-compat (= 13), g++ (>= 10), make, python3
 Standards-Version: 4.7.2.0
 Homepage: https://github.com/Adam-Ghanem/Skan
 Rules-Requires-Root: no

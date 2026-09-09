@@ -128,6 +128,9 @@ jobs:
           python3 -m unittest tests/security/test_workflow_policy.py
           python3 scripts/validate_workflow_policy.py .github/workflows/*.yml
 
+      - name: Validate intelligence corpus contracts
+        run: make test-corpus
+
       - name: Test packaging harness guards
         run: python3 -m unittest discover -s tests/packaging -p 'test_*.py' -v
 
