@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cassert>
 
 #include "db/os_db.hpp"
@@ -55,9 +56,14 @@ int main()
     osdetect::TCPObservation mismatch_observation = linux_observation();
     mismatch_observation.ttl = osdetect::ObservedValue<std::uint8_t>::observed(255U);
     mismatch.tcp_observations.push_back(mismatch_observation);
-    const auto mismatch_matches = matcher.match(mismatch, 3U);
-    assert(mismatch_matches[0].confidence < 1.0);
-    assert(!mismatch_matches[0].mismatched_fields.empty());
+    const auto mismatch_matches = matcher.match(mismatch, database.fingerprints().size());
+    const auto mismatch_match = std::find_if(
+        mismatch_matches.begin(), mismatch_matches.end(), [](const osdetect::OSMatchResult &match) {
+            return match.fingerprint_id == "skan-v4-linux-modern-64240";
+        });
+    assert(mismatch_match != mismatch_matches.end());
+    assert(mismatch_match->confidence < 1.0);
+    assert(!mismatch_match->mismatched_fields.empty());
 
     osdetect::ObservedOSFingerprint unavailable;
     const auto unavailable_matches = matcher.match(unavailable, 2U);
