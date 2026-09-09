@@ -7,6 +7,7 @@ Contributions should preserve Skan's single-reactor architecture, bounded resour
 ```bash
 make clean
 make -j2
+make test-corpus
 make test
 bash tests/integration/cli/test_nmap_compat.sh
 make asan
@@ -24,3 +25,8 @@ Raw-network changes also require the isolated private-lab acceptance documented 
 Keep changes focused, add deterministic regression coverage, document capability boundaries, and distinguish offline, loopback, isolated-lab, and real-network evidence. Do not claim a test or capability that did not run.
 
 Do not introduce hidden fallback transports, unbounded target or response handling, public-target tests, shell execution from production code, evasion, exploitation, credentials, or persistence.
+
+Corpus changes must pass `make test-corpus`. Approved source policy lives in
+`corpus/sources/sources.json`; never copy Nmap or proprietary fingerprint data.
+The schema-v2 stores under `corpus/canonical/` remain migration staging until
+the real C++ loader round-trip gate is delivered.

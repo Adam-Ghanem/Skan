@@ -366,7 +366,7 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_target_engine \
 				$(BUILD_DIR)/test_target_pipeline
 
-.PHONY: all release debug asan ubsan coverage fuzz benchmark test install check-line-endings check-version package-deb clean
+.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus install check-line-endings check-version package-deb clean
 
 all: $(TARGET)
 
@@ -403,6 +403,9 @@ check-line-endings:
 
 package-deb:
 	bash scripts/build_deb.sh
+
+test-corpus:
+	python3 -m unittest discover -s tests/corpus -p 'test_*.py' -v
 
 $(TARGET): $(CPP_OBJECTS) $(C_OBJECTS) | bin
 	$(CXX) $(LDFLAGS) $^ -o $@
@@ -824,6 +827,7 @@ test: $(TEST_BINARIES)
 				./$(BUILD_DIR)/test_pipeline_stress
 				./$(BUILD_DIR)/test_target_engine
 				./$(BUILD_DIR)/test_target_pipeline
+	$(MAKE) test-corpus
 
 
 
