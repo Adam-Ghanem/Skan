@@ -1,7 +1,56 @@
 #include <cassert>
+#include <cstddef>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include "db/os_db.hpp"
+
+namespace {
+
+const skan::db::OSFingerprint *find_by_id(
+    const std::vector<skan::db::OSFingerprint> &fingerprints,
+    const std::string &id)
+{
+    for (const skan::db::OSFingerprint &fingerprint : fingerprints) {
+        if (fingerprint.id == id) {
+            return &fingerprint;
+        }
+    }
+    return nullptr;
+}
+
+struct CorpusSummary final {
+    std::size_t ipv4_count{0U};
+    std::size_t ipv6_count{0U};
+};
+
+CorpusSummary validate_corpus(const std::vector<skan::db::OSFingerprint> &fingerprints)
+{
+    assert(!fingerprints.empty());
+    std::unordered_set<std::string> names;
+    std::unordered_set<std::string> ids;
+    CorpusSummary summary;
+    for (const skan::db::OSFingerprint &fingerprint : fingerprints) {
+        assert(!fingerprint.name.empty());
+        assert(!fingerprint.id.empty());
+        assert(!fingerprint.vendor.empty());
+        assert(!fingerprint.family.empty());
+        assert(!fingerprint.signatures.empty());
+        assert(names.insert(fingerprint.name).second);
+        assert(ids.insert(fingerprint.id).second);
+        if (fingerprint.address_family == skan::core::AddressFamily::IPv4) {
+            ++summary.ipv4_count;
+        } else if (fingerprint.address_family == skan::core::AddressFamily::IPv6) {
+            ++summary.ipv6_count;
+        } else {
+            assert(false);
+        }
+    }
+    return summary;
+}
+
+} // namespace
 
 int main()
 {
@@ -96,8 +145,16 @@ int main()
 
     const db::OSFingerprintDatabase built_in = db::OSFingerprintDatabase::built_in();
     assert(built_in.status() == core::StatusCode::Ok);
-    assert(built_in.fingerprints().size() == 8U);
-    assert(built_in.fingerprints()[0].address_family == core::AddressFamily::IPv4);
-    assert(built_in.fingerprints()[3].address_family == core::AddressFamily::IPv6);
+    const CorpusSummary summary = validate_corpus(built_in.fingerprints());
+    assert(summary.ipv4_count > 0U);
+    assert(summary.ipv6_count > 0U);
+    const db::OSFingerprint *ipv4_representative = find_by_id(
+        built_in.fingerprints(), "skan-v4-linux-modern-64240");
+    assert(ipv4_representative != nullptr);
+    assert(ipv4_representative->address_family == core::AddressFamily::IPv4);
+    const db::OSFingerprint *ipv6_representative = find_by_id(
+        built_in.fingerprints(), "skan-v6-linux-modern-64240");
+    assert(ipv6_representative != nullptr);
+    assert(ipv6_representative->address_family == core::AddressFamily::IPv6);
     return 0;
 }
