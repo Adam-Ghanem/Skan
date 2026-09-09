@@ -46,10 +46,11 @@ TCP connect scans normally work without root:
 skan -sT -p 80,443 192.0.2.10
 ```
 
-Live SYN, UDP, discovery, and other raw-packet operations can require root:
+Live SYN, ACK, UDP, discovery, and other raw-packet operations can require root. ACK results map filtering only: an exact reset is `UNFILTERED` and a timeout is `FILTERED`; neither identifies an open service.
 
 ```bash
 sudo skan -sS --top-ports 100 192.0.2.10
+sudo skan -sA -p 22,443 192.0.2.10
 sudo skan -sU -p 53 192.0.2.10
 ```
 

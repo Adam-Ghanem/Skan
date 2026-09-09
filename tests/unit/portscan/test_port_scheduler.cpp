@@ -6,6 +6,7 @@
 
 #include "io/io_engine.hpp"
 #include "portscan/port_scheduler.hpp"
+#include "packet/tcp.hpp"
 
 namespace {
 
@@ -163,6 +164,82 @@ int main()
         assert(scheduler.complete());
         assert(scheduler.results().size() == 3U);
         assert(scheduler.timing_controller()->rtt().sample_count() >= 1U);
+    }
+
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpAck, std::chrono::milliseconds{2}, 1U};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        assert(transport.submissions().size() == 1U);
+        assert(transport.submissions().front().probe == ScanProbeType::TcpAck);
+        assert(scheduler.run() == skan::core::StatusCode::Ok);
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Filtered);
+        assert(scheduler.results().front().reason == ScanReason::AckTimeout);
+        const PortSubmission submission = transport.submissions().front();
+        scheduler.receive({submission.id, submission.target, PortResponseKind::Unreachable, 0, {}, PortScanClock::now()});
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().reason == ScanReason::AckTimeout);
+    }
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpAck, std::chrono::milliseconds{100}, 1U};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        const PortSubmission submission = transport.submissions().front();
+        PortResponse response{submission.id, submission.target, PortResponseKind::Packet, 0, {1U}, PortScanClock::now()};
+        scheduler.receive(response);
+        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
+        skan::packet::TCP rst;
+        rst.set_source_port(submission.port.number);
+        rst.set_destination_port(submission.source_port);
+        rst.set_flags(static_cast<std::uint16_t>(skan::packet::TcpFlag::Rst));
+        rst.set_sequence_number(submission.acknowledgment_number + 1U);
+        response.bytes.resize(rst.serialized_size());
+        assert(rst.serialize(response.bytes) == skan::core::StatusCode::Ok);
+        scheduler.receive(response);
+        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
+        rst.set_sequence_number(submission.acknowledgment_number);
+        assert(rst.serialize(response.bytes) == skan::core::StatusCode::Ok);
+        response.source_address = "127.0.0.2";
+        scheduler.receive(response);
+        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
+        response.source_address = submission.target;
+        response.id = submission.id + 1U;
+        scheduler.receive(response);
+        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
+        response.id = submission.id;
+        scheduler.receive(response);
+        assert(scheduler.complete() && scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Unfiltered);
+        assert(scheduler.results().front().reason == ScanReason::AckRst);
+        scheduler.receive(response);
+        transport.deliver(response);
+        assert(scheduler.results().size() == 1U);
+    }
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpAck, std::chrono::milliseconds{100}, 1U};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        const PortSubmission submission = transport.submissions().front();
+        PortResponse response{submission.id, "127.0.0.2", PortResponseKind::Unreachable, 0, {}, PortScanClock::now()};
+        scheduler.receive(response);
+        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
+        response.source_address = submission.target;
+        response.source_ip = *skan::core::parse_ip_address("127.0.0.2");
+        scheduler.receive(response);
+        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
+        response.source_ip = submission.target_ip;
+        scheduler.receive(response);
+        assert(scheduler.complete() && scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Filtered);
+        assert(scheduler.results().front().reason == ScanReason::IcmpNetworkUnreachable);
     }
     return 0;
 }

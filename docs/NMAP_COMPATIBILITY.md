@@ -24,6 +24,7 @@ The compatibility form accepts one or more positional target specifications befo
 | --- | --- | --- |
 | `-sT` | `--method connect --transport connect` | Normal nonblocking TCP sockets. |
 | `-sS` | `--method syn --transport linux` | Requires usable raw capabilities. |
+| `-sA` | `--method ack --transport linux` | Firewall mapping only: exact RST evidence is `UNFILTERED`; timeout is `FILTERED`. It does not identify open or closed ports. |
 | `-sU` | `--udp --transport linux` | `-p` selects UDP ports in this mode; `--udp-ports` remains available. |
 | `-sn` | discovery enabled, port scan disabled | Uses the explicit Linux transport unless overridden for deterministic offline testing. |
 | `-Pn` | discovery disabled | Discovery is already off by default for scan mode. |
@@ -46,7 +47,7 @@ The compatibility form accepts one or more positional target specifications befo
 
 ## Explicit differences
 
-Skan does not claim byte-for-byte output compatibility, Nmap database compatibility, or complete feature parity. The current scope excludes NSE, traceroute, resume files, decoys, spoofing, idle scanning, fragmentation/evasion behavior, Internet-wide automation, and unsupported protocol families.
+Skan does not claim byte-for-byte output compatibility, Nmap database compatibility, or complete feature parity. The current scope excludes NSE, traceroute, resume files, decoys, spoofing, idle scanning, fragmentation/evasion behavior, Internet-wide automation, and unsupported protocol families. ACK scans cannot be combined with service or OS detection, and `--open` intentionally excludes `UNFILTERED` rows.
 
 Service coverage is intentionally smaller than Nmap's. TLS certificate fields are available when the peer exposes parseable unencrypted handshake records; TLS 1.3 certificate messages are encrypted and therefore remain unavailable to the current raw probe. See [Service fingerprinting](SERVICE_FINGERPRINTS.md).
 
@@ -60,4 +61,4 @@ The Skan top-port corpus is project-owned and is not represented as Nmap's frequ
 
 ## Privileged behavior
 
-`-sS`, `-sU`, and live `-sn` select the Linux raw path. Missing permission, route, source address, neighbor evidence, or interface capability is terminal and visible. Skan does not silently downgrade a raw request to Connect or offline observations.
+`-sS`, `-sA`, `-sU`, and live `-sn` select the Linux raw path. Missing permission, route, source address, neighbor evidence, or interface capability is terminal and visible. Skan does not silently downgrade a raw request to Connect or offline observations.

@@ -6,6 +6,9 @@
 int main()
 {
     using namespace skan::portscan;
+    static_assert(static_cast<int>(ScanProbeType::Udp) == 2);
+    static_assert(static_cast<int>(ScanReason::Timeout) == 6);
+    static_assert(static_cast<int>(ScanReason::UnsupportedProtocol) == 22);
 
     const PortSelection parsed = parse_tcp_ports("443,80,1000-1002,80");
     assert(parsed.status == skan::core::StatusCode::Ok);
@@ -44,6 +47,9 @@ int main()
     assert(defaults[2].number == 443U);
     assert(std::string{port_state_name(PortState::Open)} == "OPEN");
     assert(std::string{scan_probe_type_name(ScanProbeType::TcpSyn)} == "syn");
+    assert(std::string{scan_probe_type_name(ScanProbeType::TcpAck)} == "ack");
     assert(std::string{scan_reason_name(ScanReason::Timeout)} == "TIMEOUT");
+    assert(std::string{scan_reason_name(ScanReason::AckRst)} == "ACK_RST");
+    assert(std::string{scan_reason_name(ScanReason::AckTimeout)} == "ACK_TIMEOUT");
     return 0;
 }

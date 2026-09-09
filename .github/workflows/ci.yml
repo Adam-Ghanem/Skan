@@ -44,6 +44,8 @@ jobs:
         run: |
           bash tests/integration/cli/test_nmap_compat.sh
           python3 tests/integration/cli/test_terminal_policy.py
+          python3 tests/integration/cli/test_ack_options.py -v
+          python3 tests/integration/cli/test_ack_lab_contract.py -v
 
       - name: Repository clean
         run: |
@@ -240,7 +242,7 @@ jobs:
       - name: Install isolated-lab tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y ethtool nmap tcpdump
+          sudo apt-get install -y ethtool iptables nmap tcpdump
 
       - name: Build Skan
         run: |
@@ -319,6 +321,14 @@ jobs:
           grep -E '8081/tcp[[:space:]]+open' "$nmap_output"
           grep -E '(^|[[:space:]])8083/tcp[[:space:]]+CLOSED([[:space:]]|$)' "$skan_output"
           grep -E '8083/tcp[[:space:]]+closed' "$nmap_output"
+
+      - name: Validate dual-stack ACK firewall mapping
+        run: |
+          sudo ip netns exec skan-target iptables -A INPUT -i target0 -p tcp --dport 8084 -j DROP
+          sudo ip netns exec skan-target iptables -A INPUT -i target0 -p tcp --dport 8085 -j REJECT --reject-with icmp-admin-prohibited
+          sudo ip netns exec skan-target ip6tables -A INPUT -i target0 -p tcp --dport 8084 -j DROP
+          sudo ip netns exec skan-target ip6tables -A INPUT -i target0 -p tcp --dport 8085 -j REJECT --reject-with icmp6-adm-prohibited
+          sudo env SKAN_AUTHORIZED_LAB=1 python3 tests/integration/cli/test_ack_private_lab.py
 
       - name: Upload validation evidence
         if: always()

@@ -39,6 +39,15 @@ Use unprivileged TCP connect scanning.
 Use TCP SYN scanning. Live raw-packet operation requires root or explicitly
 reviewed Linux capabilities.
 .TP
+.B \-sA
+Use TCP ACK firewall mapping. An exactly correlated reset reports only
+.B UNFILTERED
+and a timeout reports
+.B FILTERED.
+it does not identify an open or closed port. Live raw-packet operation requires
+root or explicitly reviewed Linux capabilities. This mode cannot be combined with
+service or OS detection.
+.TP
 .B \-sU
 Use bounded UDP scanning. Live raw-packet operation may require root.
 .TP
@@ -112,7 +121,7 @@ Default IPv4 OS fingerprint database.
 Default IPv6 OS fingerprint database.
 .SH PRIVILEGES
 The installed executable is not set-user-ID and receives no capabilities.
-TCP connect scans normally run without root. Live SYN, UDP, and other
+TCP connect scans normally run without root. Live SYN, ACK, UDP, and other
 raw-packet modes can require
 .BR sudo (8).
 Skan reports capability failures and does not silently fall back.
@@ -121,6 +130,7 @@ Skan reports capability failures and does not silently fall back.
 .nf
 skan -sT -p 22,80,443 192.0.2.10
 sudo skan -sS --top-ports 100 192.0.2.10
+sudo skan -sA -p 22,443 192.0.2.10
 sudo skan -sU -p 53 192.0.2.10
 .fi
 .SH SEE ALSO

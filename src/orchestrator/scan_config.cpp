@@ -69,10 +69,15 @@ core::StatusCode ScanConfig::validate() const noexcept
     if (transport != ScanTransport::Linux && interface_name.has_value()) {
         return core::StatusCode::InvalidArgument;
     }
-    if (port_scan_enabled && transport == ScanTransport::Linux && port_method != portscan::ScanProbeType::TcpSyn) {
+    if (port_scan_enabled && transport == ScanTransport::Linux &&
+        port_method != portscan::ScanProbeType::TcpSyn && port_method != portscan::ScanProbeType::TcpAck) {
         return core::StatusCode::InvalidArgument;
     }
     if (port_scan_enabled && transport == ScanTransport::Connect && port_method != portscan::ScanProbeType::TcpConnect) {
+        return core::StatusCode::InvalidArgument;
+    }
+    if (port_method == portscan::ScanProbeType::TcpAck &&
+        (service_detection_enabled || os_detection_enabled)) {
         return core::StatusCode::InvalidArgument;
     }
     if (output_file.has_value() && output_file->empty()) {

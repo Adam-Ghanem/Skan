@@ -150,6 +150,8 @@ const char *scan_probe_type_name(ScanProbeType probe) noexcept
         return "connect";
     case ScanProbeType::TcpSyn:
         return "syn";
+    case ScanProbeType::TcpAck:
+        return "ack";
     case ScanProbeType::Udp:
         return "udp";
     default:
@@ -196,8 +198,12 @@ const char *scan_reason_name(ScanReason reason) noexcept
         return "SYN_ACK";
     case ScanReason::Rst:
         return "RST";
+    case ScanReason::AckRst:
+        return "ACK_RST";
     case ScanReason::Timeout:
         return "TIMEOUT";
+    case ScanReason::AckTimeout:
+        return "ACK_TIMEOUT";
     case ScanReason::SocketError:
         return "SOCKET_ERROR";
     case ScanReason::MalformedResponse:

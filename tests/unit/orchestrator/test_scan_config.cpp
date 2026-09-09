@@ -48,6 +48,23 @@ int main()
     assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
     invalid.port_method = skan::portscan::ScanProbeType::TcpSyn;
     assert(invalid.validate() == skan::core::StatusCode::Ok);
+    invalid.port_method = skan::portscan::ScanProbeType::TcpAck;
+    assert(invalid.validate() == skan::core::StatusCode::Ok);
+    invalid.transport = skan::orchestrator::ScanTransport::Connect;
+    assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
+
+    for (const auto transport : {skan::orchestrator::ScanTransport::Offline,
+                                 skan::orchestrator::ScanTransport::Linux}) {
+        auto ack = valid_config();
+        ack.port_method = skan::portscan::ScanProbeType::TcpAck;
+        ack.transport = transport;
+        assert(ack.validate() == skan::core::StatusCode::Ok);
+        ack.service_detection_enabled = true;
+        assert(ack.validate() == skan::core::StatusCode::InvalidArgument);
+        ack.service_detection_enabled = false;
+        ack.os_detection_enabled = true;
+        assert(ack.validate() == skan::core::StatusCode::InvalidArgument);
+    }
 
     invalid = valid_config();
     invalid.discovery_enabled = true;
