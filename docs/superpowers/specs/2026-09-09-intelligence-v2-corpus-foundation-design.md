@@ -44,4 +44,3 @@ The source layout is introduced under `corpus/` because it is build input, while
 - Strict record tests reject empty or mismatched IDs, unknown fields, incompatible schema versions, invalid provenance bindings, and out-of-bounds data.
 - Deterministic JSONL round trips are byte-stable and reject oversized or non-normalized input.
 - Existing C++ behavior and data files are unchanged.
-

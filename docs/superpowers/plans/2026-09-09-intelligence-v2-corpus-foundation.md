@@ -35,4 +35,3 @@
 ## Next increment
 
 Port the runtime parsers selectively, fix kind-specific OS conflict keys, and require the full `runtime DB -> canonical reload -> validation -> generated DB -> real C++ loader` contract before canonical data can become authoritative.
-
