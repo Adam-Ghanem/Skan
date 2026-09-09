@@ -291,6 +291,8 @@ def _checked_text(
         raise CanonicalRecordError(f"{field} must be {requirement}")
     if unicodedata.normalize("NFC", value) != value:
         raise CanonicalRecordError(f"{field} must be NFC-normalized")
+    if any(unicodedata.category(character) == "Cs" for character in value):
+        raise CanonicalRecordError(f"{field} contains a surrogate code point")
     if any(unicodedata.category(character) == "Cc" for character in value):
         raise CanonicalRecordError(f"{field} contains unsafe control characters")
     if len(value.encode("utf-8")) > maximum_bytes:
@@ -819,6 +821,31 @@ def stable_record_id(value: CanonicalRecord | Mapping[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return "skan-db-v2-" + hashlib.sha256(encoded).hexdigest()
+
+
+def record_to_mapping(record: CanonicalRecord) -> dict[str, Any]:
+    return {
+        "schema_version": record.schema_version,
+        "id": record.id,
+        "kind": record.kind,
+        "body": _body_mapping(record.body),
+        "provenance": [
+            {
+                "source_id": item.source_id,
+                "source_record_id": item.source_record_id,
+                "source_revision": item.source_revision,
+                "source_url": item.source_url,
+                "source_license": item.source_license,
+                "snapshot_hash": item.snapshot_hash,
+                "record_hash": item.record_hash,
+            }
+            for item in record.provenance
+        ],
+        "first_imported_revision": record.first_imported_revision,
+        "last_verified_revision": record.last_verified_revision,
+        "status": record.status,
+        "notes": record.notes,
+    }
 
 
 def _parse_provenance(
