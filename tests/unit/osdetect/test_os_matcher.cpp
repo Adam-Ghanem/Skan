@@ -37,7 +37,7 @@ int main()
     exact.tcp_observations.push_back(linux_observation());
     const auto exact_matches = matcher.match(exact, 3U);
     assert(exact_matches.size() == 3U);
-    assert(exact_matches[0].fingerprint_name == "SkanLinuxGeneric");
+    assert(exact_matches[0].fingerprint_name == "LinuxModern64240");
     assert(exact_matches[0].confidence == 1.0);
     assert(exact_matches[0].category == db::MatchCategory::StrongMatch);
 
@@ -47,7 +47,7 @@ int main()
     partial_observation.probe_status = osdetect::OSProbeStatus::ResponseReceived;
     partial.tcp_observations.push_back(partial_observation);
     const auto partial_matches = matcher.match(partial, 3U);
-    assert(partial_matches[0].fingerprint_name == "SkanLinuxGeneric");
+    assert(partial_matches[0].fingerprint_name == "LinuxModern64240");
     assert(partial_matches[0].confidence == 1.0);
     assert(partial_matches[0].unavailable_fields.size() >= 8U);
 
@@ -74,8 +74,8 @@ int main()
     ipv6.tcp_observations.push_back(ipv6_observation);
     const auto ipv6_matches = matcher.match(ipv6, 3U);
     assert(!ipv6_matches.empty());
-    assert(ipv6_matches[0].fingerprint_name == "SkanIPv6LinuxGeneric");
-    assert(ipv6_matches[0].fingerprint_id == "skan-v6-linux-generic");
+    assert(ipv6_matches[0].fingerprint_name == "IPv6LinuxModern64240");
+    assert(ipv6_matches[0].fingerprint_id == "skan-v6-linux-modern-64240");
     assert(ipv6_matches[0].address_family == core::AddressFamily::IPv6);
     assert(ipv6_matches[0].category == db::MatchCategory::StrongMatch);
 

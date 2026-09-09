@@ -118,7 +118,7 @@ int main()
     assert(scheduler.result()->state == osdetect::OSDetectionState::Complete);
     assert(scheduler.result()->responses_received == 24U);
     assert(scheduler.result()->probes_unsupported == 0U);
-    assert(scheduler.result()->matches.front().fingerprint_name == "SkanLinuxGeneric");
+    assert(scheduler.result()->matches.front().fingerprint_name == "LinuxModern64240");
     assert(scheduler.result()->confidence == 1.0);
 
     io::IOEngine timeout_engine;

@@ -96,6 +96,6 @@ int main()
     assert(detector.result().has_value());
     assert(detector.result()->state == osdetect::OSDetectionState::Complete);
     assert(detector.result()->confidence > 0.0);
-    assert(detector.result()->matches.front().fingerprint_name == "SkanLinuxGeneric");
+    assert(detector.result()->matches.front().fingerprint_name == "LinuxModern64240");
     return 0;
 }
