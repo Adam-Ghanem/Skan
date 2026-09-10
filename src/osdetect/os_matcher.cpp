@@ -295,6 +295,9 @@ std::vector<OSMatchResult> OSMatcher::match(
             } else {
                 result.category = db::MatchCategory::StrongMatch;
             }
+            std::sort(result.matched_fields.begin(), result.matched_fields.end());
+            std::sort(result.mismatched_fields.begin(), result.mismatched_fields.end());
+            std::sort(result.unavailable_fields.begin(), result.unavailable_fields.end());
             results.push_back(std::move(result));
         }
         std::sort(results.begin(), results.end(), [](const OSMatchResult &left, const OSMatchResult &right) {
