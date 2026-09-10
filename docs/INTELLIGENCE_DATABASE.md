@@ -26,14 +26,19 @@ provenance, and one immutable typed body:
 - UDP probe.
 
 IDs include all runtime-relevant fields. Governance metadata does not change a
-record's identity. Equivalent literal text and hexadecimal byte matchers share
-one identity; non-semantic port and OS-signature ordering is canonicalized.
+record's identity. Service matcher patterns are canonicalized to the exact bytes
+seen by the runtime parser after escape decoding, including regex patterns.
+Canonical storage uses lowercase `pattern_hex`; safe human-authored text remains
+accepted as input and is normalized to those bytes. This preserves NUL and other
+binary matcher bytes and gives textual and escaped byte-equivalent matchers one
+semantic identity. Non-semantic port and OS-signature ordering is canonicalized.
 
 The model enforces selected C++ loader-compatible domains and conservative
 bounds, including exact OS operators, TCP-option aliases, runtime behavior
-values, optional probe timeouts, bounded payloads, NFC text, safe line-format
-tokens, and immutable source revisions. Complete regex compilation and
-runtime-loader validation remain part of the later real-loader migration gate.
+values, optional probe timeouts, bounded payloads, NFC metadata text, safe
+line-format tokens, and immutable source revisions. Regex byte bounds are
+validated in the canonical model; actual ECMAScript compilation and runtime
+matcher construction are proven by the real C++ service-loader migration gate.
 
 ## Deterministic storage
 
@@ -59,17 +64,17 @@ The empty files in `corpus/canonical/` are explicitly migration staging. Empty
 stores are rejected unless tooling opts into staging mode. They are not shipped
 as runtime databases and are not evidence of corpus coverage.
 
-A later increment must prove this complete path before generated data can become
-authoritative:
+Each runtime corpus family must prove this complete path before generated data
+can become authoritative:
 
 ```text
 runtime DB -> canonical v2 -> reload -> validate -> compile -> real C++ loaders
 ```
 
-That gate must compare deterministic semantic manifests for service probes,
-match rules, UDP definitions, and both IPv4 and IPv6 OS fingerprints. It must
-also resolve cross-record references and conflicts without weakening current
-loader bounds.
+The completed migration slices must compare deterministic semantic manifests for
+service probes, match rules, UDP definitions, and both IPv4 and IPv6 OS
+fingerprints. They must also resolve cross-record references and conflicts
+without weakening current loader bounds.
 
 ### UDP vertical slice
 
@@ -96,8 +101,43 @@ produce the same ordered definitions, port index behavior, default probe,
 payload bytes, protocol hints, and response bounds for the legacy and generated
 runtime databases.
 
-This slice does **not** make canonical UDP data authoritative yet. The checked-in
-`data/udp-probes.db` remains the runtime source of truth until all required
-corpus families have migration/compiler coverage, cross-record validation and
-manifest generation are complete, packaging consumes generated artifacts, and
-the full migration gate is approved.
+### Service vertical slice
+
+`tools/corpus/legacy_service.py` migrates the existing service runtime grammar
+into canonical `active_probe` and `service_matcher` records. Its byte-oriented
+tokenizer mirrors the runtime escape semantics for `send` and `pattern` tokens,
+including `\r`, `\n`, `\t`, `\\`, `\"`, valid `\xNN`, and preservation of
+unknown escapes. Probe defaults, transport, rarity, priority, timeout, port
+hints, fallback order, payload bytes, matcher strength, matcher type, metadata,
+confidence, declaration order, and rule order are all semantic inputs.
+
+The migration fails closed on ambiguous or lossy source state. It validates
+unique probe names, fallback existence, same-transport fallback references,
+matcher ownership, contiguous declaration/rule ordering, runtime pattern bounds,
+and bounded-regex policy. Canonical CPE metadata is rejected by the current
+service compiler because the runtime service grammar has no CPE field; metadata
+is never silently dropped.
+
+`tools/corpus/service_pipeline.py` proves both serialization boundaries:
+
+```text
+data/service-probes.db
+  -> active_probe + service_matcher canonical records
+  -> deterministic JSONL reload
+  -> generated service-probes.db
+  -> semantic reload
+```
+
+The service corpus test gate then compiles a narrow helper against the production
+`ServiceProbeDatabase` implementation. The real C++ loader must produce the same
+ordered probes, transport, ports, fallback order, timeout, payload bytes, matcher
+pattern bytes, matcher type/strength, metadata, confidence, specificity, and
+regex construction state for the checked-in and generated runtime databases.
+This makes loader behavior—not the Python migration parser—the final semantic
+authority for the slice.
+
+Neither migration slice makes canonical data authoritative yet. The checked-in
+`data/udp-probes.db` and `data/service-probes.db` remain the runtime sources of
+truth until all required corpus families have migration/compiler coverage,
+cross-record validation and manifest generation are complete, packaging consumes
+generated artifacts, and the full production-authority gate is approved.
