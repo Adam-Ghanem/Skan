@@ -228,6 +228,25 @@ int main()
     {
         skan::io::IOEngine engine;
         RecordingServiceTransport transport;
+        ServiceDetectionConfig config{1U, std::chrono::milliseconds{100}, 3U, 1U};
+        const ServiceProbeDatabase database = demo_database();
+        ServiceScheduler scheduler(engine, transport, database, config);
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+        const auto submission = transport.submissions().front();
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Data,
+                           0, {'A', 'B'}, false, DetectionClock::now()});
+        assert(!scheduler.complete());
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Data,
+                           0, {'C', 'D'}, false, DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == DetectionState::ResponseTooLarge);
+        assert(scheduler.results().front().error == DetectionError::ResponseTooLarge);
+    }
+
+    {
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
         const ServiceProbeDatabase database = ServiceProbeDatabase::built_in();
         ServiceDetectionConfig config{1U, std::chrono::milliseconds{100}, 32U, 1U};
         assert(engine.shutdown() == skan::core::StatusCode::Ok);
