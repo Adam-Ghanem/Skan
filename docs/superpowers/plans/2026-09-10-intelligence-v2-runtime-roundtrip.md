@@ -50,11 +50,11 @@
 - Consumes: `ImportContext` and canonical body types.
 - Produces: `parse_udp_runtime(text: bytes, context: ImportContext) -> tuple[CanonicalRecord, ...]` and `parse_os_runtime(text: bytes, address_family: str, context: ImportContext) -> tuple[CanonicalRecord, ...]`.
 
-- [ ] **Step 1: Write failing tests.** Cover ordered UDP records and the required port-zero default; cover IPv4/IPv6 metadata, class fields, all supported typed OS operators, source block hashes, and duplicate/unknown/mixed-family failures.
-- [ ] **Step 2: Verify RED.** Run the two new focused test classes and confirm missing API failures.
-- [ ] **Step 3: Implement minimal bounded parsers.** Reuse strict helpers, map every current OS directive to the canonical field/operator/value representation, and reject any syntax not accepted by the schema.
-- [ ] **Step 4: Verify GREEN.** Run focused tests and `make test-corpus`.
-- [ ] **Step 5: Commit.** Commit as `feat(corpus): import udp and os runtime records`.
+- [x] **Step 1: Write failing tests.** Cover ordered UDP records and the required port-zero default; cover IPv4/IPv6 metadata, class fields, all supported typed OS operators, source block hashes, and duplicate/unknown/mixed-family failures.
+- [x] **Step 2: Verify RED.** Run the two new focused test classes and confirm missing API failures.
+- [x] **Step 3: Implement minimal bounded parsers.** Reuse strict helpers, map every current OS directive to the canonical field/operator/value representation, and reject any syntax not accepted by the schema.
+- [x] **Step 4: Verify GREEN.** Run focused tests and `make test-corpus`.
+- [x] **Step 5: Commit.** Commit as `feat(corpus): import udp and os runtime records`.
 
 ### Task 3: Deterministic compiler and whole-corpus validation
 

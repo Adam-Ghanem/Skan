@@ -657,17 +657,19 @@ def parse_os_runtime(
     ids: set[str] = set()
     current: _OSFingerprint | None = None
     material = bytearray()
-    for line_number, raw_line_with_newline in enumerate(text.splitlines(keepends=True), 1):
-        raw_line = raw_line_with_newline.rstrip(b"\n")
+    lines = text.split(b"\n")
+    for line_number, raw_line in enumerate(lines, 1):
         if len(raw_line) > 4096:
             raise RuntimeCorpusError(f"line {line_number} exceeds 4096 bytes")
+        canonical_line = raw_line[:-1] if raw_line.endswith(b"\r") else raw_line
+        canonical_material = canonical_line + (b"\n" if line_number < len(lines) else b"")
         content = raw_line.strip(b" \t\r")
         comment = content.find(b"#")
         if comment >= 0:
             content = content[:comment].strip(b" \t\r")
         if content.startswith(b"Fingerprint "):
             _finalize_os(current, bytes(material), context, records)
-            material = bytearray(raw_line_with_newline)
+            material = bytearray(canonical_material)
             name = _runtime_text(content[len(b"Fingerprint ") :].strip(b" \t\r"), "OS fingerprint name")
             if not name:
                 raise RuntimeCorpusError(f"line {line_number}: empty OS fingerprint name")
@@ -679,7 +681,7 @@ def parse_os_runtime(
             current = _OSFingerprint(name=name, runtime_id=name, address_family=address_family)
             continue
         if current is not None:
-            material.extend(raw_line_with_newline)
+            material.extend(canonical_material)
         if not content:
             continue
         if current is None:

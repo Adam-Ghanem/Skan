@@ -348,6 +348,15 @@ class RuntimeOSImportTests(unittest.TestCase):
         self.assert_rejected(OS_RUNTIME.replace(b"ADDRESS_FAMILY=IPv4", b"ADDRESS_FAMILY=IPv6"), "mixed OS address family")
         self.assert_rejected(OS_RUNTIME, "address_family must be ipv4 or ipv6", "inet")
 
+    def test_uses_lf_only_boundaries_and_lf_normalized_source_block_hashes(self) -> None:
+        lf_records = self.parse()
+        crlf_records = self.parse(OS_RUNTIME.replace(b"\n", b"\r\n"))
+        self.assertEqual(crlf_records, lf_records)
+        self.assertEqual(crlf_records[0].provenance[0].record_hash, OS_RUNTIME_HASH)
+        for separator in (b"\r", b"\v", b"\f"):
+            with self.subTest(separator=separator):
+                self.assert_rejected(OS_RUNTIME.replace(b"\n", separator), "incomplete OS fingerprint")
+
 
 if __name__ == "__main__":
     unittest.main()
