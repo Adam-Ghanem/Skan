@@ -167,6 +167,20 @@ class RuntimeServiceImportTests(unittest.TestCase):
                     "invalid ECMAScript regex",
                 )
 
+    def test_rejects_character_class_with_more_than_runtime_capture_bound_parentheses(self) -> None:
+        self.assert_rejected(
+            b'Probe TCP One\nsend "A"\nmatch type=regex pattern="['
+            + (b"(" * 17)
+            + b']" service=a confidence=0.5\n',
+            "invalid ECMAScript regex",
+        )
+
+    def test_rejects_line_bounded_huge_decimal_with_typed_error(self) -> None:
+        self.assert_rejected(
+            b"Probe TCP One rarity=" + (b"9" * 5000) + b'\nsend "A"\n',
+            "invalid rarity",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

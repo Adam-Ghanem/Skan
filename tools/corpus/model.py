@@ -186,6 +186,11 @@ def runtime_regex_is_valid(pattern: bytes) -> bool:
             if character == ord("\\"):
                 escaped = True
                 class_has_content = True
+            elif character == ord("("):
+                captures += 1
+                if captures > 16:
+                    return False
+                class_has_content = True
             elif character == ord("]") and class_has_content:
                 in_class = False
                 can_quantify = True
@@ -248,7 +253,10 @@ def runtime_regex_is_valid(pattern: bytes) -> bool:
             if re.fullmatch(rb"[0-9]+(?:,[0-9]*)?", quantifier) is None:
                 return False
             minimum_text, comma, maximum_text = quantifier.partition(b",")
-            if comma and maximum_text and int(maximum_text) < int(minimum_text):
+            try:
+                if comma and maximum_text and int(maximum_text) < int(minimum_text):
+                    return False
+            except (ValueError, OverflowError):
                 return False
             index = closing
             can_quantify = False
@@ -266,7 +274,7 @@ def runtime_regex_is_valid(pattern: bytes) -> bool:
         return False
     try:
         re.compile(pattern)
-    except re.error:
+    except (re.error, OverflowError, ValueError):
         return False
     return True
 

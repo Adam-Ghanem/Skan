@@ -11,6 +11,7 @@ from tools.corpus.model import (
     OSFingerprintSemantics,
     UDPProbeSemantics,
     parse_record,
+    runtime_regex_is_valid,
     stable_record_id,
 )
 from tools.corpus.sources import load_source_manifest
@@ -331,6 +332,12 @@ class CanonicalRecordTests(unittest.TestCase):
         value["body"]["pattern"] = None  # type: ignore[index]
         value["body"]["pattern_hex"] = b"a**".hex()  # type: ignore[index]
         self.assert_rejected(value, "regex is not runtime-compatible")
+
+    def test_rejects_character_class_with_more_than_runtime_capture_bound_parentheses(self) -> None:
+        self.assertFalse(runtime_regex_is_valid(b"[" + (b"(" * 17) + b"]"))
+
+    def test_rejects_oversized_regex_repeat_without_leaking_an_overflow(self) -> None:
+        self.assertFalse(runtime_regex_is_valid(b"a{999999999999999999999999999999}"))
 
     def test_enforces_active_and_udp_runtime_bounds(self) -> None:
         value = valid_active_probe_record()

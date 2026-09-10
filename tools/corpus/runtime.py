@@ -173,7 +173,10 @@ def _unsigned(value: bytes, field_name: str, minimum: int, maximum: int) -> int:
     text = _ascii(value, field_name)
     if not text.isdecimal():
         raise RuntimeCorpusError(f"invalid {field_name}")
-    result = int(text)
+    try:
+        result = int(text)
+    except ValueError as error:
+        raise RuntimeCorpusError(f"invalid {field_name}") from error
     if not minimum <= result <= maximum:
         raise RuntimeCorpusError(f"invalid {field_name}")
     return result
