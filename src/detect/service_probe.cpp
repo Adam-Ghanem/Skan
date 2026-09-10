@@ -402,11 +402,11 @@ void ServiceTcpTransport::on_readable(ServiceProbeId id) noexcept
                 if (remaining > 0U) {
                     connection.response.insert(connection.response.end(), buffer, buffer + remaining);
                 }
-                emit(id, ServiceResponseKind::Data, connection.response.data(), connection.response.size(), true, 0);
+                emit(id, ServiceResponseKind::Data, buffer, remaining, true, 0);
                 return;
             }
             connection.response.insert(connection.response.end(), buffer, buffer + count);
-            emit(id, ServiceResponseKind::Data, connection.response.data(), connection.response.size(), false, 0);
+            emit(id, ServiceResponseKind::Data, buffer, count, false, 0);
             return;
         }
         if (received == 0) {

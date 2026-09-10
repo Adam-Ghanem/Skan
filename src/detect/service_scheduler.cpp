@@ -241,6 +241,16 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
     }
 
     if (assessment == core::StatusCode::Ok && !chunk.empty()) {
+        if (pending.response.size() > config_.max_response_bytes ||
+            chunk.size() > config_.max_response_bytes - pending.response.size()) {
+            complete_pending(
+                response.id,
+                DetectionState::ResponseTooLarge,
+                DetectionError::ResponseTooLarge,
+                nullptr,
+                response.received_at == DetectionTimePoint{} ? DetectionClock::now() : response.received_at);
+            return;
+        }
         try {
             pending.response += chunk;
         } catch (const std::bad_alloc &) {

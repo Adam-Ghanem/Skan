@@ -4,8 +4,11 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdlib>
+#include <fcntl.h>
 #include <netinet/in.h>
+#include <string>
 #include <utility>
+#include <vector>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -84,6 +87,32 @@ void serve_once(int listener, const char *response)
     ::_exit(client >= 0 ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
+void serve_fragmented_http(int listener, int release_fd)
+{
+    const int client = ::accept4(listener, nullptr, nullptr, SOCK_CLOEXEC);
+    bool served = client >= 0;
+    if (served) {
+        char request[512];
+        served = ::recv(client, request, sizeof(request), 0) > 0;
+    }
+    if (served) {
+        static constexpr char first[] = "H";
+        static constexpr char rest[] =
+            "TTP/1.1 200 OK\r\nServer: Apache/2.4.29\r\nConnection: close\r\n\r\n";
+        served = ::send(client, first, sizeof(first) - 1U, MSG_NOSIGNAL) ==
+                 static_cast<ssize_t>(sizeof(first) - 1U);
+        char release = '\0';
+        served = served && ::read(release_fd, &release, 1U) == 1 && release == 'R';
+        served = served && ::send(client, rest, sizeof(rest) - 1U, MSG_NOSIGNAL) ==
+                               static_cast<ssize_t>(sizeof(rest) - 1U);
+        (void)::shutdown(client, SHUT_WR);
+        (void)::close(client);
+    }
+    (void)::close(release_fd);
+    (void)::close(listener);
+    ::_exit(served ? EXIT_SUCCESS : EXIT_FAILURE);
+}
+
 } // namespace
 
 int main()
@@ -141,6 +170,63 @@ int main()
     assert(WIFEXITED(http_status));
     assert(WEXITSTATUS(ssh_status) == EXIT_SUCCESS);
     assert(WEXITSTATUS(http_status) == EXIT_SUCCESS);
+
+    const int fragmented_listener = make_listener();
+    const std::uint16_t fragmented_port = listener_port(fragmented_listener);
+    int release_pipe[2]{};
+    assert(::pipe2(release_pipe, O_CLOEXEC) == 0);
+    const pid_t fragmented_child = ::fork();
+    assert(fragmented_child >= 0);
+    if (fragmented_child == 0) {
+        (void)::close(release_pipe[1]);
+        serve_fragmented_http(fragmented_listener, release_pipe[0]);
+    }
+    (void)::close(release_pipe[0]);
+    skan::detect::ServiceTcpTransport fragmented_transport(engine);
+    skan::detect::ServiceSubmission fragmented_submission;
+    fragmented_submission.id = 10'000U;
+    fragmented_submission.target = "127.0.0.1";
+    fragmented_submission.port = {fragmented_port, skan::portscan::Protocol::Tcp};
+    fragmented_submission.probe_id = "fragmented-http";
+    fragmented_submission.probe_name = "HTTPGet";
+    const std::string request = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
+    fragmented_submission.payload.assign(request.begin(), request.end());
+    fragmented_submission.max_response_bytes = 4096U;
+    fragmented_submission.target_ip = skan::core::IpAddress::from_ipv4(0x7F000001U);
+    std::vector<std::string> data_chunks;
+    bool fragmented_terminal = false;
+    assert(fragmented_transport.submit(
+               fragmented_submission,
+               [&](const skan::detect::ServiceResponse &response) {
+                   if (response.kind == skan::detect::ServiceResponseKind::Data) {
+                       data_chunks.emplace_back(
+                           reinterpret_cast<const char *>(response.bytes.data()), response.bytes.size());
+                       if (data_chunks.size() == 1U) {
+                           const char release = 'R';
+                           assert(::write(release_pipe[1], &release, 1U) == 1);
+                       }
+                   } else {
+                       fragmented_terminal = true;
+                   }
+               }) == skan::core::StatusCode::Ok);
+    for (std::size_t iteration = 0U; iteration < 10U && !fragmented_terminal; ++iteration) {
+        assert(engine.run_once(500) == skan::core::StatusCode::Ok);
+    }
+    assert(fragmented_terminal);
+    assert(!data_chunks.empty());
+    assert(data_chunks[0] == "H");
+    std::string fragmented_response;
+    for (const std::string &chunk : data_chunks) {
+        fragmented_response += chunk;
+    }
+    assert(fragmented_response ==
+           "HTTP/1.1 200 OK\r\nServer: Apache/2.4.29\r\nConnection: close\r\n\r\n");
+    assert(::close(release_pipe[1]) == 0);
+    assert(::close(fragmented_listener) == 0);
+    int fragmented_status = 0;
+    assert(::waitpid(fragmented_child, &fragmented_status, 0) == fragmented_child);
+    assert(WIFEXITED(fragmented_status));
+    assert(WEXITSTATUS(fragmented_status) == EXIT_SUCCESS);
 
     const int ipv6_ssh_listener = make_ipv6_listener();
     const int ipv6_http_listener = make_ipv6_listener();

@@ -70,3 +70,34 @@ That gate must compare deterministic semantic manifests for service probes,
 match rules, UDP definitions, and both IPv4 and IPv6 OS fingerprints. It must
 also resolve cross-record references and conflicts without weakening current
 loader bounds.
+
+### UDP vertical slice
+
+UDP is the first migration slice because its current runtime grammar is small,
+bounded, and exposes a direct ordered definition model. `tools/corpus/legacy_udp.py`
+mirrors the production `UDPProbeDatabase::parse` semantics needed by the owned
+corpus, normalizes payload hexadecimal, assigns deterministic declaration order,
+binds each record to the pinned first-party source policy, and compiles canonical
+records back into the current runtime grammar.
+
+`tools/corpus/udp_pipeline.py` verifies both serialization boundaries:
+
+```text
+data/udp-probes.db
+  -> canonical UDP records
+  -> deterministic JSONL reload
+  -> generated udp-probes.db
+  -> semantic reload
+```
+
+The corpus test suite also compiles a narrow test helper against the production
+`src/portscan/udp_scan.cpp` implementation and requires the real C++ loader to
+produce the same ordered definitions, port index behavior, default probe,
+payload bytes, protocol hints, and response bounds for the legacy and generated
+runtime databases.
+
+This slice does **not** make canonical UDP data authoritative yet. The checked-in
+`data/udp-probes.db` remains the runtime source of truth until all required
+corpus families have migration/compiler coverage, cross-record validation and
+manifest generation are complete, packaging consumes generated artifacts, and
+the full migration gate is approved.
