@@ -3,8 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from tools.corpus.model import ActiveProbeSemantics, ServiceMatcherSemantics
-from tools.corpus.runtime import ImportContext, RuntimeCorpusError, parse_service_runtime
+from tools.corpus.model import (
+    ActiveProbeSemantics,
+    OSFingerprintSemantics,
+    ServiceMatcherSemantics,
+    UDPProbeSemantics,
+)
+from tools.corpus.runtime import (
+    ImportContext,
+    RuntimeCorpusError,
+    parse_os_runtime,
+    parse_service_runtime,
+    parse_udp_runtime,
+)
 from tools.corpus.sources import load_source_manifest
 
 
@@ -13,6 +24,9 @@ POLICY = load_source_manifest(ROOT / "corpus" / "sources" / "sources.json")[
     "skan-first-party"
 ]
 CONTEXT = ImportContext(POLICY, "data/service-probes.db")
+UDP_CONTEXT = ImportContext(POLICY, "data/udp-probes.db")
+OS4_CONTEXT = ImportContext(POLICY, "data/os-fingerprints.db")
+OS6_CONTEXT = ImportContext(POLICY, "data/os-fingerprints-v6.db")
 
 
 SERVICE_RUNTIME = b'''\
@@ -27,6 +41,41 @@ match type=regex pattern="^HTTP/([0-9.]+).*Server: Apache/([0-9.]+)" service=htt
 match type=prefix pattern="\\x16\\x03" service=tls product=TLS confidence=0.75
 match type=regex pattern="\\x00ABC" service=binary product=Binary confidence=0.70
 '''
+
+UDP_RUNTIME = b'''\
+# Synthetic project-owned UDP fixture.
+probe DNS 53 dns 512 1234
+probe NTP 123 ntp 2048 1B00
+probe DEFAULT 0 generic 512 00
+'''
+
+OS_RUNTIME = b'''\
+Fingerprint CompleteStack
+ID=complete-stack-v4
+SPECIFICITY=20
+ADDRESS_FAMILY=IPv4
+Class Example Vendor | Example Family | 1.0 | appliance
+TTL=64
+WINDOW_RANGE=1024-4096
+MSS=1460
+WSCALE=7
+TCP_FLAGS=18
+ICMP_TTL=64
+ICMP_TYPE=3
+ICMP_CODE=3
+UDP_PAYLOAD_LENGTH=42
+DF=YES
+SACK=0
+TIMESTAMP=1
+TCP_OPTIONS=MSS,WSCALE,SACK,TIMESTAMP,NOP
+UDP_RESPONSE_BEHAVIOR=UDP_RESPONSE
+RESPONSE_PRESENCE=N
+ACK_BEHAVIOR=ACKNOWLEDGES_SYN
+SEQUENCE_BEHAVIOR=INCREMENTAL
+RESPONSE_BEHAVIOR=SYN_ACK
+'''
+
+OS_RUNTIME_HASH = "sha256:94dcb236b214d2dcb9c50b7edda1f2e8a59461586be620eb2bd1860f9dbc3ef5"
 
 
 class RuntimeServiceImportTests(unittest.TestCase):
@@ -180,6 +229,124 @@ class RuntimeServiceImportTests(unittest.TestCase):
             b"Probe TCP One rarity=" + (b"9" * 5000) + b'\nsend "A"\n',
             "invalid rarity",
         )
+
+
+class RuntimeUDPImportTests(unittest.TestCase):
+    def parse(self, value: bytes = UDP_RUNTIME):
+        return parse_udp_runtime(value, UDP_CONTEXT)
+
+    def assert_rejected(self, value: bytes, message: str) -> None:
+        with self.assertRaisesRegex(RuntimeCorpusError, message):
+            self.parse(value)
+
+    def test_imports_ordered_udp_records_and_required_default(self) -> None:
+        records = self.parse()
+        self.assertEqual(len(records), 3)
+        self.assertTrue(all(record.kind == "udp_probe" for record in records))
+        self.assertEqual([record.body.name for record in records], ["DNS", "NTP", "DEFAULT"])
+
+        dns, ntp, default = (record.body for record in records)
+        self.assertIsInstance(dns, UDPProbeSemantics)
+        self.assertEqual(dns.destination_port, 53)
+        self.assertEqual(dns.protocol_hint, "dns")
+        self.assertEqual(dns.max_response_bytes, 512)
+        self.assertEqual(dns.payload_hex, "1234")
+        self.assertEqual(dns.declaration_order, 0)
+        self.assertEqual(ntp.payload_hex, "1b00")
+        self.assertEqual(ntp.declaration_order, 1)
+        self.assertEqual(default.destination_port, 0)
+        self.assertEqual(default.name, "DEFAULT")
+        self.assertEqual(default.declaration_order, 2)
+        self.assertEqual(
+            records[0].provenance[0].source_record_id,
+            "data/udp-probes.db:probe:DNS",
+        )
+
+    def test_imports_current_first_party_udp_runtime(self) -> None:
+        records = self.parse((ROOT / "data" / "udp-probes.db").read_bytes())
+        self.assertEqual(len(records), 21)
+        self.assertEqual(sum(record.body.destination_port == 0 for record in records), 1)
+        self.assertEqual(records[-1].body.name, "DEFAULT")
+
+    def test_rejects_duplicate_ports_names_unknown_syntax_and_missing_default(self) -> None:
+        self.assert_rejected(
+            b"probe One 53 x 1 00\nprobe Two 53 y 1 00\nprobe DEFAULT 0 generic 1 00\n",
+            "duplicate UDP port.*53",
+        )
+        self.assert_rejected(
+            b"probe One 1 x 1 00\nprobe One 2 y 1 00\nprobe DEFAULT 0 generic 1 00\n",
+            "duplicate UDP probe name.*One",
+        )
+        self.assert_rejected(b"probe One 1 x 1 00\n", "missing DEFAULT UDP probe")
+        self.assert_rejected(
+            b"probe DEFAULT 1 generic 1 00\nprobe DEFAULT 0 generic 1 00\n",
+            "port 0 is reserved for DEFAULT",
+        )
+        self.assert_rejected(b"unknown One 1 x 1 00\n", "malformed UDP probe")
+
+
+class RuntimeOSImportTests(unittest.TestCase):
+    def parse(self, value: bytes = OS_RUNTIME, address_family: str = "ipv4"):
+        return parse_os_runtime(value, address_family, OS4_CONTEXT)
+
+    def assert_rejected(self, value: bytes, message: str, address_family: str = "ipv4") -> None:
+        with self.assertRaisesRegex(RuntimeCorpusError, message):
+            self.parse(value, address_family)
+
+    def test_imports_metadata_class_typed_operators_and_source_block_hash(self) -> None:
+        records = self.parse()
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record.kind, "os_fingerprint")
+        self.assertIsInstance(record.body, OSFingerprintSemantics)
+        body = record.body
+        self.assertEqual(body.runtime_id, "complete-stack-v4")
+        self.assertEqual(body.name, "CompleteStack")
+        self.assertEqual(body.vendor, "Example Vendor")
+        self.assertEqual(body.os_family, "Example Family")
+        self.assertEqual(body.os_generation, "1.0")
+        self.assertEqual(body.device_type, "appliance")
+        self.assertEqual(body.address_family, "ipv4")
+        self.assertEqual(body.specificity, 20)
+        self.assertEqual(
+            {(signature.field, signature.operator, signature.value) for signature in body.signatures},
+            {
+                ("ttl", "eq", 64),
+                ("window", "range", (1024, 4096)),
+                ("mss", "eq", 1460),
+                ("window_scale", "eq", 7),
+                ("tcp_flags", "eq", 18),
+                ("icmp_ttl", "eq", 64),
+                ("icmp_type", "eq", 3),
+                ("icmp_code", "eq", 3),
+                ("udp_payload_length", "eq", 42),
+                ("dont_fragment", "bool", True),
+                ("sack_permitted", "bool", False),
+                ("timestamps", "bool", True),
+                ("tcp_options", "tcp_options", ("MSS", "WS", "SACK", "TS", "NOP")),
+                ("udp_response_behavior", "text", "UDP_RESPONSE"),
+                ("response_presence", "bool", False),
+                ("ack_behavior", "text", "ACKNOWLEDGES_SYN"),
+                ("sequence_behavior", "text", "INCREMENTAL"),
+                ("response_behavior", "text", "SYN_ACK"),
+            },
+        )
+        self.assertEqual(record.provenance[0].source_record_id, "data/os-fingerprints.db:fingerprint:complete-stack-v4")
+        self.assertEqual(record.provenance[0].record_hash, OS_RUNTIME_HASH)
+
+    def test_imports_ipv4_and_ipv6_metadata_from_current_first_party_runtime(self) -> None:
+        ipv4 = parse_os_runtime((ROOT / "data" / "os-fingerprints.db").read_bytes(), "ipv4", OS4_CONTEXT)
+        ipv6 = parse_os_runtime((ROOT / "data" / "os-fingerprints-v6.db").read_bytes(), "ipv6", OS6_CONTEXT)
+        self.assertEqual(len(ipv4), 27)
+        self.assertEqual(len(ipv6), 24)
+        self.assertTrue(all(record.body.address_family == "ipv4" for record in ipv4))
+        self.assertTrue(all(record.body.address_family == "ipv6" for record in ipv6))
+
+    def test_rejects_duplicate_unknown_and_mixed_family_fields(self) -> None:
+        self.assert_rejected(OS_RUNTIME.replace(b"TTL=64\n", b"TTL=64\nTTL_RANGE=1-64\n"), "duplicate OS signature field.*ttl")
+        self.assert_rejected(OS_RUNTIME + b"UNSUPPORTED=1\n", "unknown OS directive.*UNSUPPORTED")
+        self.assert_rejected(OS_RUNTIME.replace(b"ADDRESS_FAMILY=IPv4", b"ADDRESS_FAMILY=IPv6"), "mixed OS address family")
+        self.assert_rejected(OS_RUNTIME, "address_family must be ipv4 or ipv6", "inet")
 
 
 if __name__ == "__main__":

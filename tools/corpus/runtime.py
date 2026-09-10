@@ -73,6 +73,21 @@ class _Probe:
     rules: list[_Rule] = field(default_factory=list)
 
 
+@dataclass
+class _OSFingerprint:
+    name: str
+    runtime_id: str
+    address_family: str
+    vendor: str | None = None
+    os_family: str | None = None
+    os_generation: str = ""
+    device_type: str = ""
+    specificity: int | None = None
+    has_address_family: bool = False
+    signatures: list[dict[str, Any]] = field(default_factory=list)
+    fields: set[str] = field(default_factory=set)
+
+
 def _without_comment(line: bytes) -> bytes:
     quoted = False
     escaped = False
@@ -457,4 +472,315 @@ def parse_service_runtime(text: bytes, context: ImportContext) -> tuple[Canonica
                     context,
                 )
             )
+    return tuple(records)
+
+
+def _runtime_text(value: bytes, context: str) -> str:
+    return _text(value, context)
+
+
+def _udp_hex(value: bytes, line_number: int) -> str:
+    if not value or len(value) % 2 or len(value) // 2 > 512:
+        raise RuntimeCorpusError(f"line {line_number}: invalid UDP payload")
+    if any(character not in _HEX_DIGITS for character in value):
+        raise RuntimeCorpusError(f"line {line_number}: invalid UDP payload")
+    return value.decode("ascii").lower()
+
+
+def parse_udp_runtime(text: bytes, context: ImportContext) -> tuple[CanonicalRecord, ...]:
+    if not isinstance(text, bytes):
+        raise RuntimeCorpusError("UDP runtime input must be bytes")
+    if len(text) > _MAX_DATABASE_BYTES:
+        raise RuntimeCorpusError(f"database exceeds {_MAX_DATABASE_BYTES} bytes")
+    if "udp_probe" not in context.source.approved_data_classes:
+        raise RuntimeCorpusError("source policy does not authorize UDP runtime records")
+
+    records: list[CanonicalRecord] = []
+    names: set[str] = set()
+    ports: set[int] = set()
+    has_default = False
+    for line_number, raw_line in enumerate(text.split(b"\n"), 1):
+        if len(raw_line) > _MAX_LINE_BYTES:
+            raise RuntimeCorpusError(f"line {line_number} exceeds {_MAX_LINE_BYTES} bytes")
+        content = raw_line.strip(_SPACE)
+        if not content or content.startswith(b"#"):
+            continue
+        tokens = content.split()
+        if len(tokens) != 6 or tokens[0] != b"probe":
+            raise RuntimeCorpusError(f"line {line_number}: malformed UDP probe")
+        name = _ascii(tokens[1], f"line {line_number} UDP probe name")
+        destination_port = _unsigned(tokens[2], "UDP destination port", 0, 65535)
+        protocol_hint = _ascii(tokens[3], f"line {line_number} UDP protocol hint")
+        max_response_bytes = _unsigned(
+            tokens[4], "UDP max_response_bytes", 1, 1 << 20
+        )
+        payload_hex = _udp_hex(tokens[5], line_number)
+        if name in names:
+            raise RuntimeCorpusError(f"line {line_number}: duplicate UDP probe name: {name}")
+        if destination_port in ports:
+            raise RuntimeCorpusError(
+                f"line {line_number}: duplicate UDP port: {destination_port}"
+            )
+        if (destination_port == 0) != (name == "DEFAULT"):
+            raise RuntimeCorpusError("port 0 is reserved for DEFAULT")
+        if len(records) >= _MAX_PROBES:
+            raise RuntimeCorpusError(f"UDP probe count exceeds {_MAX_PROBES}")
+        names.add(name)
+        ports.add(destination_port)
+        if destination_port == 0:
+            has_default = True
+        records.append(
+            _record(
+                "udp_probe",
+                {
+                    "name": name,
+                    "destination_port": destination_port,
+                    "protocol_hint": protocol_hint,
+                    "max_response_bytes": max_response_bytes,
+                    "payload_hex": payload_hex,
+                    "declaration_order": len(records),
+                },
+                f"{context.source_path}:probe:{name}",
+                content,
+                context,
+            )
+        )
+    if not records:
+        raise RuntimeCorpusError("UDP runtime contains no probes")
+    if not has_default:
+        raise RuntimeCorpusError("missing DEFAULT UDP probe")
+    return tuple(records)
+
+
+_OS_NUMERIC_DIRECTIVES = {
+    b"TTL": ("ttl", 0, 255),
+    b"WINDOW": ("window", 0, 65535),
+    b"MSS": ("mss", 0, 65535),
+    b"WSCALE": ("window_scale", 0, 255),
+    b"TCP_FLAGS": ("tcp_flags", 0, 255),
+    b"ICMP_TTL": ("icmp_ttl", 0, 255),
+    b"ICMP_TYPE": ("icmp_type", 0, 255),
+    b"ICMP_CODE": ("icmp_code", 0, 255),
+    b"UDP_PAYLOAD_LENGTH": ("udp_payload_length", 0, 65535),
+}
+_OS_RANGE_DIRECTIVES = {
+    b"TTL_RANGE": ("ttl", 0, 255),
+    b"WINDOW_RANGE": ("window", 0, 65535),
+    b"ICMP_TTL_RANGE": ("icmp_ttl", 0, 255),
+    b"UDP_PAYLOAD_RANGE": ("udp_payload_length", 0, 65535),
+}
+_OS_BOOLEAN_DIRECTIVES = {
+    b"DF": "dont_fragment",
+    b"SACK": "sack_permitted",
+    b"TIMESTAMP": "timestamps",
+    b"RESPONSE_PRESENCE": "response_presence",
+}
+_OS_TEXT_DIRECTIVES = {
+    b"ACK_BEHAVIOR": "ack_behavior",
+    b"SEQUENCE_BEHAVIOR": "sequence_behavior",
+    b"RESPONSE_BEHAVIOR": "response_behavior",
+    b"UDP_RESPONSE_BEHAVIOR": "udp_response_behavior",
+}
+
+
+def _os_boolean(value: bytes, line_number: int) -> bool:
+    normalized = value.strip(b" \t\r")
+    if normalized in (b"Y", b"YES", b"1"):
+        return True
+    if normalized in (b"N", b"NO", b"0"):
+        return False
+    raise RuntimeCorpusError(f"line {line_number}: invalid OS boolean")
+
+
+def _os_range(value: bytes, field: str, minimum: int, maximum: int) -> list[int]:
+    lower, separator, upper = value.partition(b"-")
+    if not separator or not lower or not upper or b"-" in upper:
+        raise RuntimeCorpusError(f"invalid {field} range")
+    parsed_lower = _unsigned(lower.strip(b" \t\r"), field, minimum, maximum)
+    parsed_upper = _unsigned(upper.strip(b" \t\r"), field, minimum, maximum)
+    if parsed_upper < parsed_lower:
+        raise RuntimeCorpusError(f"invalid {field} range")
+    return [parsed_lower, parsed_upper]
+
+
+def _finalize_os(
+    fingerprint: _OSFingerprint | None,
+    material: bytes,
+    context: ImportContext,
+    records: list[CanonicalRecord],
+) -> None:
+    if fingerprint is None:
+        return
+    if (
+        fingerprint.vendor is None
+        or fingerprint.os_family is None
+        or not fingerprint.signatures
+        or (fingerprint.address_family == "ipv6" and not fingerprint.has_address_family)
+    ):
+        raise RuntimeCorpusError(f"incomplete OS fingerprint: {fingerprint.name}")
+    specificity = fingerprint.specificity if fingerprint.specificity is not None else len(fingerprint.signatures)
+    records.append(
+        _record(
+            "os_fingerprint",
+            {
+                "runtime_id": fingerprint.runtime_id,
+                "name": fingerprint.name,
+                "vendor": fingerprint.vendor,
+                "os_family": fingerprint.os_family,
+                "os_generation": fingerprint.os_generation,
+                "device_type": fingerprint.device_type,
+                "address_family": fingerprint.address_family,
+                "specificity": specificity,
+                "signatures": fingerprint.signatures,
+            },
+            f"{context.source_path}:fingerprint:{fingerprint.runtime_id}",
+            material,
+            context,
+        )
+    )
+
+
+def parse_os_runtime(
+    text: bytes, address_family: str, context: ImportContext
+) -> tuple[CanonicalRecord, ...]:
+    if not isinstance(text, bytes):
+        raise RuntimeCorpusError("OS runtime input must be bytes")
+    if address_family not in ("ipv4", "ipv6"):
+        raise RuntimeCorpusError("address_family must be ipv4 or ipv6")
+    if len(text) > _MAX_DATABASE_BYTES:
+        raise RuntimeCorpusError(f"database exceeds {_MAX_DATABASE_BYTES} bytes")
+    if "os_fingerprint" not in context.source.approved_data_classes:
+        raise RuntimeCorpusError("source policy does not authorize OS runtime records")
+
+    records: list[CanonicalRecord] = []
+    names: set[str] = set()
+    ids: set[str] = set()
+    current: _OSFingerprint | None = None
+    material = bytearray()
+    for line_number, raw_line_with_newline in enumerate(text.splitlines(keepends=True), 1):
+        raw_line = raw_line_with_newline.rstrip(b"\n")
+        if len(raw_line) > 4096:
+            raise RuntimeCorpusError(f"line {line_number} exceeds 4096 bytes")
+        content = raw_line.strip(b" \t\r")
+        comment = content.find(b"#")
+        if comment >= 0:
+            content = content[:comment].strip(b" \t\r")
+        if content.startswith(b"Fingerprint "):
+            _finalize_os(current, bytes(material), context, records)
+            material = bytearray(raw_line_with_newline)
+            name = _runtime_text(content[len(b"Fingerprint ") :].strip(b" \t\r"), "OS fingerprint name")
+            if not name:
+                raise RuntimeCorpusError(f"line {line_number}: empty OS fingerprint name")
+            if name in names:
+                raise RuntimeCorpusError(f"line {line_number}: duplicate OS fingerprint name: {name}")
+            if len(records) >= _MAX_PROBES:
+                raise RuntimeCorpusError(f"OS fingerprint count exceeds {_MAX_PROBES}")
+            names.add(name)
+            current = _OSFingerprint(name=name, runtime_id=name, address_family=address_family)
+            continue
+        if current is not None:
+            material.extend(raw_line_with_newline)
+        if not content:
+            continue
+        if current is None:
+            raise RuntimeCorpusError(f"line {line_number}: OS directive without Fingerprint")
+        if content.startswith(b"Class "):
+            if "Class" in current.fields:
+                raise RuntimeCorpusError(f"line {line_number}: duplicate OS field: Class")
+            values = [part.strip(b" \t\r") for part in content[len(b"Class ") :].split(b"|")]
+            if len(values) not in (2, 3, 4) or any(not value for value in values):
+                raise RuntimeCorpusError(f"line {line_number}: malformed OS Class")
+            current.vendor = _runtime_text(values[0], "OS vendor")
+            current.os_family = _runtime_text(values[1], "OS family")
+            current.os_generation = _runtime_text(values[2], "OS generation") if len(values) >= 3 else ""
+            current.device_type = _runtime_text(values[3], "OS device type") if len(values) == 4 else ""
+            current.fields.add("Class")
+            continue
+        key, separator, value = content.partition(b"=")
+        if not separator or not key or not value:
+            raise RuntimeCorpusError(f"line {line_number}: malformed OS directive")
+        key = key.strip(b" \t\r")
+        value = value.strip(b" \t\r")
+        if not key or not value:
+            raise RuntimeCorpusError(f"line {line_number}: malformed OS directive")
+        key_text = _ascii(key, f"line {line_number} OS directive")
+        if key_text in current.fields:
+            raise RuntimeCorpusError(f"line {line_number}: duplicate OS field: {key_text}")
+        signature_field = (
+            _OS_NUMERIC_DIRECTIVES.get(key)
+            or _OS_RANGE_DIRECTIVES.get(key)
+        )
+        if signature_field is None and key in _OS_BOOLEAN_DIRECTIVES:
+            signature_field = (_OS_BOOLEAN_DIRECTIVES[key], 0, 0)
+        if signature_field is None and key == b"TCP_OPTIONS":
+            signature_field = ("tcp_options", 0, 0)
+        if signature_field is None and key in _OS_TEXT_DIRECTIVES:
+            signature_field = (_OS_TEXT_DIRECTIVES[key], 0, 0)
+        if signature_field is not None and signature_field[0] in current.fields:
+            raise RuntimeCorpusError(
+                f"line {line_number}: duplicate OS signature field: {signature_field[0]}"
+            )
+        if key == b"ID":
+            runtime_id = _runtime_text(value, "OS fingerprint ID")
+            if runtime_id in ids:
+                raise RuntimeCorpusError(f"line {line_number}: duplicate OS fingerprint ID: {runtime_id}")
+            if current.runtime_id != current.name:
+                raise RuntimeCorpusError(f"line {line_number}: duplicate OS field: ID")
+            current.runtime_id = runtime_id
+            ids.add(runtime_id)
+        elif key == b"SPECIFICITY":
+            current.specificity = _unsigned(value, "OS specificity", 1, 65535)
+        elif key == b"ADDRESS_FAMILY":
+            parsed_family = _ascii(value, "OS address family").lower()
+            if parsed_family not in ("ipv4", "ipv6"):
+                raise RuntimeCorpusError(f"line {line_number}: invalid OS address family")
+            if parsed_family != address_family:
+                raise RuntimeCorpusError("mixed OS address family")
+            current.has_address_family = True
+        elif key in _OS_NUMERIC_DIRECTIVES:
+            field, minimum, maximum = _OS_NUMERIC_DIRECTIVES[key]
+            current.signatures.append(
+                {"field": field, "operator": "eq", "value": _unsigned(value, field, minimum, maximum)}
+            )
+            current.fields.add(field)
+            continue
+        elif key in _OS_RANGE_DIRECTIVES:
+            field, minimum, maximum = _OS_RANGE_DIRECTIVES[key]
+            current.signatures.append(
+                {"field": field, "operator": "range", "value": _os_range(value, field, minimum, maximum)}
+            )
+            current.fields.add(field)
+            continue
+        elif key in _OS_BOOLEAN_DIRECTIVES:
+            field = _OS_BOOLEAN_DIRECTIVES[key]
+            current.signatures.append({"field": field, "operator": "bool", "value": _os_boolean(value, line_number)})
+            current.fields.add(field)
+            continue
+        elif key == b"TCP_OPTIONS":
+            aliases = {b"NOP": "NOP", b"MSS": "MSS", b"WS": "WS", b"WSCALE": "WS", b"SACK": "SACK", b"TS": "TS", b"TIMESTAMP": "TS"}
+            options = []
+            for option in value.split(b","):
+                normalized = option.strip(b" \t\r")
+                if normalized not in aliases:
+                    raise RuntimeCorpusError(f"line {line_number}: invalid TCP option")
+                options.append(aliases[normalized])
+            if not options:
+                raise RuntimeCorpusError(f"line {line_number}: invalid TCP option")
+            current.signatures.append({"field": "tcp_options", "operator": "tcp_options", "value": options})
+            current.fields.add("tcp_options")
+            continue
+        elif key in _OS_TEXT_DIRECTIVES:
+            field = _OS_TEXT_DIRECTIVES[key]
+            current.signatures.append({"field": field, "operator": "text", "value": _runtime_text(value, field)})
+            current.fields.add(field)
+            continue
+        else:
+            raise RuntimeCorpusError(f"line {line_number}: unknown OS directive: {key_text}")
+        current.fields.add(key_text)
+    _finalize_os(current, bytes(material), context, records)
+    if not records:
+        raise RuntimeCorpusError("OS runtime contains no fingerprints")
+    identities = [record.body.runtime_id for record in records]
+    if len(identities) != len(set(identities)):
+        raise RuntimeCorpusError("duplicate OS fingerprint ID")
     return tuple(records)
