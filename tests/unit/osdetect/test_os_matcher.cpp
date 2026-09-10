@@ -25,6 +25,13 @@ skan::osdetect::TCPObservation linux_observation()
     return observation;
 }
 
+void assert_canonical_evidence_order(const skan::osdetect::OSMatchResult &match)
+{
+    assert(std::is_sorted(match.matched_fields.begin(), match.matched_fields.end()));
+    assert(std::is_sorted(match.mismatched_fields.begin(), match.mismatched_fields.end()));
+    assert(std::is_sorted(match.unavailable_fields.begin(), match.unavailable_fields.end()));
+}
+
 } // namespace
 
 int main()
@@ -41,6 +48,7 @@ int main()
     assert(exact_matches[0].fingerprint_name == "LinuxModern64240");
     assert(exact_matches[0].confidence == 1.0);
     assert(exact_matches[0].category == db::MatchCategory::StrongMatch);
+    assert_canonical_evidence_order(exact_matches[0]);
 
     osdetect::ObservedOSFingerprint partial;
     osdetect::TCPObservation partial_observation;
@@ -51,6 +59,7 @@ int main()
     assert(partial_matches[0].fingerprint_name == "LinuxModern64240");
     assert(partial_matches[0].confidence == 1.0);
     assert(partial_matches[0].unavailable_fields.size() >= 8U);
+    assert_canonical_evidence_order(partial_matches[0]);
 
     osdetect::ObservedOSFingerprint mismatch;
     osdetect::TCPObservation mismatch_observation = linux_observation();
@@ -64,6 +73,7 @@ int main()
     assert(mismatch_match != mismatch_matches.end());
     assert(mismatch_match->confidence < 1.0);
     assert(!mismatch_match->mismatched_fields.empty());
+    assert_canonical_evidence_order(*mismatch_match);
 
     osdetect::ObservedOSFingerprint unavailable;
     const auto unavailable_matches = matcher.match(unavailable, 2U);
@@ -71,6 +81,7 @@ int main()
     assert(unavailable_matches[0].confidence == 0.0);
     assert(unavailable_matches[0].category == db::MatchCategory::NoMatch);
     assert(unavailable_matches[0].specificity >= unavailable_matches[1].specificity);
+    assert_canonical_evidence_order(unavailable_matches[0]);
 
     osdetect::ObservedOSFingerprint ipv6;
     ipv6.family = core::AddressFamily::IPv6;
@@ -84,6 +95,7 @@ int main()
     assert(ipv6_matches[0].fingerprint_id == "skan-v6-linux-modern-64240");
     assert(ipv6_matches[0].address_family == core::AddressFamily::IPv6);
     assert(ipv6_matches[0].category == db::MatchCategory::StrongMatch);
+    assert_canonical_evidence_order(ipv6_matches[0]);
 
     osdetect::ObservedOSFingerprint mixed;
     mixed.family = core::AddressFamily::Unknown;
