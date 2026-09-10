@@ -44,6 +44,7 @@ struct ServiceResponse final {
     std::string source_address;
     ServiceResponseKind kind{ServiceResponseKind::Data};
     int system_error{0};
+    /** Newly received bytes for a Data callback, never a cumulative replay. */
     std::vector<std::uint8_t> bytes;
     bool response_truncated{false};
     DetectionTimePoint received_at{};
