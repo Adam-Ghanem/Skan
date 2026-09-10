@@ -18,7 +18,7 @@ _GENERAL_TEXT_BYTES = 4096
 _SHORT_TEXT_BYTES = 128
 _REGEX_BYTES = 512
 _PATTERN_BYTES = 4096
-_BINARY_PATTERN_BYTES = 3000
+_BINARY_PATTERN_BYTES = 4096
 _ACTIVE_PAYLOAD_BYTES = 4000
 _UDP_PAYLOAD_BYTES = 512
 _MAX_PORTS = 256
@@ -468,36 +468,36 @@ def _parse_service(value: Any) -> ServiceMatcherSemantics:
     matcher_type = _text(body, "matcher_type", context, maximum_bytes=16)
     if matcher_type not in _MATCHER_TYPES:
         raise CanonicalRecordError(f"{context}.matcher_type is unsupported")
-    pattern: str | None
-    pattern_hex: str | None
-    if matcher_type == "regex":
-        pattern = _text(body, "pattern", context, maximum_bytes=_REGEX_BYTES)
-        if body.get("pattern_hex") is not None:
-            raise CanonicalRecordError(f"{context}: regex matchers cannot use pattern_hex")
-        pattern_hex = None
+
+    raw_pattern = body.get("pattern")
+    raw_pattern_hex = body.get("pattern_hex")
+    if raw_pattern is None and raw_pattern_hex is None:
+        if matcher_type == "regex":
+            raise CanonicalRecordError(f"{context}.pattern must be a non-empty string")
+        raise CanonicalRecordError(
+            f"{context}: exactly one of pattern or pattern_hex is required"
+        )
+    if raw_pattern is not None and raw_pattern_hex is not None:
+        raise CanonicalRecordError(
+            f"{context}: exactly one of pattern or pattern_hex is required"
+        )
+    maximum_pattern_bytes = _REGEX_BYTES if matcher_type == "regex" else _BINARY_PATTERN_BYTES
+    if raw_pattern is not None:
+        pattern_hex = _checked_text(
+            raw_pattern,
+            f"{context}.pattern",
+            maximum_bytes=maximum_pattern_bytes,
+        ).encode("utf-8").hex()
     else:
-        raw_pattern = body.get("pattern")
-        raw_pattern_hex = body.get("pattern_hex")
-        if (raw_pattern is None) == (raw_pattern_hex is None):
-            raise CanonicalRecordError(
-                f"{context}: exactly one of pattern or pattern_hex is required"
-            )
-        if raw_pattern is not None:
-            pattern = None
-            pattern_hex = _checked_text(
-                raw_pattern,
-                f"{context}.pattern",
-                maximum_bytes=_BINARY_PATTERN_BYTES,
-            ).encode("utf-8").hex()
-        else:
-            pattern = None
-            pattern_hex = _hex_payload(
-                body,
-                "pattern_hex",
-                context,
-                _BINARY_PATTERN_BYTES,
-                allow_empty=False,
-            )
+        pattern_hex = _hex_payload(
+            body,
+            "pattern_hex",
+            context,
+            maximum_pattern_bytes,
+            allow_empty=False,
+        )
+    pattern = None
+
     strength = _text(body, "strength", context, maximum_bytes=16)
     if strength not in _MATCH_STRENGTHS:
         raise CanonicalRecordError(f"{context}.strength is unsupported")
