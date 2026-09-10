@@ -162,6 +162,115 @@ _BEHAVIOR_VALUES = {
 }
 
 
+def runtime_regex_is_valid(pattern: bytes) -> bool:
+    """Conservatively validate the bounded regex subset accepted by Skan runtime."""
+    if not pattern or len(pattern) > _REGEX_BYTES:
+        return False
+    captures = 0
+    group_depth = 0
+    in_class = False
+    class_has_content = False
+    can_quantify = False
+    last_was_alternation = False
+    escaped = False
+    index = 0
+    while index < len(pattern):
+        character = pattern[index]
+        if escaped:
+            if ord("1") <= character <= ord("9"):
+                return False
+            escaped = False
+            can_quantify = True
+            last_was_alternation = False
+        elif in_class:
+            if character == ord("\\"):
+                escaped = True
+                class_has_content = True
+            elif character == ord("]") and class_has_content:
+                in_class = False
+                can_quantify = True
+                last_was_alternation = False
+            else:
+                class_has_content = True
+        elif character == ord("\\"):
+            escaped = True
+        elif character == ord("["):
+            in_class = True
+            class_has_content = False
+            can_quantify = False
+        elif character == ord("]"):
+            return False
+        elif character == ord("("):
+            captures += 1
+            if captures > 16:
+                return False
+            group_depth += 1
+            can_quantify = False
+            last_was_alternation = False
+            if index + 1 < len(pattern) and pattern[index + 1] == ord("?"):
+                if index + 2 >= len(pattern) or pattern[index + 2] not in (
+                    ord(":"),
+                    ord("="),
+                    ord("!"),
+                ):
+                    return False
+                index += 2
+        elif character == ord(")"):
+            if group_depth == 0 or last_was_alternation:
+                return False
+            group_depth -= 1
+            can_quantify = True
+            last_was_alternation = False
+        elif character == ord("|"):
+            if not can_quantify:
+                return False
+            can_quantify = False
+            last_was_alternation = True
+        elif character in (ord("*"), ord("+"), ord("?")):
+            if not can_quantify:
+                return False
+            if (
+                character in (ord("*"), ord("+"))
+                and index + 2 < len(pattern)
+                and pattern[index + 1] == ord(")")
+                and pattern[index + 2] in (ord("*"), ord("+"), ord("{"))
+            ):
+                return False
+            can_quantify = False
+            last_was_alternation = False
+        elif character == ord("{"):
+            if not can_quantify:
+                return False
+            closing = pattern.find(b"}", index + 1)
+            if closing < 0:
+                return False
+            quantifier = pattern[index + 1 : closing]
+            if re.fullmatch(rb"[0-9]+(?:,[0-9]*)?", quantifier) is None:
+                return False
+            minimum_text, comma, maximum_text = quantifier.partition(b",")
+            if comma and maximum_text and int(maximum_text) < int(minimum_text):
+                return False
+            index = closing
+            can_quantify = False
+            last_was_alternation = False
+        elif character == ord("}"):
+            return False
+        elif character in (ord("^"), ord("$")):
+            can_quantify = False
+            last_was_alternation = False
+        else:
+            can_quantify = True
+            last_was_alternation = False
+        index += 1
+    if escaped or group_depth != 0 or in_class or last_was_alternation:
+        return False
+    try:
+        re.compile(pattern)
+    except re.error:
+        return False
+    return True
+
+
 class CanonicalRecordError(ValueError):
     """A canonical corpus record violated schema or source policy."""
 
@@ -470,18 +579,41 @@ def _parse_service(value: Any) -> ServiceMatcherSemantics:
         raise CanonicalRecordError(f"{context}.matcher_type is unsupported")
     pattern: str | None
     pattern_hex: str | None
+    raw_pattern = body.get("pattern")
+    raw_pattern_hex = body.get("pattern_hex")
+    if (raw_pattern is None) == (raw_pattern_hex is None):
+        raise CanonicalRecordError(
+            f"{context}: exactly one of pattern or pattern_hex is required"
+        )
     if matcher_type == "regex":
-        pattern = _text(body, "pattern", context, maximum_bytes=_REGEX_BYTES)
-        if body.get("pattern_hex") is not None:
-            raise CanonicalRecordError(f"{context}: regex matchers cannot use pattern_hex")
-        pattern_hex = None
-    else:
-        raw_pattern = body.get("pattern")
-        raw_pattern_hex = body.get("pattern_hex")
-        if (raw_pattern is None) == (raw_pattern_hex is None):
-            raise CanonicalRecordError(
-                f"{context}: exactly one of pattern or pattern_hex is required"
+        if raw_pattern is not None:
+            pattern = _checked_text(
+                raw_pattern,
+                f"{context}.pattern",
+                maximum_bytes=_REGEX_BYTES,
             )
+            pattern_hex = None
+        else:
+            encoded_pattern = _hex_payload(
+                body,
+                "pattern_hex",
+                context,
+                _REGEX_BYTES,
+                allow_empty=False,
+            )
+            decoded_pattern = bytes.fromhex(encoded_pattern)
+            try:
+                pattern = _checked_text(
+                    decoded_pattern.decode("utf-8"),
+                    f"{context}.pattern",
+                    maximum_bytes=_REGEX_BYTES,
+                )
+            except (UnicodeDecodeError, CanonicalRecordError):
+                pattern = None
+                pattern_hex = encoded_pattern
+            else:
+                pattern_hex = None
+    else:
         if raw_pattern is not None:
             pattern = None
             pattern_hex = _checked_text(
@@ -498,6 +630,10 @@ def _parse_service(value: Any) -> ServiceMatcherSemantics:
                 _BINARY_PATTERN_BYTES,
                 allow_empty=False,
             )
+    if matcher_type == "regex":
+        pattern_bytes = pattern.encode("utf-8") if pattern is not None else bytes.fromhex(pattern_hex or "")
+        if not runtime_regex_is_valid(pattern_bytes):
+            raise CanonicalRecordError(f"{context}.regex is not runtime-compatible")
     strength = _text(body, "strength", context, maximum_bytes=16)
     if strength not in _MATCH_STRENGTHS:
         raise CanonicalRecordError(f"{context}.strength is unsupported")

@@ -34,11 +34,11 @@
 - Consumes: `SourcePolicy`, `CanonicalRecord`, `stable_record_id()`.
 - Produces: `RuntimeCorpusError`, `ImportContext`, and `parse_service_runtime(text: bytes, context: ImportContext) -> tuple[CanonicalRecord, ...]`.
 
-- [ ] **Step 1: Write failing tests.** Cover one TCP probe, payload bytes, hard and soft matchers, binary and textual regex patterns, declaration/rule order, ports, timeout, fallbacks, provenance hashes, and rejection of unknown directives, malformed quotes, duplicate names, missing payloads, unresolved fallbacks, and over-limit input.
-- [ ] **Step 2: Verify RED.** Run `python3 -m unittest tests.corpus.test_runtime.RuntimeServiceImportTests -v` and confirm import failure because `tools.corpus.runtime` does not exist.
-- [ ] **Step 3: Implement the bounded service tokenizer and importer.** Mirror the existing Skan escape grammar, retain runtime bytes as lowercase hexadecimal where text is unsafe, and create stable source record IDs from file, probe name, and rule order.
-- [ ] **Step 4: Verify GREEN.** Run the focused tests and the complete corpus suite.
-- [ ] **Step 5: Commit.** Commit as `feat(corpus): import service runtime records`.
+- [x] **Step 1: Write failing tests.** Cover one TCP probe, payload bytes, hard and soft matchers, binary and textual regex patterns, declaration/rule order, ports, timeout, fallbacks, provenance hashes, and rejection of unknown directives, malformed quotes, duplicate names, missing payloads, unresolved fallbacks, and over-limit input.
+- [x] **Step 2: Verify RED.** Run `python3 -m unittest tests.corpus.test_runtime.RuntimeServiceImportTests -v` and confirm import failure because `tools.corpus.runtime` does not exist.
+- [x] **Step 3: Implement the bounded service tokenizer and importer.** Mirror the existing Skan escape grammar, retain runtime bytes as lowercase hexadecimal where text is unsafe, and create stable source record IDs from file, probe name, and rule order.
+- [x] **Step 4: Verify GREEN.** Run the focused tests and the complete corpus suite.
+- [x] **Step 5: Commit.** Commit as `feat(corpus): import service runtime records`.
 
 ### Task 2: UDP and OS runtime importers
 

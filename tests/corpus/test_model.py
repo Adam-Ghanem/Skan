@@ -268,7 +268,7 @@ class CanonicalRecordTests(unittest.TestCase):
     def test_enforces_kind_specific_service_and_probe_fields(self) -> None:
         value = valid_service_record()
         value["body"]["pattern"] = None  # type: ignore[index]
-        self.assert_rejected(value, "pattern must be a non-empty string")
+        self.assert_rejected(value, "exactly one of pattern or pattern_hex is required")
 
         value = valid_service_record()
         value["kind"] = "active_probe"
@@ -288,6 +288,27 @@ class CanonicalRecordTests(unittest.TestCase):
         self.assertIsNone(record.body.pattern)  # type: ignore[union-attr]
         self.assertEqual(record.body.pattern_hex, "1603")  # type: ignore[union-attr]
 
+        binary_regex = valid_service_record()
+        binary_regex["body"]["pattern"] = None  # type: ignore[index]
+        binary_regex["body"]["pattern_hex"] = "00414243"  # type: ignore[index]
+        binary_regex["id"] = stable_record_id(binary_regex)
+        parsed_regex = parse_record(binary_regex, SOURCES)
+        self.assertIsNone(parsed_regex.body.pattern)  # type: ignore[union-attr]
+        self.assertEqual(parsed_regex.body.pattern_hex, "00414243")  # type: ignore[union-attr]
+
+        textual_regex = valid_service_record()
+        hexadecimal_regex = copy.deepcopy(textual_regex)
+        hexadecimal_regex["body"]["pattern"] = None  # type: ignore[index]
+        hexadecimal_regex["body"]["pattern_hex"] = textual_regex["body"]["pattern"].encode().hex()  # type: ignore[index,union-attr]
+        self.assertEqual(stable_record_id(textual_regex), stable_record_id(hexadecimal_regex))
+        hexadecimal_regex["id"] = stable_record_id(hexadecimal_regex)
+        normalized_regex = parse_record(hexadecimal_regex, SOURCES)
+        self.assertEqual(
+            normalized_regex.body.pattern,  # type: ignore[union-attr]
+            textual_regex["body"]["pattern"],  # type: ignore[index]
+        )
+        self.assertIsNone(normalized_regex.body.pattern_hex)  # type: ignore[union-attr]
+
         literal = valid_service_record()
         literal["body"]["matcher_type"] = "prefix"  # type: ignore[index]
         literal["body"]["pattern"] = "HTTP/"  # type: ignore[index]
@@ -298,6 +319,18 @@ class CanonicalRecordTests(unittest.TestCase):
 
         value["body"]["pattern_hex"] = "16GG"  # type: ignore[index]
         self.assert_rejected(value, "pattern_hex must be lowercase")
+
+    def test_rejects_runtime_incompatible_regex_at_canonical_boundary(self) -> None:
+        for pattern in ("(unclosed", "[z-a]", "a**", "a++", "a{2,1}"):
+            with self.subTest(pattern=pattern):
+                value = valid_service_record()
+                value["body"]["pattern"] = pattern  # type: ignore[index]
+                self.assert_rejected(value, "regex is not runtime-compatible")
+
+        value = valid_service_record()
+        value["body"]["pattern"] = None  # type: ignore[index]
+        value["body"]["pattern_hex"] = b"a**".hex()  # type: ignore[index]
+        self.assert_rejected(value, "regex is not runtime-compatible")
 
     def test_enforces_active_and_udp_runtime_bounds(self) -> None:
         value = valid_active_probe_record()
