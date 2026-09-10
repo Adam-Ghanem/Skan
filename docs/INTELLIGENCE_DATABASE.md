@@ -59,8 +59,8 @@ The empty files in `corpus/canonical/` are explicitly migration staging. Empty
 stores are rejected unless tooling opts into staging mode. They are not shipped
 as runtime databases and are not evidence of corpus coverage.
 
-A later increment must prove this complete path before generated data can become
-authoritative:
+Each runtime corpus family must prove this complete path before generated data
+can become authoritative:
 
 ```text
 runtime DB -> canonical v2 -> reload -> validate -> compile -> real C++ loaders
@@ -96,8 +96,51 @@ produce the same ordered definitions, port index behavior, default probe,
 payload bytes, protocol hints, and response bounds for the legacy and generated
 runtime databases.
 
-This slice does **not** make canonical UDP data authoritative yet. The checked-in
-`data/udp-probes.db` remains the runtime source of truth until all required
-corpus families have migration/compiler coverage, cross-record validation and
-manifest generation are complete, packaging consumes generated artifacts, and
-the full migration gate is approved.
+### OS IPv4/IPv6 vertical slice
+
+`tools/corpus/legacy_os.py` maps the current project-owned OS grammar to typed
+canonical `os_fingerprint` records and compiles them back into the same bounded
+runtime format. IPv4 and IPv6 are validated independently against the production
+family rules, then combined under one canonical identity domain.
+
+The adapter materializes runtime defaults such as an omitted `ID` using the
+fingerprint name and an omitted `SPECIFICITY` using the signature count. It
+normalizes loader aliases such as `WSCALE`/`WS` and `TIMESTAMP`/`TS` without
+changing TCP-option order. Duplicate names, duplicate runtime IDs, duplicate
+signature fields, malformed ranges, family mismatches, unsupported protocol
+values, and values outside canonical protocol domains fail closed. IPv6 requires
+explicit `ADDRESS_FAMILY=IPv6` and cannot carry the IPv4-only DF signature.
+
+`tools/corpus/os_pipeline.py` verifies the dual-stack serialization path:
+
+```text
+data/os-fingerprints.db + data/os-fingerprints-v6.db
+  -> canonical OS records
+  -> deterministic JSONL reload
+  -> generated IPv4 + IPv6 runtime DBs
+  -> semantic reload
+```
+
+The combined build also rejects a runtime fingerprint ID reused across address
+families. Although the current C++ loader reads the two files separately, a
+production-authoritative machine identity must be globally unambiguous.
+
+Canonical OS signature declaration order is intentionally non-semantic. Before
+this migration, that assumption was not fully true because `OSMatcher` exposed
+matched, mismatched, and unavailable evidence fields in database declaration
+order. The matcher now sorts those evidence-field sets before returning results,
+so JSON evidence is deterministic and independent of corpus signature ordering.
+TCP option order remains semantic and is preserved exactly.
+
+The OS corpus integration gate compiles a narrow helper against the production
+`OSFingerprintDatabase::load_file` implementation. For both IPv4 and IPv6 it
+requires the checked-in and generated databases to agree on fingerprint
+identity, class metadata, address family, specificity, and every signature's
+field/value representation, including ordered TCP options. Production loader
+behavior—not the Python adapter—is the final semantic authority for this slice.
+
+These migration slices do **not** make canonical data authoritative yet. The
+checked-in runtime databases under `data/` remain the sources of truth until all
+required corpus families have migration/compiler coverage, semantic manifests
+and cross-record validation are complete, packaging consumes generated
+artifacts, rollback/update gates exist, and startup/memory costs are measured.
