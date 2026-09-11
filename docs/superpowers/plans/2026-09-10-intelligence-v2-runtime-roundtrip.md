@@ -56,6 +56,22 @@
 - [x] **Step 4: Verify GREEN.** Run focused tests and `make test-corpus`.
 - [x] **Step 5: Commit.** Commit as `feat(corpus): import udp and os runtime records`.
 
+### Task 2b: Reconcile the merged UDP vertical slice
+
+**Files:**
+- Modify: `tools/corpus/legacy_udp.py`
+- Modify: `tests/corpus/test_legacy_udp.py`
+
+**Interfaces:**
+- Preserves: `parse_legacy_udp()`, `load_legacy_udp()`, `compile_legacy_udp()`, and the merged real C++ UDP loader gate.
+- Consolidates: the legacy compatibility API delegates parsing to `parse_udp_runtime()` while retaining its existing imported-status contract.
+
+- [x] **Step 1: Write a failing typed-error regression.** Prove that a line-bounded huge decimal cannot leak built-in `ValueError` from the merged parser.
+- [x] **Step 2: Verify RED.** Run the focused legacy UDP test and confirm the public compatibility boundary leaks the wrong exception.
+- [x] **Step 3: Consolidate parser ownership.** Delegate the legacy compatibility API to the bounded unified runtime importer, translate typed errors, preserve semantic IDs/status, and retain `compile_legacy_udp()` as the single UDP emitter used by Task 3.
+- [x] **Step 4: Verify GREEN.** Run focused legacy/runtime tests, the real C++ UDP loader test on Linux, and the complete corpus suite.
+- [ ] **Step 5: Commit.** Commit as `refactor(corpus): unify udp runtime parsing`.
+
 ### Task 3: Deterministic compiler and whole-corpus validation
 
 **Files:**

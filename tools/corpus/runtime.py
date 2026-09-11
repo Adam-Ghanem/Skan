@@ -480,10 +480,16 @@ def _runtime_text(value: bytes, context: str) -> str:
 
 
 def _udp_hex(value: bytes, line_number: int) -> str:
-    if not value or len(value) % 2 or len(value) // 2 > 512:
-        raise RuntimeCorpusError(f"line {line_number}: invalid UDP payload")
+    if not value or len(value) % 2:
+        raise RuntimeCorpusError(
+            f"line {line_number}: payload must be even-length hexadecimal"
+        )
     if any(character not in _HEX_DIGITS for character in value):
-        raise RuntimeCorpusError(f"line {line_number}: invalid UDP payload")
+        raise RuntimeCorpusError(
+            f"line {line_number}: payload must be even-length hexadecimal"
+        )
+    if len(value) // 2 > 512:
+        raise RuntimeCorpusError(f"line {line_number}: payload exceeds 512 bytes")
     return value.decode("ascii").lower()
 
 
