@@ -70,7 +70,7 @@
 - [x] **Step 2: Verify RED.** Run the focused legacy UDP test and confirm the public compatibility boundary leaks the wrong exception.
 - [x] **Step 3: Consolidate parser ownership.** Delegate the legacy compatibility API to the bounded unified runtime importer, translate typed errors, preserve semantic IDs/status, and retain `compile_legacy_udp()` as the single UDP emitter used by Task 3.
 - [x] **Step 4: Verify GREEN.** Run focused legacy/runtime tests, the real C++ UDP loader test on Linux, and the complete corpus suite.
-- [ ] **Step 5: Commit.** Commit as `refactor(corpus): unify udp runtime parsing`.
+- [x] **Step 5: Commit.** Commit as `refactor(corpus): unify udp runtime parsing`.
 
 ### Task 3: Deterministic compiler and whole-corpus validation
 
@@ -82,11 +82,11 @@
 - Consumes: validated canonical records from all four stores.
 - Produces: `CompiledCorpus`, `validate_runtime_graph(records)`, `compile_corpus(records) -> CompiledCorpus`, and `write_compiled_corpus(output_dir, compiled)`.
 
-- [ ] **Step 1: Write failing tests.** Assert exact LF bytes for synthetic service, UDP, IPv4 OS, and IPv6 OS artifacts; compile-twice equality; atomic failure preservation; manifest hashes; and failures for unresolved matchers/fallbacks, cross-transport fallbacks, duplicate names/ports/runtime IDs, missing UDP default, non-verified status, and incomplete record kinds.
-- [ ] **Step 2: Verify RED.** Run `python3 -m unittest tests.corpus.test_compiler -v` and confirm the compiler API is missing.
-- [ ] **Step 3: Implement whole-corpus validation and deterministic emitters.** Sort probes and UDP entries by declaration order, matcher rules by rule order, OS records by runtime ID, encode unsafe bytes with Skan-compatible escapes, validate all artifacts before staging, and publish `manifest.json` last.
-- [ ] **Step 4: Verify GREEN.** Run focused compiler tests and the complete corpus suite.
-- [ ] **Step 5: Commit.** Commit as `feat(corpus): compile deterministic runtime artifacts`.
+- [x] **Step 1: Write failing tests.** Assert exact LF bytes for synthetic service, UDP, IPv4 OS, and IPv6 OS artifacts; compile-twice equality; atomic failure preservation; manifest hashes; and failures for unresolved matchers/fallbacks, cross-transport fallbacks, duplicate names/ports/runtime IDs, missing UDP default, non-verified status, and incomplete record kinds.
+- [x] **Step 2: Verify RED.** Run `python3 -m unittest tests.corpus.test_compiler -v` and confirm the compiler API is missing.
+- [x] **Step 3: Implement whole-corpus validation and deterministic emitters.** Sort probes and UDP entries by declaration order, matcher rules by rule order, OS records by runtime ID, encode unsafe bytes with Skan-compatible escapes, validate all artifacts before staging, and publish `manifest.json` last.
+- [x] **Step 4: Verify GREEN.** Run focused compiler tests and the complete corpus suite.
+- [x] **Step 5: Commit.** Commit as `feat(corpus): compile deterministic runtime artifacts`.
 
 ### Task 4: Repository migration and semantic round-trip command
 
