@@ -103,11 +103,11 @@
 - Consumes: source manifest, runtime importers, JSONL I/O, and compiler.
 - Produces: `python3 -m tools.corpus.cli import-runtime`, `compile`, and `verify-roundtrip`.
 
-- [ ] **Step 1: Write failing CLI tests.** Use temporary directories to assert deterministic import, compile, semantic-ID equality after re-import, safe refusal of partial/missing inputs, useful stderr, and non-zero status without traceback for expected validation failures.
-- [ ] **Step 2: Verify RED.** Run `python3 -m unittest tests.corpus.test_cli -v` and confirm the module is absent.
-- [ ] **Step 3: Implement the CLI and migrate the reviewed corpus.** Import only `data/service-probes.db`, `data/udp-probes.db`, `data/os-fingerprints.db`, and `data/os-fingerprints-v6.db` under the pinned first-party policy, then write the four canonical stores.
-- [ ] **Step 4: Verify GREEN and determinism.** Run the CLI round-trip twice and require a clean Git diff on the second run.
-- [ ] **Step 5: Commit.** Commit as `feat(corpus): migrate first-party runtime database`.
+- [x] **Step 1: Write failing CLI tests.** Use temporary directories to assert deterministic import, compile, semantic-ID equality after re-import, safe refusal of partial/missing inputs, useful stderr, and non-zero status without traceback for expected validation failures.
+- [x] **Step 2: Verify RED.** Run `python3 -m unittest tests.corpus.test_cli -v` and confirm the module is absent.
+- [x] **Step 3: Implement the CLI and migrate the reviewed corpus.** Import only `data/service-probes.db`, `data/udp-probes.db`, `data/os-fingerprints.db`, and `data/os-fingerprints-v6.db` under the pinned first-party policy, then write the four canonical stores.
+- [x] **Step 4: Verify GREEN and determinism.** Run the CLI round-trip twice and require a clean Git diff on the second run.
+- [x] **Step 5: Commit.** Commit as `feat(corpus): migrate first-party runtime database`.
 
 ### Task 5: Real C++ loader gate, CI, and documentation
 

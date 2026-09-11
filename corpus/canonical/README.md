@@ -1,8 +1,10 @@
-# Canonical corpus staging
+# Canonical corpus
 
-These schema-v2 JSONL stores are intentionally empty migration staging areas.
-The runtime databases under `data/` remain authoritative until a later compiler
-milestone proves full round-trip compatibility through the real C++ loaders.
+These schema-v2 JSONL stores are the deterministic import of the reviewed,
+first-party runtime databases under `data/`. Regenerate them offline with
+`python -m tools.corpus.cli import-runtime` and validate the semantic
+round-trip with `python -m tools.corpus.cli verify-roundtrip`.
 
-Empty stores are accepted only when tooling explicitly opts into
-migration-staging mode. Production validation rejects an empty corpus.
+The scanner continues to select the reviewed runtime databases under `data/`.
+Switching packaged runtime selection to compiler output remains deferred until
+the real C++ loader gate and lifecycle documentation land.
