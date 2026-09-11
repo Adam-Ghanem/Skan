@@ -18,7 +18,17 @@ from tools.corpus.model import (
     parse_record,
     record_to_mapping,
 )
-from tools.corpus.sources import load_source_manifest
+from tools.corpus.runtime import ImportContext, RuntimeCorpusError, parse_os_runtime, parse_service_runtime, parse_udp_runtime
+from tools.corpus.sources import SourcePolicy, load_source_manifest
+
+
+_MAX_DATABASE_BYTES = 1 << 20
+_MAX_SERVICE_LINE_BYTES = 16 << 10
+_MAX_OS_LINE_BYTES = 4096
+_MAX_RECORDS = 256
+_KINDS = ("active_probe", "service_matcher", "udp_probe", "os_fingerprint")
+_ARTIFACT_NAMES = ("service-probes.db", "udp-probes.db", "os-fingerprints.db", "os-fingerprints-v6.db")
+_SOURCE_MANIFEST = Path(__file__).resolve().parents[2] / "corpus" / "sources" / "sources.json"
 
 
 class CompilerError(ValueError):
@@ -32,6 +42,49 @@ class CompiledCorpus:
     ipv4_os: bytes
     ipv6_os: bytes
     manifest: bytes
+
+
+def _sources() -> dict[str, SourcePolicy]:
+    return load_source_manifest(_SOURCE_MANIFEST)
+
+
+def _reimport_artifacts(values: dict[str, bytes]) -> tuple[CanonicalRecord, ...]:
+    if set(values) != set(_ARTIFACT_NAMES) or any(not isinstance(value, bytes) for value in values.values()):
+        raise CompilerError("compiled artifacts are invalid")
+    limits = {
+        "service-probes.db": _MAX_SERVICE_LINE_BYTES,
+        "udp-probes.db": _MAX_SERVICE_LINE_BYTES,
+        "os-fingerprints.db": _MAX_OS_LINE_BYTES,
+        "os-fingerprints-v6.db": _MAX_OS_LINE_BYTES,
+    }
+    for name, value in values.items():
+        if len(value) > _MAX_DATABASE_BYTES:
+            raise CompilerError(f"{name} exceeds {_MAX_DATABASE_BYTES} bytes")
+        if any(len(line) > limits[name] for line in value.split(b"\n")):
+            raise CompilerError(f"{name} contains an overlong line")
+    try:
+        source = _sources()["skan-first-party"]
+        service = parse_service_runtime(values["service-probes.db"], ImportContext(source, "data/service-probes.db"))
+        udp = parse_udp_runtime(values["udp-probes.db"], ImportContext(source, "data/udp-probes.db"))
+        ipv4 = parse_os_runtime(values["os-fingerprints.db"], "ipv4", ImportContext(source, "data/os-fingerprints.db"))
+        ipv6 = parse_os_runtime(values["os-fingerprints-v6.db"], "ipv6", ImportContext(source, "data/os-fingerprints-v6.db"))
+    except (KeyError, RuntimeCorpusError) as exc:
+        raise CompilerError(f"compiled artifact validation failed: {exc}") from exc
+    if len(ipv4) + len(ipv6) > _MAX_RECORDS:
+        raise CompilerError(f"OS fingerprint count exceeds {_MAX_RECORDS}")
+    return service + udp + ipv4 + ipv6
+
+
+def _manifest(values: dict[str, bytes], records: tuple[CanonicalRecord, ...]) -> bytes:
+    return json.dumps(
+        {
+            "artifacts": {name: "sha256:" + hashlib.sha256(value).hexdigest() for name, value in sorted(values.items())},
+            "record_counts": {kind: sum(record.kind == kind for record in records) for kind in _KINDS},
+            "record_ids": sorted(record.id for record in records),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8") + b"\n"
 
 
 def _quote(value: bytes) -> str:
@@ -64,9 +117,21 @@ def validate_runtime_graph(records: Iterable[CanonicalRecord]) -> tuple[Canonica
     for record in collected:
         if not isinstance(record, CanonicalRecord) or record.kind not in groups:
             raise CompilerError("compiler input contains an unsupported record")
-        if record.status != "verified":
+    sources = _sources()
+    checked: list[CanonicalRecord] = []
+    identifiers: set[str] = set()
+    for record in collected:
+        try:
+            canonical = parse_record(record_to_mapping(record), sources)
+        except Exception as exc:
+            raise CompilerError(f"canonical record validation failed: {exc}") from exc
+        if canonical.id in identifiers:
+            raise CompilerError("duplicate canonical record ID")
+        identifiers.add(canonical.id)
+        if canonical.status != "verified":
             raise CompilerError("all records must be verified")
-        groups[record.kind].append(record)
+        checked.append(canonical)
+        groups[canonical.kind].append(canonical)
     if any(not groups[kind] for kind in groups):
         raise CompilerError("all four runtime record kinds must be non-empty")
 
@@ -76,6 +141,8 @@ def validate_runtime_graph(records: Iterable[CanonicalRecord]) -> tuple[Canonica
     names = [body.probe_name for body in probes]
     if len(names) != len(set(names)):
         raise CompilerError("duplicate probe name")
+    if len(probes) > _MAX_RECORDS:
+        raise CompilerError(f"service probe count exceeds {_MAX_RECORDS}")
     if tuple(sorted(body.declaration_order for body in probes)) != tuple(range(len(probes))):
         raise CompilerError("active probe declaration_order values must be contiguous from zero")
     by_name = {body.probe_name: body for body in probes}
@@ -99,6 +166,8 @@ def validate_runtime_graph(records: Iterable[CanonicalRecord]) -> tuple[Canonica
             raise CompilerError("runtime service grammar cannot encode CPE values")
     for probe_name in by_name:
         orders = sorted(matcher.rule_order for matcher in matchers if matcher.probe_name == probe_name)
+        if len(orders) > _MAX_RECORDS:
+            raise CompilerError(f"matcher rule count exceeds {_MAX_RECORDS}")
         if orders and tuple(orders) != tuple(range(len(orders))):
             raise CompilerError("matcher rule_order values must be contiguous from zero")
 
@@ -108,6 +177,10 @@ def validate_runtime_graph(records: Iterable[CanonicalRecord]) -> tuple[Canonica
     udp_names = [body.name for body in udp]
     if len(udp_names) != len(set(udp_names)):
         raise CompilerError("duplicate UDP name")
+    if len(udp) > _MAX_RECORDS:
+        raise CompilerError(f"UDP probe count exceeds {_MAX_RECORDS}")
+    if tuple(sorted(body.declaration_order for body in udp)) != tuple(range(len(udp))):
+        raise CompilerError("UDP declaration_order values must be contiguous from zero")
     ports = [body.destination_port for body in udp if body.destination_port != 0]
     if len(ports) != len(set(ports)):
         raise CompilerError("duplicate UDP port")
@@ -124,23 +197,15 @@ def validate_runtime_graph(records: Iterable[CanonicalRecord]) -> tuple[Canonica
     all_names = [body.name for body in fingerprints]
     if len(all_names) != len(set(all_names)):
         raise CompilerError("duplicate OS fingerprint name")
+    if len(fingerprints) > _MAX_RECORDS:
+        raise CompilerError(f"OS fingerprint count exceeds {_MAX_RECORDS}")
     for family in ("ipv4", "ipv6"):
         ids = [body.runtime_id for body in fingerprints if body.address_family == family]
         if not ids:
             raise CompilerError("all four runtime record kinds must be non-empty")
         if len(ids) != len(set(ids)):
             raise CompilerError("duplicate OS runtime ID")
-    sources = load_source_manifest(Path(__file__).resolve().parents[2] / "corpus" / "sources" / "sources.json")
-    identifiers: set[str] = set()
-    for record in collected:
-        try:
-            parse_record(record_to_mapping(record), sources)
-        except Exception as exc:
-            raise CompilerError(f"canonical record validation failed: {exc}") from exc
-        if record.id in identifiers:
-            raise CompilerError("duplicate canonical record ID")
-        identifiers.add(record.id)
-    return collected
+    return tuple(checked)
 
 
 def _service(records: tuple[CanonicalRecord, ...]) -> bytes:
@@ -172,15 +237,29 @@ def _service(records: tuple[CanonicalRecord, ...]) -> bytes:
 
 
 def _os(records: tuple[CanonicalRecord, ...], family: str) -> bytes:
-    fields = {"ttl": "TTL", "window": "WINDOW", "mss": "MSS", "window_scale": "WSCALE", "tcp_flags": "TCP_FLAGS", "icmp_ttl": "ICMP_TTL", "icmp_type": "ICMP_TYPE", "icmp_code": "ICMP_CODE", "udp_payload_length": "UDP_PAYLOAD_LENGTH", "dont_fragment": "DF", "sack_permitted": "SACK", "timestamps": "TIMESTAMP", "tcp_options": "TCP_OPTIONS", "udp_response_behavior": "UDP_RESPONSE_BEHAVIOR", "response_presence": "RESPONSE_PRESENCE", "ack_behavior": "ACK_BEHAVIOR", "sequence_behavior": "SEQUENCE_BEHAVIOR", "response_behavior": "RESPONSE_BEHAVIOR"}
+    directives = {
+        ("ttl", "eq"): "TTL", ("ttl", "range"): "TTL_RANGE",
+        ("window", "eq"): "WINDOW", ("window", "range"): "WINDOW_RANGE",
+        ("mss", "eq"): "MSS", ("window_scale", "eq"): "WSCALE",
+        ("tcp_flags", "eq"): "TCP_FLAGS", ("icmp_ttl", "eq"): "ICMP_TTL",
+        ("icmp_ttl", "range"): "ICMP_TTL_RANGE", ("icmp_type", "eq"): "ICMP_TYPE",
+        ("icmp_code", "eq"): "ICMP_CODE", ("udp_payload_length", "eq"): "UDP_PAYLOAD_LENGTH",
+        ("udp_payload_length", "range"): "UDP_PAYLOAD_RANGE", ("dont_fragment", "bool"): "DF",
+        ("sack_permitted", "bool"): "SACK", ("timestamps", "bool"): "TIMESTAMP",
+        ("tcp_options", "tcp_options"): "TCP_OPTIONS", ("udp_response_behavior", "text"): "UDP_RESPONSE_BEHAVIOR",
+        ("response_presence", "bool"): "RESPONSE_PRESENCE", ("ack_behavior", "text"): "ACK_BEHAVIOR",
+        ("sequence_behavior", "text"): "SEQUENCE_BEHAVIOR", ("response_behavior", "text"): "RESPONSE_BEHAVIOR",
+    }
     lines: list[str] = []
     for body in sorted((r.body for r in records if r.kind == "os_fingerprint" and isinstance(r.body, OSFingerprintSemantics) and r.body.address_family == family), key=lambda item: item.runtime_id):
         lines.extend([f"Fingerprint {body.name}", f"ID={body.runtime_id}", f"SPECIFICITY={body.specificity}", f"ADDRESS_FAMILY={family.upper().replace('IPV', 'IPv')}"])
         components = [body.vendor, body.os_family] + ([body.os_generation] if body.os_generation else []) + ([body.device_type] if body.device_type else [])
         lines.append("Class " + " | ".join(components))
         for signature in body.signatures:
-            key = fields[signature.field]
-            if signature.operator == "range": key += "_RANGE"
+            try:
+                key = directives[(signature.field, signature.operator)]
+            except KeyError as exc:
+                raise CompilerError(f"unsupported OS signature mapping: {signature.field}/{signature.operator}") from exc
             value = signature.value
             if signature.operator == "range": rendered = f"{value[0]}-{value[1]}"
             elif signature.operator == "bool": rendered = "Y" if value else "N"
@@ -193,15 +272,16 @@ def _os(records: tuple[CanonicalRecord, ...], family: str) -> bytes:
 def compile_corpus(records: Iterable[CanonicalRecord]) -> CompiledCorpus:
     validated = validate_runtime_graph(records)
     service = _service(validated)
-    sources = load_source_manifest(Path(__file__).resolve().parents[2] / "corpus" / "sources" / "sources.json")
     try:
-        udp = compile_legacy_udp((r for r in validated if r.kind == "udp_probe"), sources).encode("utf-8")
+        udp = compile_legacy_udp((r for r in validated if r.kind == "udp_probe"), _sources()).encode("utf-8")
     except LegacyUDPError as exc:
         raise CompilerError(str(exc)) from exc
     ipv4, ipv6 = _os(validated, "ipv4"), _os(validated, "ipv6")
     artifacts = {"service-probes.db": service, "udp-probes.db": udp, "os-fingerprints.db": ipv4, "os-fingerprints-v6.db": ipv6}
-    manifest = json.dumps({"artifacts": {name: "sha256:" + hashlib.sha256(value).hexdigest() for name, value in sorted(artifacts.items())}, "record_counts": {kind: sum(r.kind == kind for r in validated) for kind in ("active_probe", "service_matcher", "udp_probe", "os_fingerprint")}, "record_ids": sorted(record.id for record in validated)}, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
-    return CompiledCorpus(service, udp, ipv4, ipv6, manifest)
+    regenerated = _reimport_artifacts(artifacts)
+    if sorted(record.id for record in regenerated) != sorted(record.id for record in validated):
+        raise CompilerError("compiled artifacts do not preserve canonical record IDs")
+    return CompiledCorpus(service, udp, ipv4, ipv6, _manifest(artifacts, regenerated))
 
 
 def _validate_compiled(compiled: CompiledCorpus) -> None:
@@ -209,14 +289,13 @@ def _validate_compiled(compiled: CompiledCorpus) -> None:
         raise CompilerError("compiled corpus is invalid")
     try:
         manifest = json.loads(compiled.manifest)
-        artifacts = manifest["artifacts"]
-        counts = manifest["record_counts"]
-    except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CompilerError("compiled manifest is invalid") from exc
     values = {"service-probes.db": compiled.service_probes, "udp-probes.db": compiled.udp_probes, "os-fingerprints.db": compiled.ipv4_os, "os-fingerprints-v6.db": compiled.ipv6_os}
-    if set(artifacts) != set(values) or set(counts) != {"active_probe", "service_matcher", "udp_probe", "os_fingerprint"} or not isinstance(manifest.get("record_ids"), list):
+    if not isinstance(manifest, dict) or set(manifest) != {"artifacts", "record_counts", "record_ids"}:
         raise CompilerError("compiled manifest shape is invalid")
-    if any(artifacts[name] != "sha256:" + hashlib.sha256(value).hexdigest() for name, value in values.items()) or any(type(value) is not int or value < 1 for value in counts.values()):
+    regenerated = _reimport_artifacts(values)
+    if compiled.manifest != _manifest(values, regenerated):
         raise CompilerError("compiled manifest does not match artifacts")
 
 
