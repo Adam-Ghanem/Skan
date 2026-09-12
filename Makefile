@@ -32,6 +32,9 @@ CPPFLAGS += -DSKAN_DATA_DIR=\"$(DATADIR)\" \
 PROJECT := skan
 TARGET := bin/$(PROJECT)
 BUILD_DIR := build
+CORPUS_RUNTIME_DIR := $(BUILD_DIR)/corpus-runtime
+CORPUS_RUNTIME_TEST := $(BUILD_DIR)/test_compiled_runtime
+CORPUS_RUNTIME_TEST_OBJECT := $(BUILD_DIR)/tests/integration/corpus/test_compiled_runtime.o
 
 # Build-flavor targets must clean before compiling even when callers enable -j.
 .NOTPARALLEL: debug release
@@ -366,7 +369,7 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_target_engine \
 				$(BUILD_DIR)/test_target_pipeline
 
-.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus install check-line-endings check-version package-deb clean
+.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus test-corpus-runtime install check-line-endings check-version package-deb clean
 
 all: $(TARGET)
 
@@ -406,6 +409,10 @@ package-deb:
 
 test-corpus:
 	python3 -m unittest discover -s tests/corpus -p 'test_*.py' -v
+
+test-corpus-runtime: $(CORPUS_RUNTIME_TEST)
+	python3 -m tools.corpus.cli verify-roundtrip --output-dir $(CORPUS_RUNTIME_DIR)
+	./$(CORPUS_RUNTIME_TEST) $(CORPUS_RUNTIME_DIR)
 
 $(TARGET): $(CPP_OBJECTS) $(C_OBJECTS) | bin
 	$(CXX) $(LDFLAGS) $^ -o $@
@@ -543,6 +550,9 @@ $(BUILD_DIR)/test_os_scheduler: $(BUILD_DIR)/tests/unit/osdetect/test_os_schedul
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_os_detection_injected: $(BUILD_DIR)/tests/integration/osdetect/test_os_detection_injected.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(CORPUS_RUNTIME_TEST): $(CORPUS_RUNTIME_TEST_OBJECT) $(LIB_CPP_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 SCANENGINE_TEST_OBJECTS := $(SCANENGINE_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
@@ -835,4 +845,4 @@ clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
 	find . -type f \( -name '*.gcda' -o -name '*.gcno' -o -name '*.gcov' \) -delete
 
--include $(CPP_OBJECTS:.o=.d) $(C_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d)
+-include $(CPP_OBJECTS:.o=.d) $(C_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d) $(CORPUS_RUNTIME_TEST_OBJECT:.o=.d)

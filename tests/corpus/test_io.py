@@ -143,7 +143,7 @@ class CorpusJSONLTests(unittest.TestCase):
             with self.assertRaisesRegex(CorpusIOError, "empty corpus is not allowed"):
                 load_jsonl(empty, SOURCES)
 
-    def test_repository_staging_stores_are_explicitly_empty(self) -> None:
+    def test_repository_canonical_stores_are_populated_and_kind_scoped(self) -> None:
         root = Path(__file__).resolve().parents[2]
         expected = {
             "active-probes.jsonl": "active_probe",
@@ -154,11 +154,8 @@ class CorpusJSONLTests(unittest.TestCase):
         for filename, kind in expected.items():
             with self.subTest(filename=filename):
                 path = root / "corpus" / "canonical" / filename
-                self.assertEqual(path.read_bytes(), b"")
-                self.assertEqual(
-                    load_jsonl(path, SOURCES, expected_kind=kind, allow_empty=True),
-                    (),
-                )
+                self.assertTrue(path.read_bytes())
+                self.assertTrue(load_jsonl(path, SOURCES, expected_kind=kind))
 
     def test_all_runtime_record_bodies_round_trip(self) -> None:
         raw_records = (

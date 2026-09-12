@@ -40,6 +40,9 @@ jobs:
           make -j2
           make -j2 test
 
+      - name: Generated corpus production-loader gate
+        run: make -j2 test-corpus-runtime
+
       - name: Nmap-compatible CLI regression
         run: |
           bash tests/integration/cli/test_nmap_compat.sh

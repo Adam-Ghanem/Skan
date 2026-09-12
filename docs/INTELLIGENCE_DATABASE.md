@@ -53,51 +53,34 @@ Run the contract suite with:
 make test-corpus
 ```
 
-## Migration gate
+## Verified migration mirror and loader gate
 
-The empty files in `corpus/canonical/` are explicitly migration staging. Empty
-stores are rejected unless tooling opts into staging mode. They are not shipped
-as runtime databases and are not evidence of corpus coverage.
+The populated files in `corpus/canonical/` are the governed, verified canonical
+mirror of Skan's four first-party runtime databases. Their commit-marker manifest
+binds every JSONL store's kind, count, and hash; readers reject incomplete or
+mixed generations. They remain build-time inputs, not installed runtime data.
 
-A later increment must prove this complete path before generated data can become
-authoritative:
+`data/service-probes.db`, `data/udp-probes.db`, `data/os-fingerprints.db`, and
+`data/os-fingerprints-v6.db` remain the production and package authority in this
+milestone. `build/corpus-runtime/` is generated and ignored. A runtime-authority
+or packaging switch is deliberately deferred.
 
-```text
-runtime DB -> canonical v2 -> reload -> validate -> compile -> real C++ loaders
+The offline lifecycle is:
+
+```bash
+python3 -m tools.corpus.cli import-runtime
+python3 -m tools.corpus.cli compile --output-dir build/corpus-runtime
+python3 -m tools.corpus.cli verify-roundtrip --output-dir build/corpus-runtime
+make test-corpus-runtime
 ```
 
-That gate must compare deterministic semantic manifests for service probes,
-match rules, UDP definitions, and both IPv4 and IPv6 OS fingerprints. It must
-also resolve cross-record references and conflicts without weakening current
-loader bounds.
+`verify-roundtrip` compares source runtime semantics, canonical records, and
+deterministically compiled artifacts. `make test-corpus-runtime` then loads all
+four generated databases through the production C++ `load_file` APIs and checks
+coverage counts plus representative typed semantics. The command performs no
+network access, scanning, adapter execution, or shell execution from corpus
+tooling.
 
-### UDP vertical slice
-
-UDP is the first migration slice because its current runtime grammar is small,
-bounded, and exposes a direct ordered definition model. `tools/corpus/legacy_udp.py`
-mirrors the production `UDPProbeDatabase::parse` semantics needed by the owned
-corpus, normalizes payload hexadecimal, assigns deterministic declaration order,
-binds each record to the pinned first-party source policy, and compiles canonical
-records back into the current runtime grammar.
-
-`tools/corpus/udp_pipeline.py` verifies both serialization boundaries:
-
-```text
-data/udp-probes.db
-  -> canonical UDP records
-  -> deterministic JSONL reload
-  -> generated udp-probes.db
-  -> semantic reload
-```
-
-The corpus test suite also compiles a narrow test helper against the production
-`src/portscan/udp_scan.cpp` implementation and requires the real C++ loader to
-produce the same ordered definitions, port index behavior, default probe,
-payload bytes, protocol hints, and response bounds for the legacy and generated
-runtime databases.
-
-This slice does **not** make canonical UDP data authoritative yet. The checked-in
-`data/udp-probes.db` remains the runtime source of truth until all required
-corpus families have migration/compiler coverage, cross-record validation and
-manifest generation are complete, packaging consumes generated artifacts, and
-the full migration gate is approved.
+The source-policy rules above remain mandatory for all corpus changes: preserve
+the pinned first-party source identity and license terms, and do not copy,
+derive, or import Nmap or proprietary fingerprint data.

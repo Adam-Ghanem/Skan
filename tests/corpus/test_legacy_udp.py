@@ -101,6 +101,11 @@ class LegacyUDPMigrationTests(unittest.TestCase):
         with self.assertRaisesRegex(LegacyUDPError, "payload exceeds 512 bytes"):
             parse_legacy_udp(text, SOURCES)
 
+    def test_rejects_line_bounded_huge_decimal_with_typed_error(self) -> None:
+        text = "probe DEFAULT 0 generic " + ("9" * 5000) + " 00\n"
+        with self.assertRaisesRegex(LegacyUDPError, "max response"):
+            parse_legacy_udp(text, SOURCES)
+
     def test_compiler_rejects_cross_record_port_conflict(self) -> None:
         records = parse_legacy_udp(
             "probe ONE 1 one 512 00\n"

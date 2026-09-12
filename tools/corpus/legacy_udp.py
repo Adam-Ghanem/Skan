@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
-import re
 from typing import Iterable, Mapping
 
 from tools.corpus.model import (
@@ -14,34 +12,16 @@ from tools.corpus.model import (
     record_to_mapping,
     stable_record_id,
 )
+from tools.corpus.runtime import ImportContext, RuntimeCorpusError, parse_udp_runtime
 from tools.corpus.sources import SourcePolicy
 
 
 _MAXIMUM_FILE_BYTES = 16 * 1024 * 1024
-_MAXIMUM_LINE_BYTES = 64 * 1024
-_MAXIMUM_RECORDS = 10_000
-_MAXIMUM_PAYLOAD_BYTES = 512
-_MAXIMUM_RESPONSE_BYTES = 1 << 20
-_DECIMAL = re.compile(r"^[0-9]+$")
-_HEXADECIMAL = re.compile(r"^[0-9A-Fa-f]+$")
+_LEGACY_UDP_SOURCE_PATH = "data/udp-probes.db"
 
 
 class LegacyUDPError(ValueError):
     """The legacy UDP corpus cannot be migrated or compiled losslessly."""
-
-
-def _parse_decimal(value: str, field: str, maximum: int, *, allow_zero: bool) -> int:
-    if _DECIMAL.fullmatch(value) is None:
-        raise LegacyUDPError(f"{field} must be an unsigned decimal integer")
-    parsed = int(value, 10)
-    minimum = 0 if allow_zero else 1
-    if not minimum <= parsed <= maximum:
-        raise LegacyUDPError(f"{field} must be in range {minimum}..{maximum}")
-    return parsed
-
-
-def _record_hash(source_line: str) -> str:
-    return "sha256:" + hashlib.sha256(source_line.encode("utf-8")).hexdigest()
 
 
 def _source_policy(
@@ -63,7 +43,7 @@ def _canonical_udp_record(
     max_response_bytes: int,
     payload_hex: str,
     declaration_order: int,
-    source_line: str,
+    record_hash: str,
     source: SourcePolicy,
     sources: Mapping[str, SourcePolicy],
 ) -> CanonicalRecord:
@@ -87,7 +67,7 @@ def _canonical_udp_record(
                 "source_url": source.source_url,
                 "source_license": source.license_spdx_or_policy,
                 "snapshot_hash": source.expected_hash,
-                "record_hash": _record_hash(source_line),
+                "record_hash": record_hash,
             }
         ],
         "first_imported_revision": source.pinned_revision,
@@ -102,19 +82,62 @@ def _canonical_udp_record(
         raise LegacyUDPError(str(exc)) from exc
 
 
+def _legacy_runtime_error(error: RuntimeCorpusError) -> LegacyUDPError:
+    """Translate unified-parser errors at the legacy public API boundary."""
+
+    message = str(error)
+    message = message.replace("malformed UDP probe", "expected `probe NAME PORT HINT MAX_RESPONSE PAYLOAD_HEX`")
+    message = message.replace("duplicate UDP probe name", "duplicate probe name")
+    message = message.replace("duplicate UDP port", "duplicate destination port")
+    if message == "UDP runtime contains no probes":
+        message = "legacy UDP corpus contains no probe definitions"
+    elif message == "missing DEFAULT UDP probe":
+        message = "legacy UDP corpus requires exactly one DEFAULT probe"
+    elif message == "invalid UDP max_response_bytes":
+        message = "max response must be in range 1..1048576"
+    return LegacyUDPError(message)
+
+
+def _legacy_records_from_runtime(
+    runtime_records: tuple[CanonicalRecord, ...],
+    source: SourcePolicy,
+    sources: Mapping[str, SourcePolicy],
+) -> tuple[CanonicalRecord, ...]:
+    """Rebind unified grammar output to the stable legacy metadata contract.
+
+    ``parse_udp_runtime`` is the only UDP grammar implementation.  This adapter
+    deliberately retains legacy source IDs, imported status, and line hashes so
+    existing canonical UDP artifacts keep their semantic IDs.
+    """
+
+    records: list[CanonicalRecord] = []
+    for runtime_record in runtime_records:
+        body = runtime_record.body
+        if not isinstance(body, UDPProbeSemantics):
+            raise LegacyUDPError("UDP runtime parser returned a non-UDP record")
+        records.append(
+            _canonical_udp_record(
+                name=body.name,
+                destination_port=body.destination_port,
+                protocol_hint=body.protocol_hint,
+                max_response_bytes=body.max_response_bytes,
+                payload_hex=body.payload_hex,
+                declaration_order=body.declaration_order,
+                record_hash=runtime_record.provenance[0].record_hash,
+                source=source,
+                sources=sources,
+            )
+        )
+    return tuple(records)
+
+
 def parse_legacy_udp(
     text: str,
     sources: Mapping[str, SourcePolicy],
     *,
     source_id: str = "skan-first-party",
 ) -> tuple[CanonicalRecord, ...]:
-    """Parse the current C++ UDP line format into canonical schema-v2 records.
-
-    The accepted runtime grammar is deliberately narrow and mirrors
-    UDPProbeDatabase::parse: `probe NAME PORT HINT MAX_RESPONSE PAYLOAD_HEX`.
-    Comments and blank lines are non-semantic. Hexadecimal payloads are
-    normalized to lowercase before canonicalization.
-    """
+    """Parse UDP runtime text through the unified bounded runtime grammar."""
 
     try:
         encoded = text.encode("utf-8")
@@ -124,84 +147,13 @@ def parse_legacy_udp(
         raise LegacyUDPError(f"legacy UDP corpus exceeds {_MAXIMUM_FILE_BYTES} bytes")
 
     source = _source_policy(sources, source_id)
-    records: list[CanonicalRecord] = []
-    names: set[str] = set()
-    ports: set[int] = set()
-    has_default = False
-
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
-        if len(raw_line.encode("utf-8")) > _MAXIMUM_LINE_BYTES:
-            raise LegacyUDPError(f"line {line_number} exceeds {_MAXIMUM_LINE_BYTES} bytes")
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if len(records) >= _MAXIMUM_RECORDS:
-            raise LegacyUDPError(f"record count exceeds {_MAXIMUM_RECORDS}")
-
-        fields = line.split()
-        if len(fields) != 6 or fields[0] != "probe":
-            raise LegacyUDPError(
-                f"line {line_number}: expected `probe NAME PORT HINT MAX_RESPONSE PAYLOAD_HEX`"
-            )
-        _, name, port_text, protocol_hint, response_text, payload_text = fields
-        if not name or not protocol_hint:
-            raise LegacyUDPError(f"line {line_number}: name and protocol hint are required")
-        if name in names:
-            raise LegacyUDPError(f"line {line_number}: duplicate probe name: {name}")
-
-        destination_port = _parse_decimal(
-            port_text, f"line {line_number} destination port", 65535, allow_zero=True
+    try:
+        runtime_records = parse_udp_runtime(
+            encoded, ImportContext(source, _LEGACY_UDP_SOURCE_PATH)
         )
-        max_response_bytes = _parse_decimal(
-            response_text,
-            f"line {line_number} max response",
-            _MAXIMUM_RESPONSE_BYTES,
-            allow_zero=False,
-        )
-        if destination_port == 0 and name != "DEFAULT":
-            raise LegacyUDPError(f"line {line_number}: port 0 is reserved for DEFAULT")
-        if destination_port != 0 and destination_port in ports:
-            raise LegacyUDPError(
-                f"line {line_number}: duplicate destination port: {destination_port}"
-            )
-        if destination_port == 0:
-            if has_default:
-                raise LegacyUDPError(f"line {line_number}: duplicate DEFAULT probe")
-            has_default = True
-        else:
-            ports.add(destination_port)
-
-        if (
-            not payload_text
-            or len(payload_text) % 2 != 0
-            or _HEXADECIMAL.fullmatch(payload_text) is None
-        ):
-            raise LegacyUDPError(f"line {line_number}: payload must be even-length hexadecimal")
-        if len(payload_text) // 2 > _MAXIMUM_PAYLOAD_BYTES:
-            raise LegacyUDPError(
-                f"line {line_number}: payload exceeds {_MAXIMUM_PAYLOAD_BYTES} bytes"
-            )
-
-        records.append(
-            _canonical_udp_record(
-                name=name,
-                destination_port=destination_port,
-                protocol_hint=protocol_hint,
-                max_response_bytes=max_response_bytes,
-                payload_hex=payload_text.lower(),
-                declaration_order=len(records),
-                source_line=line,
-                source=source,
-                sources=sources,
-            )
-        )
-        names.add(name)
-
-    if not records:
-        raise LegacyUDPError("legacy UDP corpus contains no probe definitions")
-    if not has_default:
-        raise LegacyUDPError("legacy UDP corpus requires exactly one DEFAULT probe")
-    return tuple(records)
+    except RuntimeCorpusError as exc:
+        raise _legacy_runtime_error(exc) from exc
+    return _legacy_records_from_runtime(runtime_records, source, sources)
 
 
 def load_legacy_udp(
