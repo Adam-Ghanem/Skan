@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr
 from dataclasses import replace
+import hashlib
 from io import StringIO
+import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from tools.corpus.io import load_jsonl, write_jsonl
 from tools.corpus.model import ActiveProbeSemantics, stable_record_id
@@ -66,6 +69,7 @@ class CorpusCLITests(unittest.TestCase):
                 for name in STORE_KINDS
             }
             self.assertTrue(all(first.values()))
+            self.assertTrue((root / "corpus" / "canonical" / "manifest.json").read_bytes())
             result, stderr = invoke(main, str(root), "import-runtime")
             self.assertEqual(result, 0, stderr)
             self.assertEqual(
@@ -86,6 +90,47 @@ class CorpusCLITests(unittest.TestCase):
             self.assertEqual(first, {path.name: path.read_bytes() for path in output.iterdir()})
             result, stderr = invoke(main, str(root), "verify-roundtrip")
             self.assertEqual(result, 0, stderr)
+
+    def test_compile_rejects_tampered_or_mixed_canonical_generation(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            canonical = root / "corpus" / "canonical"
+            manifest = json.loads((canonical / "manifest.json").read_bytes())
+            manifest["stores"]["services.jsonl"]["count"] = 99
+            (canonical / "manifest.json").write_bytes(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+            )
+            result, stderr = invoke(main, str(root), "compile")
+            self.assertNotEqual(result, 0)
+            self.assertIn("manifest", stderr)
+            self.assertNotIn("Traceback", stderr)
+
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            (root / "data" / "service-probes.db").write_bytes(
+                (root / "data" / "service-probes.db").read_bytes().replace(b"rarity=1", b"rarity=2", 1)
+            )
+            real_replace = os.replace
+            replacements = 0
+
+            def fail_after_first_store(source, destination):
+                nonlocal replacements
+                if Path(destination).name in {*STORE_KINDS, "manifest.json"}:
+                    replacements += 1
+                    if replacements == 2:
+                        raise OSError("synthetic publication failure")
+                return real_replace(source, destination)
+
+            with mock.patch("tools.corpus.cli.os.replace", side_effect=fail_after_first_store):
+                result, stderr = invoke(main, str(root), "import-runtime")
+            self.assertNotEqual(result, 0)
+            self.assertNotIn("Traceback", stderr)
+            result, stderr = invoke(main, str(root), "compile")
+            self.assertNotEqual(result, 0)
+            self.assertIn("manifest", stderr)
+            self.assertNotIn("Traceback", stderr)
 
     def test_import_failure_preserves_canonical_stores_without_traceback(self) -> None:
         from tools.corpus.cli import main
@@ -122,7 +167,7 @@ class CorpusCLITests(unittest.TestCase):
             (canonical / "services.jsonl").write_bytes((canonical / "udp.jsonl").read_bytes())
             result, stderr = invoke(main, str(root), "compile")
             self.assertNotEqual(result, 0)
-            self.assertIn("expected kind", stderr)
+            self.assertIn("manifest", stderr)
             self.assertNotIn("Traceback", stderr)
             self.assertEqual(before, {path.name: path.read_bytes() for path in output.iterdir()})
 
@@ -140,6 +185,10 @@ class CorpusCLITests(unittest.TestCase):
             changed = replace(original, body=replace(original.body, payload_hex="42"))
             changed = replace(changed, id=stable_record_id(changed))
             write_jsonl(path, (changed,) + records[1:], sources)
+            manifest_path = root / "corpus" / "canonical" / "manifest.json"
+            manifest = json.loads(manifest_path.read_bytes())
+            manifest["stores"]["active-probes.jsonl"]["sha256"] = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            manifest_path.write_bytes(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
             result, stderr = invoke(main, str(root), "verify-roundtrip")
             self.assertNotEqual(result, 0)
             self.assertIn("semantic", stderr)
@@ -160,6 +209,64 @@ class CorpusCLITests(unittest.TestCase):
             result, stderr = invoke(main, str(root), "import-runtime")
             self.assertNotEqual(result, 0)
             self.assertIn("symlink", stderr)
+            self.assertNotIn("Traceback", stderr)
+
+    def test_rejects_resolved_reparse_escape(self) -> None:
+        from tools.corpus import cli
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = Path(directory) / "repository"
+            root.mkdir()
+            escaped = root / "data"
+            escaped.mkdir()
+            outside = Path(directory) / "outside"
+            outside.mkdir()
+            with mock.patch("tools.corpus.cli._is_reparse_point", side_effect=lambda path: path == escaped), mock.patch(
+                "tools.corpus.cli._resolve_existing", side_effect=lambda path: outside if path == escaped else path.resolve()
+            ):
+                with self.assertRaisesRegex(cli.CorpusCLIError, "reparse|escapes"):
+                    cli._path_within(root.resolve(), "data/child", "data", "runtime input directory")
+            with mock.patch("tools.corpus.cli._is_reparse_point", return_value=False), mock.patch(
+                "tools.corpus.cli._resolve_existing", side_effect=lambda path: outside if path == escaped else path.resolve()
+            ):
+                with self.assertRaisesRegex(cli.CorpusCLIError, "escapes"):
+                    cli._path_within(root.resolve(), "data/child", "data", "runtime input directory")
+
+    def test_rejects_reparse_paths_at_every_cli_directory_boundary(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+
+            def invoke_reparse(arguments, target):
+                with mock.patch("tools.corpus.cli._is_reparse_point", side_effect=lambda path: path == target):
+                    result, stderr = invoke(main, str(root), *arguments)
+                self.assertNotEqual(result, 0)
+                self.assertIn("reparse", stderr)
+                self.assertNotIn("Traceback", stderr)
+
+            invoke_reparse(("import-runtime", "--runtime-dir", "data"), root / "data")
+            invoke_reparse(("import-runtime", "--canonical-dir", "corpus/canonical"), root / "corpus" / "canonical")
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            output = root / "build" / "corpus-runtime"
+            output.mkdir(parents=True)
+            invoke_reparse(("compile", "--output-dir", "build/corpus-runtime"), output)
+
+    def test_filesystem_failures_are_concise(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+            (root / "blocker").write_bytes(b"not a directory")
+            result, stderr = invoke(main, str(root), "import-runtime", "--canonical-dir", "blocker/child")
+            self.assertNotEqual(result, 0)
+            self.assertIn("corpus:", stderr)
+            self.assertNotIn("Traceback", stderr)
+
+            with mock.patch("tools.corpus.cli.Path.iterdir", side_effect=PermissionError("denied")):
+                result, stderr = invoke(main, str(root), "import-runtime")
+            self.assertNotEqual(result, 0)
+            self.assertIn("corpus:", stderr)
             self.assertNotIn("Traceback", stderr)
 
 

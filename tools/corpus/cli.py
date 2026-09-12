@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import Iterable
 
@@ -26,6 +29,7 @@ _STORE_KINDS = {
     "os.jsonl": "os_fingerprint",
     "udp.jsonl": "udp_probe",
 }
+_CANONICAL_MANIFEST = "manifest.json"
 _ARTIFACTS = {
     "service-probes.db",
     "udp-probes.db",
@@ -39,14 +43,31 @@ class CorpusCLIError(ValueError):
     """A command-line corpus operation cannot safely continue."""
 
 
+def _is_reparse_point(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        if is_junction is not None and is_junction():
+            return True
+        attributes = getattr(path.stat(follow_symlinks=False), "st_file_attributes", 0)
+        return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+    except OSError as exc:
+        raise CorpusCLIError(f"cannot inspect path safety: {exc}") from exc
+
+
+def _resolve_existing(path: Path) -> Path:
+    try:
+        return path.resolve(strict=True)
+    except OSError as exc:
+        raise CorpusCLIError(f"cannot resolve path: {exc}") from exc
+
+
 def _root(value: str | None) -> Path:
     candidate = Path(value) if value is not None else _DEFAULT_ROOT
-    if candidate.is_symlink():
+    if _is_reparse_point(candidate):
         raise CorpusCLIError("repository root must not be a symlink")
-    try:
-        resolved = candidate.resolve(strict=True)
-    except OSError as exc:
-        raise CorpusCLIError(f"repository root is missing: {candidate}") from exc
+    resolved = _resolve_existing(candidate)
     if not resolved.is_dir():
         raise CorpusCLIError("repository root must be a directory")
     return resolved
@@ -62,10 +83,18 @@ def _path_within(root: Path, value: str | None, default: str, label: str) -> Pat
     except ValueError as exc:
         raise CorpusCLIError(f"{label} escapes the repository root") from exc
     current = root
+    resolved_root = _resolve_existing(root)
     for component in relative.parts:
         current /= component
         if current.exists() and current.is_symlink():
-            raise CorpusCLIError(f"{label} must not contain symlinks")
+            raise CorpusCLIError(f"{label} must not contain symlinks or reparse points")
+        if current.exists():
+            if _is_reparse_point(current):
+                raise CorpusCLIError(f"{label} must not contain symlinks or reparse points")
+            try:
+                _resolve_existing(current).relative_to(resolved_root)
+            except ValueError as exc:
+                raise CorpusCLIError(f"{label} escapes the repository root") from exc
     return lexical
 
 
@@ -143,21 +172,34 @@ def _store_records(records: Iterable[CanonicalRecord]) -> dict[str, tuple[Canoni
 
 def _canonical_directory(root: Path, value: str | None, *, output: bool) -> Path:
     path = _path_within(root, value, "corpus/canonical", "canonical directory")
-    allowed = set(_STORE_KINDS) | {"README.md"}
+    allowed = set(_STORE_KINDS) | {_CANONICAL_MANIFEST, "README.md"}
     _exact_directory(path, allowed, "canonical directory", require_all=False, must_exist=not output)
     if path.exists():
         existing = {item.name for item in path.iterdir()} & set(_STORE_KINDS)
-        if not output and existing != set(_STORE_KINDS):
-            raise CorpusCLIError("canonical directory is missing: " + ", ".join(sorted(set(_STORE_KINDS) - existing)))
+        required = set(_STORE_KINDS) | {_CANONICAL_MANIFEST}
+        if not output and not required <= {item.name for item in path.iterdir()}:
+            raise CorpusCLIError("canonical directory is missing: " + ", ".join(sorted(required - {item.name for item in path.iterdir()})))
         if existing and existing != set(_STORE_KINDS):
             raise CorpusCLIError("canonical directory is partially populated")
     return path
 
 
+def _canonical_manifest(records: dict[str, tuple[CanonicalRecord, ...]], staged: dict[str, Path]) -> bytes:
+    stores: dict[str, dict[str, object]] = {}
+    for name, kind in _STORE_KINDS.items():
+        value = staged[name].read_bytes()
+        stores[name] = {
+            "count": len(records[name]),
+            "kind": kind,
+            "sha256": "sha256:" + hashlib.sha256(value).hexdigest(),
+        }
+    return json.dumps({"stores": stores}, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+
+
 def _publish_stores(directory: Path, records: dict[str, tuple[CanonicalRecord, ...]], sources: dict[str, SourcePolicy]) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
     staged: dict[str, Path] = {}
     try:
+        directory.mkdir(parents=True, exist_ok=True)
         for name in _STORE_KINDS:
             descriptor, raw_temporary = tempfile.mkstemp(dir=directory, prefix=f".{name}.", suffix=".tmp")
             os.close(descriptor)
@@ -165,26 +207,51 @@ def _publish_stores(directory: Path, records: dict[str, tuple[CanonicalRecord, .
             temporary.unlink()
             write_jsonl(temporary, records[name], sources)
             staged[name] = temporary
-        for name in _STORE_KINDS:
-            os.replace(staged.pop(name), directory / name)
+        descriptor, raw_temporary = tempfile.mkstemp(dir=directory, prefix=f".{_CANONICAL_MANIFEST}.", suffix=".tmp")
+        staged[_CANONICAL_MANIFEST] = Path(raw_temporary)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(_canonical_manifest(records, staged))
+            stream.flush()
+            os.fsync(stream.fileno())
+        for name in (*_STORE_KINDS, _CANONICAL_MANIFEST):
+            os.replace(staged[name], directory / name)
+            staged.pop(name)
     except (OSError, CorpusIOError) as exc:
         raise CorpusCLIError(f"cannot publish canonical stores: {exc}") from exc
     finally:
         for temporary in staged.values():
-            temporary.unlink(missing_ok=True)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _load_canonical(root: Path, value: str | None, sources: dict[str, SourcePolicy]) -> tuple[CanonicalRecord, ...]:
     directory = _canonical_directory(root, value, output=False)
     records: list[CanonicalRecord] = []
     try:
+        manifest_path = directory / _CANONICAL_MANIFEST
+        if manifest_path.is_symlink() or not manifest_path.is_file():
+            raise CorpusCLIError("canonical manifest is missing or unsafe")
+        manifest = json.loads(manifest_path.read_bytes())
+        if not isinstance(manifest, dict) or set(manifest) != {"stores"} or not isinstance(manifest["stores"], dict) or set(manifest["stores"]) != set(_STORE_KINDS):
+            raise CorpusCLIError("canonical manifest is invalid")
         for name, kind in _STORE_KINDS.items():
             path = directory / name
             if path.is_symlink():
                 raise CorpusCLIError(f"canonical store {name} must not be a symlink")
-            records.extend(load_jsonl(path, sources, expected_kind=kind))
+            entry = manifest["stores"][name]
+            if not isinstance(entry, dict) or set(entry) != {"count", "kind", "sha256"} or entry["kind"] != kind or type(entry["count"]) is not int or entry["count"] < 1 or not isinstance(entry["sha256"], str):
+                raise CorpusCLIError("canonical manifest is invalid")
+            value = path.read_bytes()
+            if entry["sha256"] != "sha256:" + hashlib.sha256(value).hexdigest():
+                raise CorpusCLIError(f"canonical manifest does not match {name}")
+            loaded = load_jsonl(path, sources, expected_kind=kind)
+            if len(loaded) != entry["count"]:
+                raise CorpusCLIError(f"canonical manifest does not match {name}")
+            records.extend(loaded)
         return validate_runtime_graph(records)
-    except (CorpusIOError, CompilerError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, CorpusIOError, CompilerError) as exc:
         raise CorpusCLIError(f"canonical validation failed: {exc}") from exc
 
 
@@ -282,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
             _compile(root, arguments)
         else:
             _verify_roundtrip(root, arguments)
-    except (CorpusCLIError, CorpusIOError, CompilerError, CorpusManifestError) as exc:
+    except (CorpusCLIError, CorpusIOError, CompilerError, CorpusManifestError, OSError) as exc:
         print(f"corpus: {exc}", file=os.sys.stderr)
         return 1
     return 0
