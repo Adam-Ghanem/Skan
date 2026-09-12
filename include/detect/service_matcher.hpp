@@ -26,6 +26,17 @@ struct ServiceMatchResult final {
     std::size_t rule_index{0U};
 };
 
+/**
+ * Compare two matched results using the canonical evidence ordering.
+ * Complete ties preserve the incumbent so probe ordering remains deterministic.
+ */
+bool service_match_is_better(
+    const ServiceMatchResult &candidate,
+    const ServiceMatchResult &incumbent) noexcept;
+
+/** Return whether a match is strong enough to publish as a detected service. */
+bool service_match_is_publishable(const ServiceMatchResult &match) noexcept;
+
 class ServiceMatcher final {
 public:
     explicit ServiceMatcher(const ServiceProbeDatabase &database) noexcept;

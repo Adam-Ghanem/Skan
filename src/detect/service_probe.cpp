@@ -118,8 +118,7 @@ core::StatusCode ServiceProbe::assess(
     std::string &bounded_response,
     DetectionError &error) const
 {
-    if (response.id != submission.id ||
-        (!response.source_address.empty() && response.source_address != submission.target)) {
+    if (response.id != submission.id || response.source_address != submission.target) {
         return core::StatusCode::NotFound;
     }
     if (response.response_truncated || response.bytes.size() > max_response_bytes_) {

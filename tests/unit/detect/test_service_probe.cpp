@@ -40,6 +40,9 @@ int main()
     ServiceResponse wrong_source{42U, "127.0.0.2", ServiceResponseKind::Data, 0, {}, false,
                                  DetectionClock::now()};
     assert(probe.assess(wrong_source, submission, bounded, error) == skan::core::StatusCode::NotFound);
+    ServiceResponse missing_source{42U, "", ServiceResponseKind::Data, 0, {}, false,
+                                   DetectionClock::now()};
+    assert(probe.assess(missing_source, submission, bounded, error) == skan::core::StatusCode::NotFound);
     ServiceResponse closed{42U, "127.0.0.1", ServiceResponseKind::Closed, 0, {}, false,
                            DetectionClock::now()};
     assert(probe.assess(closed, submission, bounded, error) == skan::core::StatusCode::NotFound);

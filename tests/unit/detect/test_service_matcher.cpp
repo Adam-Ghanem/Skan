@@ -77,5 +77,42 @@ int main()
         "HTTP/1.1 200 OK\r\n");
     assert(!none.matched);
     assert(none.confidence == 0.0);
+
+    ServiceMatchResult incumbent;
+    incumbent.matched = true;
+    incumbent.strength = ServiceMatchStrength::Soft;
+    incumbent.priority = 3U;
+    incumbent.confidence = 0.80;
+    incumbent.specificity = 5U;
+    assert(service_match_is_publishable(incumbent));
+
+    ServiceMatchResult weak = incumbent;
+    weak.confidence = 0.45;
+    assert(!service_match_is_publishable(weak));
+
+    ServiceMatchResult structurally_weaker = incumbent;
+    structurally_weaker.priority = 2U;
+    structurally_weaker.confidence = 0.99;
+    assert(!service_match_is_better(structurally_weaker, incumbent));
+
+    ServiceMatchResult more_specific = incumbent;
+    more_specific.specificity = 6U;
+    assert(service_match_is_better(more_specific, incumbent));
+    assert(!service_match_is_better(incumbent, incumbent));
+
+    const std::string publishability_text =
+        "Probe TCP Publishability rarity=1\n"
+        "send \"x\"\n"
+        "softmatch type=exact pattern=\"READY\" service=weak product=Exact confidence=0.45\n"
+        "softmatch type=prefix pattern=\"REA\" service=strong product=Prefix confidence=0.95\n";
+    skan::core::StatusCode publishability_status = skan::core::StatusCode::InternalError;
+    const ServiceProbeDatabase publishability_database =
+        ServiceProbeDatabase::parse(publishability_text, publishability_status);
+    assert(publishability_status == skan::core::StatusCode::Ok);
+    const ServiceMatchResult publishable = ServiceMatcher(publishability_database).match(
+        publishability_database.probes().front(), "READY");
+    assert(publishable.matched);
+    assert(publishable.service == "strong");
+    assert(publishable.confidence == 0.95);
     return 0;
 }

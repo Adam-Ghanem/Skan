@@ -9,6 +9,7 @@ namespace skan::detect {
 namespace {
 
 constexpr std::size_t kMaximumMatchResponseBytes = 8192U;
+constexpr double kMinimumPublishedSoftMatchConfidence = 0.60;
 
 std::string expand_template(
     std::string_view value,
@@ -89,6 +90,43 @@ bool rule_matches(
 
 } // namespace
 
+bool service_match_is_publishable(const ServiceMatchResult &match) noexcept
+{
+    return match.matched &&
+           (match.strength == ServiceMatchStrength::Hard ||
+            match.confidence >= kMinimumPublishedSoftMatchConfidence);
+}
+
+bool service_match_is_better(
+    const ServiceMatchResult &candidate,
+    const ServiceMatchResult &incumbent) noexcept
+{
+    if (!candidate.matched) {
+        return false;
+    }
+    if (!incumbent.matched) {
+        return true;
+    }
+    if (candidate.strength != incumbent.strength) {
+        return candidate.strength > incumbent.strength;
+    }
+    const bool candidate_publishable = service_match_is_publishable(candidate);
+    const bool incumbent_publishable = service_match_is_publishable(incumbent);
+    if (candidate_publishable != incumbent_publishable) {
+        return candidate_publishable;
+    }
+    if (candidate.priority != incumbent.priority) {
+        return candidate.priority > incumbent.priority;
+    }
+    if (candidate.confidence != incumbent.confidence) {
+        return candidate.confidence > incumbent.confidence;
+    }
+    if (candidate.specificity != incumbent.specificity) {
+        return candidate.specificity > incumbent.specificity;
+    }
+    return false;
+}
+
 ServiceMatcher::ServiceMatcher(const ServiceProbeDatabase &database) noexcept : database_(database)
 {
 }
@@ -122,17 +160,7 @@ ServiceMatchResult ServiceMatcher::match(
         candidate.priority = rule_priority(rule);
         candidate.specificity = rule.specificity;
         candidate.rule_index = index;
-        const bool better = !best.matched || candidate.strength > best.strength ||
-                            (candidate.strength == best.strength && candidate.priority > best.priority) ||
-                            (candidate.strength == best.strength && candidate.priority == best.priority &&
-                             candidate.confidence > best.confidence) ||
-                            (candidate.strength == best.strength && candidate.priority == best.priority &&
-                             candidate.confidence == best.confidence &&
-                             candidate.specificity > best.specificity) ||
-                            (candidate.strength == best.strength && candidate.priority == best.priority &&
-                             candidate.confidence == best.confidence &&
-                             candidate.specificity == best.specificity && candidate.rule_index < best.rule_index);
-        if (better) {
+        if (service_match_is_better(candidate, best)) {
             if (candidate.tunnel == "tls" || candidate.service == "tls" || candidate.service == "https") {
                 const auto *data = reinterpret_cast<const std::uint8_t *>(response.data());
                 candidate.tls = parse_tls_metadata(std::span<const std::uint8_t>{data, response.size()});
