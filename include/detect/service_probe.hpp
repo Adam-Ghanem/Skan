@@ -41,6 +41,7 @@ struct ServiceSubmission final {
 
 struct ServiceResponse final {
     ServiceProbeId id{0U};
+    /** Required exact target attribution for every response kind. */
     std::string source_address;
     ServiceResponseKind kind{ServiceResponseKind::Data};
     int system_error{0};

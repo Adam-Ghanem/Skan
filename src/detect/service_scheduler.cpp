@@ -189,6 +189,9 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
         return;
     }
     Pending &pending = iterator->second;
+    if (response.source_address != pending.submission.target) {
+        return;
+    }
     const std::size_t active_probe_index = pending.probe_index;
     const ServiceProbeDefinition &definition = database_.probes()[active_probe_index];
     const ServiceProbe probe(definition, config_.max_response_bytes);
@@ -288,7 +291,7 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
             return;
         }
         if (!pending.work.best_soft_match.has_value() ||
-            match.confidence >= pending.work.best_soft_match->confidence) {
+            service_match_is_better(match, *pending.work.best_soft_match)) {
             pending.work.best_soft_match = match;
             pending.work.best_soft_probe_index = active_probe_index;
         }
@@ -317,7 +320,8 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
     if (rtt_ms < 0.0) {
         rtt_ms = 0.0;
     }
-    if (finished.work.best_soft_match.has_value()) {
+    if (finished.work.best_soft_match.has_value() &&
+        service_match_is_publishable(*finished.work.best_soft_match)) {
         append_result(finished.work.port_result,
                       &database_.probes()[finished.work.best_soft_probe_index],
                       DetectionState::Detected, DetectionError::None,
@@ -538,7 +542,8 @@ void ServiceScheduler::on_timeout(ServiceProbeId id) noexcept
         } catch (const std::bad_alloc &) {
             status_ = core::StatusCode::MemoryError;
         }
-    } else if (pending.work.best_soft_match.has_value()) {
+    } else if (pending.work.best_soft_match.has_value() &&
+               service_match_is_publishable(*pending.work.best_soft_match)) {
         append_result(pending.work.port_result,
                       &database_.probes()[pending.work.best_soft_probe_index],
                       DetectionState::Detected, DetectionError::None,

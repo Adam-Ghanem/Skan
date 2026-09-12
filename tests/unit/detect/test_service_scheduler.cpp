@@ -43,9 +43,218 @@ int main()
     {
         skan::core::StatusCode status = skan::core::StatusCode::InternalError;
         const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP Generic rarity=1 timeout=25 ports=80\n"
+            "send \"PING\"\n"
+            "softmatch type=prefix pattern=\"220\" service=banner product=TextBanner confidence=0.45\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 32U, 1U});
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+        const auto submission = transport.submissions().front();
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                           {'2', '2', '0', ' ', 'x'}, false, DetectionClock::now()});
+        assert(!scheduler.complete());
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == DetectionState::Unknown);
+        assert(scheduler.results().front().error == DetectionError::NoMatch);
+        assert(scheduler.results().front().service.empty());
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
             "Probe TCP First rarity=1 timeout=25 ports=80 fallback=Second\n"
             "send \"ONE\"\n"
-            "softmatch type=prefix pattern=\"220\" service=banner product=Generic confidence=0.5\n"
+            "softmatch type=prefix pattern=\"PROTO\" service=first product=Specific confidence=0.80\n"
+            "Probe TCP Second rarity=2 timeout=25\n"
+            "send \"TWO\"\n"
+            "softmatch type=substring pattern=\"PROTO\" service=second product=Generic confidence=0.85\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 32U, 2U});
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, ServiceResponseKind::Data, 0,
+                           {'P', 'R', 'O', 'T', 'O'}, false, DetectionClock::now()});
+        transport.deliver({first.id, first.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(transport.submissions().size() == 2U);
+        const auto second = transport.submissions().back();
+        transport.deliver({second.id, second.target, ServiceResponseKind::Data, 0,
+                           {'X', 'P', 'R', 'O', 'T', 'O'}, false, DetectionClock::now()});
+        transport.deliver({second.id, second.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().service == "first");
+        assert(scheduler.results().front().product == "Specific");
+        assert(scheduler.results().front().probe_name == "First");
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP Strong rarity=1 timeout=25 ports=80 fallback=Weak\n"
+            "send \"ONE\"\n"
+            "softmatch type=prefix pattern=\"READY\" service=strong confidence=0.95\n"
+            "Probe TCP Weak rarity=2 timeout=25\n"
+            "send \"TWO\"\n"
+            "softmatch type=exact pattern=\"READY\" service=weak confidence=0.45\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 32U, 2U});
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+        const auto strong = transport.submissions().front();
+        transport.deliver({strong.id, strong.target, ServiceResponseKind::Data, 0,
+                           {'R', 'E', 'A', 'D', 'Y'}, false, DetectionClock::now()});
+        transport.deliver({strong.id, strong.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        const auto weak = transport.submissions().back();
+        transport.deliver({weak.id, weak.target, ServiceResponseKind::Data, 0,
+                           {'R', 'E', 'A', 'D', 'Y'}, false, DetectionClock::now()});
+        transport.deliver({weak.id, weak.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().front().state == DetectionState::Detected);
+        assert(scheduler.results().front().service == "strong");
+        assert(scheduler.results().front().confidence == 0.95);
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP Attributed rarity=1 timeout=25 ports=80\n"
+            "send \"PING\"\n"
+            "match type=prefix pattern=\"PONG\" service=demo confidence=0.90\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 32U, 1U});
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+        const auto submission = transport.submissions().front();
+        scheduler.receive({submission.id, "127.0.0.2", ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(!scheduler.complete());
+        scheduler.receive({submission.id, "", ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(!scheduler.complete());
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().front().state == DetectionState::Unknown);
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP First rarity=1 timeout=25 ports=80 fallback=Second\n"
+            "send \"ONE\"\n"
+            "softmatch type=prefix pattern=\"READY\" service=first confidence=0.80\n"
+            "Probe TCP Second rarity=2 timeout=25\n"
+            "send \"TWO\"\n"
+            "softmatch type=prefix pattern=\"READY\" service=second confidence=0.80\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 32U, 2U});
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, ServiceResponseKind::Data, 0,
+                           {'R', 'E', 'A', 'D', 'Y'}, false, DetectionClock::now()});
+        transport.deliver({first.id, first.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        const auto second = transport.submissions().back();
+        transport.deliver({second.id, second.target, ServiceResponseKind::Data, 0,
+                           {'R', 'E', 'A', 'D', 'Y'}, false, DetectionClock::now()});
+        transport.deliver({second.id, second.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().front().service == "first");
+        assert(scheduler.results().front().probe_name == "First");
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP Weak rarity=1 timeout=2 ports=80\n"
+            "send \"PING\"\n"
+            "softmatch type=prefix pattern=\"220\" service=banner confidence=0.45\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{2}, 32U, 1U});
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+        const auto weak = transport.submissions().front();
+        transport.deliver({weak.id, weak.target, ServiceResponseKind::Data, 0,
+                           {'2', '2', '0'}, false, DetectionClock::now()});
+        assert(scheduler.run() == skan::core::StatusCode::Ok);
+        assert(scheduler.complete());
+        assert(scheduler.results().front().state == DetectionState::Timeout);
+        assert(scheduler.results().front().service.empty());
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP SSHBanner rarity=1 timeout=25 ports=22 fallback=HTTPGet\n"
+            "send \"\\r\\n\"\n"
+            "match type=prefix pattern=\"SSH-\" service=ssh product=SSH confidence=0.90\n"
+            "Probe TCP HTTPGet rarity=2 timeout=25\n"
+            "send \"GET / HTTP/1.0\\r\\n\\r\\n\"\n"
+            "match type=regex pattern=\"^HTTP/([0-9.]+)\" service=http product=HTTP version=\"$1\" confidence=0.90\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 64U, 2U});
+        assert(scheduler.submit({open_port("127.0.0.1", 22U)}) == skan::core::StatusCode::Ok);
+        const auto ssh = transport.submissions().front();
+        transport.deliver({ssh.id, ssh.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
+        assert(transport.submissions().size() == 2U);
+        const auto http = transport.submissions().back();
+        const std::string response = "HTTP/1.1 200 OK\r\n\r\n";
+        transport.deliver({http.id, http.target, ServiceResponseKind::Data, 0,
+                           std::vector<std::uint8_t>(response.begin(), response.end()), false,
+                           DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().front().state == DetectionState::Detected);
+        assert(scheduler.results().front().service == "http");
+        assert(scheduler.results().front().version == "1.1");
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP First rarity=1 timeout=25 ports=80 fallback=Second\n"
+            "send \"ONE\"\n"
+            "softmatch type=prefix pattern=\"220\" service=banner product=Generic confidence=0.7\n"
             "Probe TCP Second rarity=2\n"
             "send \"TWO\"\n"
             "match type=prefix pattern=\"SSH-\" service=ssh product=SSH confidence=0.9\n",

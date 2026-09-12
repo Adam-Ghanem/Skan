@@ -13,7 +13,9 @@ softmatch type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.70
 
 `Probe` declares `TCP` or `UDP`, a unique name, rarity, priority, a per-probe timeout in milliseconds, optional port hints, and ordered fallback probe names. The global scan timeout remains a hard ceiling. Payload and pattern strings accept quoted `\r`, `\n`, `\t`, `\\`, `\"`, and `\xNN` escapes.
 
-Hard `match` rules finish detection. `softmatch` rules retain a generic classification while later fallbacks look for stronger evidence. Rules support exact, prefix, suffix, substring, and bounded ECMAScript regex matching. Regex input, pattern length, captures, database size, line size, probes, rules, fallbacks, responses, and extracted TLS names are all capped. Backreferences and common nested-quantifier forms are rejected.
+Hard `match` rules finish detection. `softmatch` rules retain a generic classification while later fallbacks look for stronger evidence. Soft evidence below `0.60` confidence is not published as a detected service. Across probes, Skan deterministically prefers match strength, publishable evidence, structural match quality, confidence, and specificity; a complete tie retains the earlier scheduled probe. Rules support exact, prefix, suffix, substring, and bounded ECMAScript regex matching. Regex input, pattern length, captures, database size, line size, probes, rules, fallbacks, responses, and extracted TLS names are all capped. Backreferences and common nested-quantifier forms are rejected.
+
+Every transport response, including close and error notifications, must carry the exact target address from its `ServiceSubmission`. Unattributed or mismatched responses are ignored; the built-in connected TCP and UDP transports provide this attribution.
 
 Metadata templates may use regex captures in `service`, `product`, `version`, `extra`, `hostname`, and `tunnel`. A version must only be populated by evidence in the response; generic matches deliberately leave it empty.
 
