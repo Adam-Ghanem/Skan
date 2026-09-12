@@ -108,6 +108,26 @@ class CorpusCLITests(unittest.TestCase):
             self.assertIn("manifest", stderr)
             self.assertNotIn("Traceback", stderr)
 
+    def test_manifest_input_is_bounded_and_deep_json_is_concise(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            manifest = root / "corpus" / "canonical" / "manifest.json"
+            manifest.write_bytes(b" " * ((64 << 10) + 1))
+            result, stderr = invoke(main, str(root), "compile")
+            self.assertNotEqual(result, 0)
+            self.assertIn("exceeds", stderr)
+            self.assertNotIn("Traceback", stderr)
+
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            manifest.write_bytes(b"[" * 2000 + b"]" * 2000 + b"\n")
+            result, stderr = invoke(main, str(root), "compile")
+            self.assertNotEqual(result, 0)
+            self.assertIn("manifest", stderr)
+            self.assertNotIn("Traceback", stderr)
+
             self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
             (root / "data" / "service-probes.db").write_bytes(
                 (root / "data" / "service-probes.db").read_bytes().replace(b"rarity=1", b"rarity=2", 1)

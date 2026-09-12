@@ -30,6 +30,7 @@ _STORE_KINDS = {
     "udp.jsonl": "udp_probe",
 }
 _CANONICAL_MANIFEST = "manifest.json"
+_MAX_CANONICAL_MANIFEST_BYTES = 64 << 10
 _ARTIFACTS = {
     "service-probes.db",
     "udp-probes.db",
@@ -41,6 +42,46 @@ _ARTIFACTS = {
 
 class CorpusCLIError(ValueError):
     """A command-line corpus operation cannot safely continue."""
+
+
+def _manifest_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON field")
+        value[key] = item
+    return value
+
+
+def _manifest_integer(value: str) -> int:
+    if len(value.removeprefix("-")) > 20:
+        raise ValueError("integer exceeds 20 digits")
+    return int(value)
+
+
+def _manifest_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _read_canonical_manifest(path: Path) -> object:
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(_MAX_CANONICAL_MANIFEST_BYTES + 1)
+    except OSError as exc:
+        raise CorpusCLIError(f"cannot read canonical manifest: {exc}") from exc
+    if len(raw) > _MAX_CANONICAL_MANIFEST_BYTES:
+        raise CorpusCLIError(f"canonical manifest exceeds {_MAX_CANONICAL_MANIFEST_BYTES} bytes")
+    if not raw.endswith(b"\n") or raw.endswith(b"\r\n"):
+        raise CorpusCLIError("canonical manifest must end with LF")
+    try:
+        return json.loads(
+            raw[:-1].decode("utf-8"),
+            object_pairs_hook=_manifest_object,
+            parse_constant=_manifest_constant,
+            parse_int=_manifest_integer,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
+        raise CorpusCLIError("canonical manifest is invalid") from exc
 
 
 def _is_reparse_point(path: Path) -> bool:
@@ -233,7 +274,7 @@ def _load_canonical(root: Path, value: str | None, sources: dict[str, SourcePoli
         manifest_path = directory / _CANONICAL_MANIFEST
         if manifest_path.is_symlink() or not manifest_path.is_file():
             raise CorpusCLIError("canonical manifest is missing or unsafe")
-        manifest = json.loads(manifest_path.read_bytes())
+        manifest = _read_canonical_manifest(manifest_path)
         if not isinstance(manifest, dict) or set(manifest) != {"stores"} or not isinstance(manifest["stores"], dict) or set(manifest["stores"]) != set(_STORE_KINDS):
             raise CorpusCLIError("canonical manifest is invalid")
         for name, kind in _STORE_KINDS.items():
