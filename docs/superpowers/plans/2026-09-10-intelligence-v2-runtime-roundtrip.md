@@ -122,8 +122,8 @@
 - Consumes: `build/corpus-runtime/*.db` from `tools.corpus.cli compile`.
 - Produces: `make test-corpus-runtime`, which compiles artifacts, loads them with the production C++ loaders, and verifies counts plus representative service, UDP, IPv4, and IPv6 semantics.
 
-- [ ] **Step 1: Write the failing C++ integration test and Make target.** Confirm the target fails before generated artifacts and build rules exist.
-- [ ] **Step 2: Implement the minimal build wiring.** Generate artifacts before executing the loader test and add the gate to CI without removing existing scanner coverage.
-- [ ] **Step 3: Document the lifecycle.** State which corpus is authoritative, how to import/compile/verify offline, source governance rules, and the explicit runtime-switch deferral.
+- [x] **Step 1: Write the failing C++ integration test and Make target.** Confirm the target fails before generated artifacts and build rules exist.
+- [x] **Step 2: Implement the minimal build wiring.** Generate artifacts before executing the loader test and add the gate to CI without removing existing scanner coverage.
+- [x] **Step 3: Document the lifecycle.** State which corpus is authoritative, how to import/compile/verify offline, source governance rules, and the explicit runtime-switch deferral.
 - [ ] **Step 4: Run verification.** Execute `make test-corpus-runtime`, `make test`, CLI regression, debug/release builds, ASan, UBSan, workflow policy, packaging guards, line-ending check, `git diff --check`, and secret/prohibited-API scans.
 - [ ] **Step 5: Request independent review, fix valid findings, commit, push, open a PR, and let CI continue asynchronously.** Commit as `ci(corpus): enforce runtime round-trip gate`.
