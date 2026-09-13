@@ -106,7 +106,13 @@ class ServiceSchedulerTransientFailureTest(unittest.TestCase):
         make_eval = f"print-service-test-objects: ; @echo {object_expr}"
         objects = shlex.split(
             subprocess.check_output(
-                ["make", "-s", f"--eval={make_eval}", "print-service-test-objects"],
+                [
+                    "make",
+                    "-s",
+                    "--no-print-directory",
+                    f"--eval={make_eval}",
+                    "print-service-test-objects",
+                ],
                 cwd=ROOT,
                 text=True,
             ).strip()
