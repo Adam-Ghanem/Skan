@@ -1,4 +1,3 @@
-import shlex
 import subprocess
 import tempfile
 import textwrap
@@ -91,62 +90,36 @@ int main()
 
 class ServiceSchedulerTransientFailureTest(unittest.TestCase):
     def test_transient_socket_error_advances_to_fallback_probe(self) -> None:
-        subprocess.run(
-            ["make", "-j2", "build/test_service_scheduler"],
-            cwd=ROOT,
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-
-        object_expr = (
-            "$(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) "
-            "$(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) "
-            "$(CORE_OBJECTS) $(CORE_LOG_OBJECT)"
-        )
-        make_eval = f"print-service-test-objects: ; @echo {object_expr}"
-        objects = shlex.split(
-            subprocess.check_output(
-                [
-                    "make",
-                    "-s",
-                    "--no-print-directory",
-                    f"--eval={make_eval}",
-                    "print-service-test-objects",
-                ],
-                cwd=ROOT,
-                text=True,
-            ).strip()
-        )
-
         with tempfile.TemporaryDirectory(prefix="skan-service-transient-") as tmp:
             tmp_path = Path(tmp)
             source = tmp_path / "service_scheduler_transient.cpp"
-            obj = tmp_path / "service_scheduler_transient.o"
             binary = tmp_path / "service_scheduler_transient"
             source.write_text(textwrap.dedent(HARNESS), encoding="utf-8")
 
-            subprocess.run(
-                [
-                    "g++",
-                    "-Iinclude",
-                    "-std=c++20",
-                    "-Wall",
-                    "-Wextra",
-                    "-Wpedantic",
-                    "-Wshadow",
-                    "-Wconversion",
-                    "-Wformat=2",
-                    "-O2",
-                    "-c",
-                    str(source),
-                    "-o",
-                    str(obj),
-                ],
-                cwd=ROOT,
-                check=True,
+            # Build and link through the repository Makefile so this regression
+            # inherits the exact compiler/linker instrumentation of the caller
+            # (normal, coverage, ASAN, UBSAN, etc.).  Do not parse recursive make
+            # stdout: GNU Make may emit Entering/Leaving-directory diagnostics.
+            objects = (
+                "$(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) "
+                "$(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) "
+                "$(CORE_OBJECTS) $(CORE_LOG_OBJECT)"
+            )
+            make_eval = textwrap.dedent(
+                f"""
+                .PHONY: service-transient-harness
+                service-transient-harness: build/test_service_scheduler
+                \t$(CXX) $(CXXFLAGS) -Iinclude {source} $(LDFLAGS) {objects} -o {binary}
+                """
             )
             subprocess.run(
-                ["g++", str(obj), *objects, "-o", str(binary)],
+                [
+                    "make",
+                    "--no-print-directory",
+                    "-s",
+                    f"--eval={make_eval}",
+                    "service-transient-harness",
+                ],
                 cwd=ROOT,
                 check=True,
             )
