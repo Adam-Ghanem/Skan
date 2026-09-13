@@ -1,0 +1,13 @@
+# id	outcome	probe	response_hex	service	product	version	minimum_confidence
+nntp-version	match	NNTPCapabilities	313031204361706162696c697479206c6973743a0d0a56455253494f4e20320d0a5245414445520d0a2e0d0a	nntp	NNTP	2	0.99
+nntp-inn	match	NNTPCapabilities	313031204361706162696c697479206c6973743a0d0a56455253494f4e20320d0a494d504c454d454e544154494f4e20494e4e20322e372e330d0a2e0d0a	nntp	INN	2.7.3	0.99
+nntp-greeting-version	match	NNTPCapabilities	323030206e6577732e6578616d706c652072656164790d0a313031204361706162696c697479206c6973743a0d0a56455253494f4e20320d0a2e0d0a	nntp	NNTP	2	0.99
+nntp-smtp-collision	none	NNTPCapabilities	323230206d61696c2e6578616d706c652045534d54502072656164790d0a	-	-	-	0.00
+socks5-no-auth	match	SOCKS5Greeting	0500	socks5	SOCKS	5	0.99
+socks5-unoffered-method	none	SOCKS5Greeting	0502	-	-	-	0.00
+socks4-collision	none	SOCKS5Greeting	005a000000000000	-	-	-	0.00
+ajp13-cpong	match	AJP13CPing	4142000109	ajp13	Apache-JServ-Protocol	1.3	0.99
+ajp13-client-packet-collision	none	AJP13CPing	1234000109	-	-	-	0.00
+rsync-31	match	RsyncGreeting	405253594e43443a2033312e300a	rsync	rsyncd	31.0	0.99
+rsync-legacy	match	RsyncGreeting	405253594e43443a2032392e300a	rsync	rsyncd	29.0	0.99
+rsync-ssh-collision	none	RsyncGreeting	5353482d322e302d4f70656e5353485f392e380d0a	-	-	-	0.00

@@ -45,7 +45,7 @@ softmatch type=prefix pattern="\x16\x03" service=tls product=TLS tunnel=tls conf
 softmatch type=prefix pattern="\x15\x03" service=tls product=TLS tunnel=tls extra=alert confidence=0.88
 
 # SSH servers normally speak first. The newline is benign and allows banner capture.
-Probe TCP SSHBanner rarity=1 priority=100 timeout=1400 ports=22,2222,8022 fallback=GenericBanner
+Probe TCP SSHBanner rarity=1 priority=100 timeout=1400 ports=22,2222,8022 fallback=GenericBanner,HTTPGet
 send "\r\n"
 match type=regex pattern="^SSH-([0-9.]+)-OpenSSH_([0-9A-Za-z.p+_-]+)" service=ssh product=OpenSSH version="$2" extra="protocol $1" confidence=0.99
 match type=regex pattern="^SSH-([0-9.]+)-dropbear_([0-9A-Za-z.p+_-]+)" service=ssh product=Dropbear-SSH version="$2" extra="protocol $1" confidence=0.99
@@ -284,6 +284,33 @@ Probe TCP KerberosASReq rarity=2 priority=97 timeout=1600 ports=88 fallback=Gene
 send "\x00\x00\x00\x7c\x6a\x7a\x30\x78\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\x0a\xa4\x6c\x30\x6a\xa0\x07\x03\x05\x00\x00\x00\x00\x00\xa1\x11\x30\x0f\xa0\x03\x02\x01\x01\xa1\x08\x30\x06\x1b\x04skan\xa2\x09\x1b\x07INVALID\xa3\x1c\x30\x1a\xa0\x03\x02\x01\x02\xa1\x13\x30\x11\x1b\x06krbtgt\x1b\x07INVALID\xa5\x11\x18\x0f20370101000000Z\xa7\x06\x02\x04SKAN\xa8\x08\x30\x06\x02\x01\x12\x02\x01\x11"
 match type=regex pattern="^....\x7e" service=kerberos product=Kerberos-v5 extra=KRB-ERROR confidence=0.99
 match type=regex pattern="^....\x6b" service=kerberos product=Kerberos-v5 extra=AS-REP confidence=0.99
+
+# NNTP CAPABILITIES is mandatory in RFC 3977 and does not change server state.
+# VERSION is mandatory in the capability list; IMPLEMENTATION is optional.
+Probe TCP NNTPCapabilities rarity=2 priority=95 timeout=1400 ports=119 fallback=GenericBanner
+send "CAPABILITIES\r\n"
+match type=regex pattern="^(?:20[01][^\r\n]*\r?\n)?101[^\r\n]*\r?\n[\s\S]*IMPLEMENTATION INN ([0-9A-Za-z.+_-]+)\r?\n" service=nntp product=INN version="$1" confidence=0.99
+match type=regex pattern="^(?:20[01][^\r\n]*\r?\n)?101[^\r\n]*\r?\n[\s\S]*VERSION ([0-9]+)\r?\n" service=nntp product=NNTP version="$1" confidence=0.99
+softmatch type=regex pattern="^(200|201)[ -]" service=nntp product=NNTP confidence=0.96
+match type=regex pattern="^(400|502)[ -]" service=nntp product=NNTP confidence=0.96
+
+# RFC 1928 method negotiation identifies SOCKS5 without requesting a relay.
+Probe TCP SOCKS5Greeting rarity=1 priority=98 timeout=1200 ports=1080,1081 fallback=GenericBanner
+send "\x05\x01\x00"
+match type=exact pattern="\x05\x00" service=socks5 product=SOCKS version=5 extra=no-authentication confidence=0.99
+match type=exact pattern="\x05\xff" service=socks5 product=SOCKS version=5 extra=no-acceptable-method confidence=0.99
+
+# Apache AJP13 CPing is a bounded health probe. A container replies with CPong;
+# the opposite packet magic prevents a client packet from becoming evidence.
+Probe TCP AJP13CPing rarity=2 priority=97 timeout=1200 ports=8009 fallback=GenericBanner
+send "\x12\x34\x00\x01\x0a"
+match type=exact pattern="\x41\x42\x00\x01\x09" service=ajp13 product=Apache-JServ-Protocol version=1.3 confidence=0.99
+
+# rsync daemons speak first with an ASCII protocol-version greeting.
+Probe TCP RsyncGreeting rarity=2 priority=96 timeout=1200 ports=873 fallback=GenericBanner
+send ""
+match type=regex pattern="^@RSYNCD: ([0-9]+\\.[0-9]+)\r?\n" service=rsync product=rsyncd version="$1" confidence=0.99
+softmatch type=prefix pattern="@RSYNCD:" service=rsync product=rsyncd confidence=0.96
 
 # Generic banner fallback deliberately uses only explicit protocol/product text.
 Probe TCP GenericBanner rarity=5 priority=10 timeout=1100

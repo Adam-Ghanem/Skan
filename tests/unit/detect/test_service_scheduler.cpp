@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "detect/service_scheduler.hpp"
@@ -32,6 +33,11 @@ skan::detect::ServiceProbeDatabase demo_database()
         status);
     assert(status == skan::core::StatusCode::Ok);
     return database;
+}
+
+std::vector<std::uint8_t> response_bytes(const std::string_view value)
+{
+    return {value.begin(), value.end()};
 }
 
 } // namespace
@@ -477,6 +483,52 @@ int main()
         assert(scheduler.submit({closed}) == skan::core::StatusCode::Ok);
         assert(scheduler.complete());
         assert(scheduler.results().empty());
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database =
+            ServiceProbeDatabase::load_file("data/service-probes.db", status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 256U, 1U});
+        assert(scheduler.submit({open_port("127.0.0.1", 119U)}) == skan::core::StatusCode::Ok);
+        const auto submission = transport.submissions().front();
+        const std::string greeting = "200 news.example ready\r\n";
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                           response_bytes(greeting), false, DetectionClock::now()});
+        assert(!scheduler.complete());
+        const std::string capabilities = "101 Capability list:\r\nVERSION 2\r\n.\r\n";
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                           response_bytes(capabilities), false, DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().front().service == "nntp");
+        assert(scheduler.results().front().version == "2");
+    }
+
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database =
+            ServiceProbeDatabase::load_file("data/service-probes.db", status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(
+            engine, transport, database,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 64U, 1U});
+        assert(scheduler.submit({open_port("127.0.0.1", 873U)}) == skan::core::StatusCode::Ok);
+        const auto submission = transport.submissions().front();
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                           response_bytes("@RSYNCD: 31.1"), false, DetectionClock::now()});
+        assert(!scheduler.complete());
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                           response_bytes("0\n"), false, DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().front().service == "rsync");
+        assert(scheduler.results().front().version == "31.10");
     }
     return 0;
 }

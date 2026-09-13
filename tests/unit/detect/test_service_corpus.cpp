@@ -1,12 +1,157 @@
 #include <cassert>
+#include <charconv>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 #include "detect/service_matcher.hpp"
 
 namespace {
+
+constexpr std::size_t kMaximumFixtureBytes = 1U << 20U;
+constexpr std::size_t kMaximumFixtureLineBytes = 8U << 10U;
+constexpr std::size_t kMaximumFixtureCases = 4096U;
+constexpr std::size_t kFixtureFieldCount = 8U;
+
+struct FingerprintCase final {
+    std::string id;
+    bool should_match{false};
+    std::string probe;
+    std::string response;
+    std::string service;
+    std::string product;
+    std::string version;
+    double minimum_confidence{0.0};
+};
+
+bool safe_identifier(std::string_view value)
+{
+    if (value.empty() || value.size() > 128U) return false;
+    for (const char character : value) {
+        const bool valid = (character >= 'a' && character <= 'z') ||
+                           (character >= '0' && character <= '9') ||
+                           character == '-' || character == '_' || character == '.';
+        if (!valid) return false;
+    }
+    return true;
+}
+
+std::vector<std::string_view> split_fields(const std::string &line)
+{
+    std::vector<std::string_view> fields;
+    std::size_t start = 0U;
+    while (start <= line.size()) {
+        const std::size_t separator = line.find('\t', start);
+        fields.emplace_back(
+            line.data() + start,
+            separator == std::string::npos ? line.size() - start : separator - start);
+        if (separator == std::string::npos) break;
+        start = separator + 1U;
+    }
+    return fields;
+}
+
+unsigned int hex_nibble(char value)
+{
+    if (value >= '0' && value <= '9') return static_cast<unsigned int>(value - '0');
+    if (value >= 'a' && value <= 'f') return static_cast<unsigned int>(value - 'a') + 10U;
+    throw std::runtime_error("fixture response must use lowercase hexadecimal");
+}
+
+std::string decode_hex(std::string_view value)
+{
+    if (value.empty() || value.size() % 2U != 0U || value.size() > 16384U) {
+        throw std::runtime_error("fixture response has invalid hexadecimal length");
+    }
+    std::string decoded;
+    decoded.reserve(value.size() / 2U);
+    for (std::size_t index = 0U; index < value.size(); index += 2U) {
+        const unsigned int byte = (hex_nibble(value[index]) << 4U) | hex_nibble(value[index + 1U]);
+        decoded.push_back(static_cast<char>(byte));
+    }
+    return decoded;
+}
+
+std::string optional_field(std::string_view value)
+{
+    if (value == "-") return {};
+    if (value.empty() || value.size() > 256U) {
+        throw std::runtime_error("fixture expectation is invalid");
+    }
+    return std::string{value};
+}
+
+double parse_confidence(std::string_view value)
+{
+    double confidence = 0.0;
+    const auto parsed = std::from_chars(value.data(), value.data() + value.size(), confidence);
+    if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
+        confidence < 0.0 || confidence > 1.0) {
+        throw std::runtime_error("fixture confidence is invalid");
+    }
+    return confidence;
+}
+
+std::vector<FingerprintCase> parse_cases(std::istream &stream)
+{
+    std::vector<FingerprintCase> cases;
+    std::unordered_set<std::string> identifiers;
+    std::string line;
+    std::size_t bytes_read = 0U;
+    while (std::getline(stream, line)) {
+        bytes_read += line.size() + 1U;
+        if (bytes_read > kMaximumFixtureBytes || line.size() > kMaximumFixtureLineBytes) {
+            throw std::runtime_error("fixture corpus exceeds its size boundary");
+        }
+        if (!line.empty() && line.back() == '\r') {
+            throw std::runtime_error("fixture corpus must use LF line endings");
+        }
+        if (!line.empty() && line.front() == '#') continue;
+        if (line.empty()) throw std::runtime_error("fixture corpus contains a blank line");
+        const std::vector<std::string_view> fields = split_fields(line);
+        if (fields.size() != kFixtureFieldCount || !safe_identifier(fields[0])) {
+            throw std::runtime_error("fixture record shape is invalid");
+        }
+        FingerprintCase test_case;
+        test_case.id = fields[0];
+        if (!identifiers.emplace(test_case.id).second) {
+            throw std::runtime_error("fixture case identifier is duplicated");
+        }
+        if (fields[1] == "match") {
+            test_case.should_match = true;
+        } else if (fields[1] != "none") {
+            throw std::runtime_error("fixture outcome is invalid");
+        }
+        if (fields[2].empty() || fields[2].size() > 128U) {
+            throw std::runtime_error("fixture probe name is invalid");
+        }
+        test_case.probe = fields[2];
+        test_case.response = decode_hex(fields[3]);
+        test_case.service = optional_field(fields[4]);
+        test_case.product = optional_field(fields[5]);
+        test_case.version = optional_field(fields[6]);
+        test_case.minimum_confidence = parse_confidence(fields[7]);
+        if ((!test_case.should_match &&
+             (!test_case.service.empty() || !test_case.product.empty() || !test_case.version.empty() ||
+              test_case.minimum_confidence != 0.0)) ||
+            (test_case.should_match && test_case.service.empty())) {
+            throw std::runtime_error("fixture expectations conflict with outcome");
+        }
+        cases.push_back(std::move(test_case));
+        if (cases.size() > kMaximumFixtureCases) {
+            throw std::runtime_error("fixture case count exceeds its boundary");
+        }
+    }
+    if (!stream.eof() || cases.empty()) throw std::runtime_error("fixture corpus is incomplete");
+    return cases;
+}
 
 const skan::detect::ServiceProbeDefinition &probe_named(
     const skan::detect::ServiceProbeDatabase &database, std::string_view name)
@@ -37,8 +182,9 @@ void expect(
 int main()
 {
     using namespace skan::detect;
-    const ServiceProbeDatabase database = ServiceProbeDatabase::built_in();
-    assert(database.status() == skan::core::StatusCode::Ok);
+    skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+    const ServiceProbeDatabase database = ServiceProbeDatabase::load_file("data/service-probes.db", status);
+    assert(status == skan::core::StatusCode::Ok);
 
     expect(database, "HTTPGet", "HTTP/1.1 200 OK\r\nServer: Caddy/2.8.4\r\n\r\n", "http", "2.8.4");
     expect(database, "SSHBanner", "SSH-2.0-OpenSSH_9.8p1\r\n", "ssh", "9.8p1");
@@ -80,5 +226,44 @@ int main()
     const auto unknown = ServiceMatcher(database).match(
         probe_named(database, "GenericBanner"), "opaque binary response");
     assert(!unknown.matched);
+
+    const std::filesystem::path fixture_path{"tests/data/service-fingerprints-v1.tsv"};
+    assert(std::filesystem::file_size(fixture_path) <= kMaximumFixtureBytes);
+    std::ifstream fixture_stream(fixture_path, std::ios::binary);
+    assert(fixture_stream.is_open());
+    const std::vector<FingerprintCase> cases = parse_cases(fixture_stream);
+    for (const FingerprintCase &test_case : cases) {
+        const ServiceMatchResult match = ServiceMatcher(database).match(
+            probe_named(database, test_case.probe), test_case.response);
+        if (!test_case.should_match) {
+            if (match.matched) {
+                std::cerr << "unexpected fingerprint match: " << test_case.id << '\n';
+                return 1;
+            }
+            continue;
+        }
+        if (!match.matched || match.service != test_case.service ||
+            match.product != test_case.product || match.version != test_case.version ||
+            match.confidence < test_case.minimum_confidence) {
+            std::cerr << "fingerprint case failed: " << test_case.id
+                      << " service=" << match.service
+                      << " product=" << match.product
+                      << " version=" << match.version
+                      << " confidence=" << match.confidence << '\n';
+            return 1;
+        }
+    }
+
+    {
+        std::istringstream invalid{
+            "bad\tmatch\tProbe\t0G\tservice\t-\t-\t0.90\n"};
+        bool rejected = false;
+        try {
+            (void)parse_cases(invalid);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        assert(rejected);
+    }
     return 0;
 }
