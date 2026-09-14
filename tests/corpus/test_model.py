@@ -19,11 +19,9 @@ from tools.corpus.sources import load_source_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = load_source_manifest(ROOT / "corpus" / "sources" / "sources.json")
-REVISION = "git:399abe4821e9ce9138f53b0cb8a769d75329ba1f"
-SOURCE_URL = (
-    "https://github.com/Adam-Ghanem/Skan/tree/"
-    "399abe4821e9ce9138f53b0cb8a769d75329ba1f/data"
-)
+FIRST_PARTY_SOURCE = SOURCES["skan-first-party"]
+REVISION = FIRST_PARTY_SOURCE.pinned_revision
+SOURCE_URL = FIRST_PARTY_SOURCE.source_url
 RECORD_HASH = "sha256:" + ("1" * 64)
 
 

@@ -40,7 +40,7 @@ class LegacyUDPMigrationTests(unittest.TestCase):
         self.assertTrue(
             all(
                 record.provenance[0].source_revision
-                == "git:399abe4821e9ce9138f53b0cb8a769d75329ba1f"
+                == SOURCES["skan-first-party"].pinned_revision
                 for record in records
             )
         )

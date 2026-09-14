@@ -9,7 +9,12 @@ import unittest
 from tools.corpus.sources import CorpusManifestError, load_source_manifest
 
 
-PINNED_REVISION = "git:399abe4821e9ce9138f53b0cb8a769d75329ba1f"
+ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_SOURCES = load_source_manifest(ROOT / "corpus" / "sources" / "sources.json")
+FIRST_PARTY_SOURCE = REPOSITORY_SOURCES["skan-first-party"]
+PINNED_REVISION = FIRST_PARTY_SOURCE.pinned_revision
+REVISION_SHA = PINNED_REVISION.removeprefix("git:")
+SOURCE_URL = FIRST_PARTY_SOURCE.source_url
 SNAPSHOT_HASH = "sha256:" + ("a" * 64)
 
 
@@ -19,10 +24,7 @@ def valid_source() -> dict[str, object]:
         "source_class": "first_party",
         "name": "Skan first-party corpus",
         "homepage": "https://github.com/Adam-Ghanem/Skan",
-        "source_url": (
-            "https://github.com/Adam-Ghanem/Skan/tree/"
-            "399abe4821e9ce9138f53b0cb8a769d75329ba1f/data"
-        ),
+        "source_url": SOURCE_URL,
         "license_spdx_or_policy": "MIT",
         "redistribution_allowed": True,
         "attribution_required": False,
@@ -147,14 +149,14 @@ class SourceManifestTests(unittest.TestCase):
         source = valid_source()
         source["source_url"] = (
             "https://example.invalid/Adam-Ghanem/Skan/tree/"
-            "399abe4821e9ce9138f53b0cb8a769d75329ba1f/data"
+            f"{REVISION_SHA}/data"
         )
         self.assert_rejected(manifest(source), "untrusted first_party source URL")
 
         source = valid_source()
         source["source_url"] = (
             "https://github.com:invalid/Adam-Ghanem/Skan/tree/"
-            "399abe4821e9ce9138f53b0cb8a769d75329ba1f/data"
+            f"{REVISION_SHA}/data"
         )
         self.assert_rejected(manifest(source), "source_url must use https")
 
@@ -162,7 +164,7 @@ class SourceManifestTests(unittest.TestCase):
         source = valid_source()
         source["source_url"] = (
             "https://github.com/Adam-Ghanem/Skan/tree/main/data?revision="
-            "399abe4821e9ce9138f53b0cb8a769d75329ba1f"
+            f"{REVISION_SHA}"
         )
         self.assert_rejected(manifest(source), "pinned git revision must be an exact URL path segment")
 
@@ -224,7 +226,7 @@ class SourceManifestTests(unittest.TestCase):
         source["source_class"] = "vendor"
         source["source_url"] = (
             "https://example.invalid:invalid/data/"
-            "399abe4821e9ce9138f53b0cb8a769d75329ba1f"
+            f"{REVISION_SHA}"
         )
         source["expected_hash"] = SNAPSHOT_HASH
         source["adapter"] = "external_fixture"
