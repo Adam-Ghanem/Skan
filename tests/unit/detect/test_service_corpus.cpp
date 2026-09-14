@@ -42,6 +42,29 @@ int main()
 
     expect(database, "HTTPGet", "HTTP/1.1 200 OK\r\nServer: Caddy/2.8.4\r\n\r\n", "http", "2.8.4");
     expect(database, "SSHBanner", "SSH-2.0-OpenSSH_9.8p1\r\n", "ssh", "9.8p1");
+    expect(
+        database,
+        "SSHBanner",
+        "Authorized access only\r\nSSH-2.0-OpenSSH_9.8p1\r\n",
+        "ssh",
+        "9.8p1");
+    expect(
+        database,
+        "SSHBanner",
+        "NOTICE: monitored system\nUnauthorized use prohibited\r\nSSH-2.0-OpenSSH_8.9p1\r\n",
+        "ssh",
+        "8.9p1");
+    expect(
+        database,
+        "GenericBanner",
+        "Legal notice\r\nSSH-2.0-OpenSSH_9.7p1\r\n",
+        "ssh",
+        "9.7p1");
+    const auto missing_ssh_identification = ServiceMatcher(database).match(
+        probe_named(database, "SSHBanner"),
+        "Authorized access only\r\nNo protocol identification follows\r\n");
+    assert(!missing_ssh_identification.matched);
+
     expect(database, "FTPBanner", "220 ftp.example FTP server ready\r\n", "ftp");
     expect(database, "SMTPBanner", "220 mail.example ESMTP ready\r\n", "smtp");
     expect(database, "POP3Capability", "+OK Dovecot POP3 ready\r\n", "pop3");
