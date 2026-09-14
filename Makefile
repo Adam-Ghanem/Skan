@@ -369,7 +369,7 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_target_engine \
 				$(BUILD_DIR)/test_target_pipeline
 
-.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus test-corpus-runtime install check-line-endings check-version package-deb clean
+.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus test-service-corpus test-corpus-runtime install check-line-endings check-version package-deb clean
 
 all: $(TARGET)
 
@@ -409,6 +409,9 @@ package-deb:
 
 test-corpus:
 	python3 -m unittest discover -s tests/corpus -p 'test_*.py' -v
+
+test-service-corpus: $(BUILD_DIR)/test_service_corpus
+	./$(BUILD_DIR)/test_service_corpus
 
 test-corpus-runtime: $(CORPUS_RUNTIME_TEST)
 	python3 -m tools.corpus.cli verify-roundtrip --output-dir $(CORPUS_RUNTIME_DIR)
@@ -520,7 +523,7 @@ $(BUILD_DIR)/test_service_probe: $(BUILD_DIR)/tests/unit/detect/test_service_pro
 $(BUILD_DIR)/test_service_matcher: $(BUILD_DIR)/tests/unit/detect/test_service_matcher.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_service_corpus: $(BUILD_DIR)/tests/unit/detect/test_service_corpus.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+$(BUILD_DIR)/test_service_corpus: $(BUILD_DIR)/tests/unit/detect/test_service_corpus.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR) tests/data/service-fingerprints-v1.tsv
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_tls_metadata: $(BUILD_DIR)/tests/unit/detect/test_tls_metadata.o $(BUILD_DIR)/detect/tls_metadata.o | $(BUILD_DIR)

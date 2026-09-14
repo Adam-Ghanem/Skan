@@ -25,7 +25,18 @@ The TLS probe sends a bounded TLS ClientHello. The detector recognizes TLS recor
 
 ## Corpus coverage
 
-The bundled project-owned corpus includes deterministic signatures for HTTP, TLS, SSH, FTP, SMTP, POP3, IMAP, DNS, Redis, MySQL, PostgreSQL, MongoDB, SMB, RDP, VNC, Telnet, and IRC. Tests use byte fixtures and loopback only; they never contact public targets.
+The bundled project-owned corpus includes deterministic signatures for HTTP, TLS, SSH, FTP, SMTP, POP3, IMAP, DNS, Redis, MySQL, PostgreSQL, MongoDB, SMB, RDP, VNC, Telnet, IRC, NNTP, SOCKS5, AJP13, and rsyncd. Standards-backed probes use read-only or negotiation-only messages: NNTP `CAPABILITIES` ([RFC 3977](https://www.rfc-editor.org/rfc/rfc3977)), SOCKS5 method selection ([RFC 1928](https://www.rfc-editor.org/rfc/rfc1928)), AJP13 `CPing` ([Apache Tomcat AJP reference](https://tomcat.apache.org/connectors-doc/ajp/ajpv13a.html)), and the [upstream rsync project](https://rsync.samba.org/) daemon greeting.
+
+The current expansion batch was authored clean-room from protocol facts in those primary references; no Nmap or third-party fingerprint database text was imported. The auditable derivation boundary is:
+
+| Probe | Primary fact used | Skan-authored evidence rule |
+| --- | --- | --- |
+| `NNTPCapabilities` | RFC 3977 reply codes and `CAPABILITIES`/`VERSION` lines | bounded status, version, and INN implementation expressions |
+| `SOCKS5Greeting` | RFC 1928 version-5 method negotiation octets | exact replies for the offered no-auth method or no acceptable method |
+| `AJP13CPing` | Apache AJP13 packet magic and CPing/CPong types | exact five-byte CPong frame only |
+| `RsyncGreeting` | upstream daemon greeting prefix and numeric protocol version | line-terminated version expression plus non-final soft prefix |
+
+`make test-service-corpus` loads the installed-format runtime database with the production C++ parser and evaluates the bounded offline cases in `tests/data/service-fingerprints-v1.tsv`. Cases include expected service, product, version, confidence, and collision-negative responses. The fixture format is deliberately simple, deterministic, and capped at 4,096 cases so coverage can grow without introducing a second matcher implementation. Tests use synthetic byte fixtures and loopback only; they never contact public targets.
 
 Use `--service-db <path>` to select another database. An explicit path takes precedence over installed and development defaults. Invalid files fail visibly and are never silently replaced by the bundled corpus.
 
