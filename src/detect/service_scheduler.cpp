@@ -235,20 +235,51 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
     } else if (assessment == core::StatusCode::IoError &&
                response.kind == ServiceResponseKind::SocketError &&
                transient_socket_error(response.system_error) &&
-               pending.work.port_result.port.protocol == portscan::Protocol::Tcp &&
-               pending.work.next_probe + 1U < pending.work.probe_indices.size()) {
-        Pending failed_probe = std::move(iterator->second);
-        (void)engine_.cancel(failed_probe.timer_id);
-        (void)transport_.cancel(response.id);
-        pending_.erase(iterator);
-        ++failed_probe.work.next_probe;
-        failed_probe.work.retry_count = 0U;
-        try {
-            queue_.push_front(std::move(failed_probe.work));
-        } catch (const std::bad_alloc &) {
-            status_ = core::StatusCode::MemoryError;
+               pending.work.port_result.port.protocol == portscan::Protocol::Tcp) {
+        if (pending.work.next_probe + 1U < pending.work.probe_indices.size()) {
+            Pending failed_probe = std::move(iterator->second);
+            (void)engine_.cancel(failed_probe.timer_id);
+            (void)transport_.cancel(response.id);
+            pending_.erase(iterator);
+            ++failed_probe.work.next_probe;
+            failed_probe.work.retry_count = 0U;
+            try {
+                queue_.push_front(std::move(failed_probe.work));
+            } catch (const std::bad_alloc &) {
+                status_ = core::StatusCode::MemoryError;
+            }
+            pump();
+            return;
         }
-        pump();
+        if (pending.work.best_soft_match.has_value() &&
+            service_match_is_publishable(*pending.work.best_soft_match)) {
+            Pending finished = std::move(iterator->second);
+            (void)engine_.cancel(finished.timer_id);
+            (void)transport_.cancel(response.id);
+            pending_.erase(iterator);
+            const DetectionTimePoint completed_at =
+                response.received_at == DetectionTimePoint{} ? DetectionClock::now() : response.received_at;
+            double rtt_ms = std::chrono::duration<double, std::milli>(completed_at - finished.started_at).count();
+            if (rtt_ms < 0.0) {
+                rtt_ms = 0.0;
+            }
+            append_result(finished.work.port_result,
+                          &database_.probes()[finished.work.best_soft_probe_index],
+                          DetectionState::Detected, DetectionError::None,
+                          &*finished.work.best_soft_match, rtt_ms);
+            if (timing_ != nullptr) {
+                timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt_ms)});
+                timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+            }
+            pump();
+            return;
+        }
+        complete_pending(
+            response.id,
+            DetectionState::Error,
+            assessment_error == DetectionError::None ? error_for_status(assessment) : assessment_error,
+            nullptr,
+            response.received_at == DetectionTimePoint{} ? DetectionClock::now() : response.received_at);
         return;
     } else if (assessment != core::StatusCode::Ok && response.kind != ServiceResponseKind::Closed) {
         complete_pending(
