@@ -72,13 +72,9 @@ def _decode_line(raw_line: bytes, line_number: int) -> Mapping[str, Any]:
     return value
 
 
-def load_jsonl(
-    path: Path,
-    sources: Mapping[str, SourcePolicy],
-    *,
-    expected_kind: str | None = None,
-    allow_empty: bool = False,
-) -> tuple[CanonicalRecord, ...]:
+def _load_raw_jsonl(
+    path: Path, *, allow_empty: bool
+) -> tuple[Mapping[str, Any], ...]:
     try:
         size = path.stat().st_size
     except OSError as exc:
@@ -86,8 +82,7 @@ def load_jsonl(
     if size > _MAXIMUM_FILE_BYTES:
         raise CorpusIOError(f"file exceeds {_MAXIMUM_FILE_BYTES} bytes")
 
-    records: list[CanonicalRecord] = []
-    identifiers: set[str] = set()
+    records: list[Mapping[str, Any]] = []
     bytes_read = 0
     try:
         with path.open("rb") as stream:
@@ -108,24 +103,90 @@ def load_jsonl(
                     raise CorpusIOError(
                         f"record count exceeds {_MAXIMUM_RECORDS}"
                     )
-                raw_record = _decode_line(raw_line, line_number)
-                try:
-                    record = parse_record(raw_record, sources)
-                except CanonicalRecordError as exc:
-                    raise CorpusIOError(f"line {line_number}: {exc}") from exc
-                if expected_kind is not None and record.kind != expected_kind:
-                    raise CorpusIOError(
-                        f"line {line_number}: expected kind {expected_kind}, got {record.kind}"
-                    )
-                if record.id in identifiers:
-                    raise CorpusIOError(f"duplicate record id: {record.id}")
-                identifiers.add(record.id)
-                records.append(record)
+                records.append(_decode_line(raw_line, line_number))
     except OSError as exc:
         raise CorpusIOError(f"cannot read corpus file: {exc}") from exc
     if not records and not allow_empty:
         raise CorpusIOError("empty corpus is not allowed")
     return tuple(records)
+
+
+def load_jsonl(
+    path: Path,
+    sources: Mapping[str, SourcePolicy],
+    *,
+    expected_kind: str | None = None,
+    allow_empty: bool = False,
+) -> tuple[CanonicalRecord, ...]:
+    records: list[CanonicalRecord] = []
+    identifiers: set[str] = set()
+    for line_number, raw_record in enumerate(
+        _load_raw_jsonl(path, allow_empty=allow_empty), start=1
+    ):
+        try:
+            record = parse_record(raw_record, sources)
+        except CanonicalRecordError as exc:
+            raise CorpusIOError(f"line {line_number}: {exc}") from exc
+        if expected_kind is not None and record.kind != expected_kind:
+            raise CorpusIOError(
+                f"line {line_number}: expected kind {expected_kind}, got {record.kind}"
+            )
+        if record.id in identifiers:
+            raise CorpusIOError(f"duplicate record id: {record.id}")
+        identifiers.add(record.id)
+        records.append(record)
+    return tuple(records)
+
+
+def load_import_history(
+    path: Path,
+    source: SourcePolicy,
+    *,
+    expected_kind: str,
+) -> dict[str, str]:
+    """Load validated semantic IDs and first-import revisions from an older generation.
+
+    Historical provenance is normalized to the current first-party source policy only
+    for schema and semantic-ID validation. The historical first-import revision is
+    retained and independently validated by ``parse_record``.
+    """
+    history: dict[str, str] = {}
+    for line_number, raw_record in enumerate(
+        _load_raw_jsonl(path, allow_empty=False), start=1
+    ):
+        provenance = raw_record.get("provenance")
+        if not isinstance(provenance, list) or not provenance:
+            raise CorpusIOError(f"line {line_number}: provenance is required")
+        normalized_provenance: list[dict[str, Any]] = []
+        for item in provenance:
+            if not isinstance(item, Mapping) or item.get("source_id") != source.id:
+                raise CorpusIOError(
+                    f"line {line_number}: history must use source_id {source.id}"
+                )
+            normalized = dict(item)
+            normalized.update(
+                {
+                    "source_revision": source.pinned_revision,
+                    "source_url": source.source_url,
+                    "source_license": source.license_spdx_or_policy,
+                    "snapshot_hash": source.expected_hash,
+                }
+            )
+            normalized_provenance.append(normalized)
+        normalized_record = dict(raw_record)
+        normalized_record["provenance"] = normalized_provenance
+        try:
+            record = parse_record(normalized_record, {source.id: source})
+        except CanonicalRecordError as exc:
+            raise CorpusIOError(f"line {line_number}: {exc}") from exc
+        if record.kind != expected_kind:
+            raise CorpusIOError(
+                f"line {line_number}: expected kind {expected_kind}, got {record.kind}"
+            )
+        if record.id in history:
+            raise CorpusIOError(f"duplicate record id: {record.id}")
+        history[record.id] = record.first_imported_revision
+    return history
 
 
 def _encoded_records(

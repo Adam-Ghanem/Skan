@@ -15,7 +15,7 @@ from tests.corpus.test_model import (
     valid_service_record,
     valid_udp_probe_record,
 )
-from tools.corpus.io import CorpusIOError, load_jsonl, write_jsonl
+from tools.corpus.io import CorpusIOError, load_import_history, load_jsonl, write_jsonl
 from tools.corpus.model import parse_record, stable_record_id
 
 
@@ -142,6 +142,38 @@ class CorpusJSONLTests(unittest.TestCase):
             self.assertEqual(load_jsonl(empty, SOURCES, allow_empty=True), ())
             with self.assertRaisesRegex(CorpusIOError, "empty corpus is not allowed"):
                 load_jsonl(empty, SOURCES)
+
+    def test_import_history_validates_semantics_while_allowing_old_provenance(self) -> None:
+        source = SOURCES["skan-first-party"]
+        value = valid_service_record()
+        value["first_imported_revision"] = (
+            "git:399abe4821e9ce9138f53b0cb8a769d75329ba1f"
+        )
+        provenance = value["provenance"][0]  # type: ignore[index]
+        provenance["source_revision"] = "git:" + ("1" * 40)  # type: ignore[index]
+        provenance["source_url"] = (  # type: ignore[index]
+            "https://github.com/Adam-Ghanem/Skan/tree/" + ("1" * 40) + "/data"
+        )
+        with tempfile.TemporaryDirectory(prefix="skan-corpus-io-") as directory:
+            path = Path(directory) / "history.jsonl"
+            path.write_bytes(
+                json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                + b"\n"
+            )
+            self.assertEqual(
+                load_import_history(
+                    path, source, expected_kind="service_matcher"
+                ),
+                {value["id"]: value["first_imported_revision"]},
+            )
+
+            value["body"]["service"] = "tampered"  # type: ignore[index]
+            path.write_bytes(
+                json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                + b"\n"
+            )
+            with self.assertRaisesRegex(CorpusIOError, "semantic fingerprint"):
+                load_import_history(path, source, expected_kind="service_matcher")
 
     def test_repository_canonical_stores_are_populated_and_kind_scoped(self) -> None:
         root = Path(__file__).resolve().parents[2]
