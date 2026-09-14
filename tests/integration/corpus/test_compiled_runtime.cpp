@@ -145,7 +145,7 @@ int main(int argc, char **argv)
     for (const auto &probe : service.probes()) {
         service_rules += probe.rules.size();
     }
-    if (service_rules != 145U) {
+    if (service_rules != 140U) {
         return fail("service rule count mismatch");
     }
     const auto *ssh = find_service_probe(service, "SSHBanner");

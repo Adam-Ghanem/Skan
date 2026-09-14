@@ -15,6 +15,14 @@ softmatch type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.70
 
 Hard `match` rules finish detection. `softmatch` rules retain a generic classification while later fallbacks look for stronger evidence. Soft evidence below `0.60` confidence is not published as a detected service. Across probes, Skan deterministically prefers match strength, publishable evidence, structural match quality, confidence, and specificity; a complete tie retains the earlier scheduled probe. Rules support exact, prefix, suffix, substring, and bounded ECMAScript regex matching. Regex input, pattern length, captures, database size, line size, probes, rules, fallbacks, responses, and extracted TLS names are all capped. Backreferences and common nested-quantifier forms are rejected.
 
+Binary protocol expressions use `[\\s\\S]` for a single arbitrary byte instead
+of ECMAScript `.`, because `.` does not match CR or LF bytes. Transaction and
+direction evidence must be validated when the protocol exposes it: for example,
+the DNS-over-TCP probe requires both Skan's transaction ID and the DNS response
+bit, so an echoed query is not accepted. Generic `220` replies and standalone
+error codes are not sufficient to distinguish FTP, SMTP, or NNTP; those services
+remain unknown unless the response contains protocol-specific evidence.
+
 Every transport response, including close and error notifications, must carry the exact target address from its `ServiceSubmission`. Unattributed or mismatched responses are ignored; the built-in connected TCP and UDP transports provide this attribution.
 
 Metadata templates may use regex captures in `service`, `product`, `version`, `extra`, `hostname`, and `tunnel`. A version must only be populated by evidence in the response; generic matches deliberately leave it empty.
@@ -25,7 +33,16 @@ The TLS probe sends a bounded TLS ClientHello. The detector recognizes TLS recor
 
 ## Corpus coverage
 
-The bundled project-owned corpus includes deterministic signatures for HTTP, TLS, SSH, FTP, SMTP, POP3, IMAP, DNS, Redis, MySQL, PostgreSQL, MongoDB, SMB, RDP, VNC, Telnet, IRC, NNTP, SOCKS5, AJP13, and rsyncd. Standards-backed probes use read-only or negotiation-only messages: NNTP `CAPABILITIES` ([RFC 3977](https://www.rfc-editor.org/rfc/rfc3977)), SOCKS5 method selection ([RFC 1928](https://www.rfc-editor.org/rfc/rfc1928)), AJP13 `CPing` ([Apache Tomcat AJP reference](https://tomcat.apache.org/connectors-doc/ajp/ajpv13a.html)), and the [upstream rsync project](https://rsync.samba.org/) daemon greeting.
+The bundled project-owned corpus currently covers 39 protocol families: HTTP,
+TLS, SSH, FTP, SMTP, POP3, IMAP, Redis, MySQL, PostgreSQL, MongoDB, Memcached,
+Cassandra, ClickHouse, Docker, Kubernetes, Matrix, SMB, LDAP, RDP, VNC, NFS,
+AMQP, MQTT, IRC, XMPP, SIP, RTSP, Minecraft, TeamSpeak, Telnet, PJL, MikroTik
+API, DNS, Kerberos, NNTP, SOCKS5, AJP13, and rsyncd. Standards-backed probes
+use read-only or negotiation-only messages: NNTP `CAPABILITIES`
+([RFC 3977](https://www.rfc-editor.org/rfc/rfc3977)), SOCKS5 method selection
+([RFC 1928](https://www.rfc-editor.org/rfc/rfc1928)), AJP13 `CPing`
+([Apache Tomcat AJP reference](https://tomcat.apache.org/connectors-doc/ajp/ajpv13a.html)),
+and the [upstream rsync project](https://rsync.samba.org/) daemon greeting.
 
 The current expansion batch was authored clean-room from protocol facts in those primary references; no Nmap or third-party fingerprint database text was imported. The auditable derivation boundary is:
 

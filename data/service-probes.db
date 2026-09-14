@@ -63,7 +63,6 @@ match type=regex pattern="^220[\\s\\S]*FileZilla Server(?: version)? ([0-9A-Za-z
 match type=regex pattern="^220[\\s\\S]*Microsoft FTP Service" service=ftp product=Microsoft-FTP-Service confidence=0.99
 match type=regex pattern="^220[\\s\\S]*Pure-FTPd" service=ftp product=Pure-FTPd confidence=0.98
 match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*[Ff][Tt][Pp]" service=ftp product=FTP hostname="$1" confidence=0.93
-softmatch type=prefix pattern="220" service=ftp product=FTP confidence=0.72
 
 # SMTP EHLO provides a standards-defined capability response without mail delivery.
 Probe TCP SMTPBanner rarity=1 priority=96 timeout=1500 ports=25,587,2525 fallback=GenericBanner
@@ -73,7 +72,6 @@ match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*Exim(?: ([0-9A-Za-z.+
 match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*Microsoft ESMTP MAIL Service" service=smtp product=Microsoft-ESMTP hostname="$1" confidence=0.99
 match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[\\s\\S]*Sendmail" service=smtp product=Sendmail hostname="$1" confidence=0.97
 match type=regex pattern="^220[- ]([A-Za-z0-9.-]+)[ -].*(ESMTP|SMTP)" service=smtp product="$2" hostname="$1" confidence=0.94
-softmatch type=prefix pattern="220" service=smtp product=SMTP confidence=0.68
 
 # POP3 CAPA is read-only capability discovery.
 Probe TCP POP3Capability rarity=1 priority=92 timeout=1300 ports=110 fallback=GenericBanner
@@ -102,8 +100,8 @@ softmatch type=regex pattern="^-((NOAUTH|NOPERM|ERR))[\\s\\S]*" service=redis pr
 # MySQL/MariaDB sends a protocol-v10 greeting before authentication.
 Probe TCP MySQLGreeting rarity=1 priority=98 timeout=1400 ports=3306 fallback=GenericBanner
 send ""
-match type=regex pattern="^...\x00\x0a([0-9A-Za-z.+_~-]*MariaDB[0-9A-Za-z.+_~-]*)\x00" service=mysql product=MariaDB version="$1" confidence=0.99
-match type=regex pattern="^...\x00\x0a([0-9][0-9A-Za-z.+_~-]*)\x00" service=mysql product=MySQL version="$1" confidence=0.98
+match type=regex pattern="^[\\s\\S]{3}\x00\x0a([0-9A-Za-z.+_~-]*MariaDB[0-9A-Za-z.+_~-]*)\x00" service=mysql product=MariaDB version="$1" confidence=0.99
+match type=regex pattern="^[\\s\\S]{3}\x00\x0a([0-9][0-9A-Za-z.+_~-]*)\x00" service=mysql product=MySQL version="$1" confidence=0.98
 softmatch type=substring pattern="mysql_native_password" service=mysql product=MySQL confidence=0.86
 softmatch type=substring pattern="caching_sha2_password" service=mysql product=MySQL confidence=0.86
 
@@ -118,9 +116,8 @@ match type=prefix pattern="E\x00\x00\x00" service=postgresql product=PostgreSQL 
 # strong protocol discriminator before parsing BSON fields.
 Probe TCP MongoHello rarity=1 priority=97 timeout=1600 ports=27017,27018,27019 fallback=GenericBanner
 send "\x34\x00\x00\x00\x4e\x41\x4b\x53\x00\x00\x00\x00\xdd\x07\x00\x00\x00\x00\x00\x00\x00\x1f\x00\x00\x00\x10hello\x00\x01\x00\x00\x00\x02$db\x00\x06\x00\x00\x00admin\x00\x00"
-match type=regex pattern="^........\x4e\x41\x4b\x53\xdd\x07\x00\x00[\\s\\S]*version\x00....([0-9][0-9A-Za-z.+_-]*)\x00" service=mongodb product=MongoDB version="$1" confidence=0.99
-match type=regex pattern="^........\x4e\x41\x4b\x53\xdd\x07\x00\x00" service=mongodb product=MongoDB confidence=0.99
-match type=substring pattern="maxWireVersion" service=mongodb product=MongoDB confidence=0.96
+match type=regex pattern="^[\\s\\S]{8}\x4e\x41\x4b\x53\xdd\x07\x00\x00[\\s\\S]*version\x00[\\s\\S]{4}([0-9][0-9A-Za-z.+_-]*)\x00" service=mongodb product=MongoDB version="$1" confidence=0.99
+match type=regex pattern="^[\\s\\S]{8}\x4e\x41\x4b\x53\xdd\x07\x00\x00" service=mongodb product=MongoDB confidence=0.99
 
 # Memcached text protocol exposes its version without authentication.
 Probe TCP MemcachedVersion rarity=1 priority=97 timeout=1100 ports=11211 fallback=GenericBanner
@@ -131,7 +128,7 @@ match type=prefix pattern="VERSION " service=memcached product=Memcached confide
 # Cassandra native protocol v4 OPTIONS -> SUPPORTED.
 Probe TCP CassandraOptions rarity=1 priority=97 timeout=1400 ports=9042 fallback=GenericBanner
 send "\x04\x00\x00\x00\x05\x00\x00\x00\x00"
-match type=regex pattern="^\x84...\x06...." service=cassandra product=Apache-Cassandra confidence=0.99
+match type=regex pattern="^\x84[\\s\\S]{3}\x06[\\s\\S]{4}" service=cassandra product=Apache-Cassandra confidence=0.99
 match type=substring pattern="CQL_VERSION" service=cassandra product=Apache-Cassandra confidence=0.98
 
 # ClickHouse HTTP query returns the exact server version in a plain-text body.
@@ -165,20 +162,19 @@ match type=substring pattern="Synapse" service=matrix product=Synapse confidence
 # transport header declares the exact 102-byte SMB2 message that follows.
 Probe TCP SMB2Negotiate rarity=1 priority=99 timeout=1600 ports=445 fallback=GenericBanner
 send "\x00\x00\x00\x66\xfe\x53\x4d\x42\x40\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x4e\x41\x4b\x53\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x24\x00\x01\x00\x01\x00\x00\x00\x00\x00\x00\x00\x53\x4b\x41\x4e\x53\x4b\x41\x4e\x53\x4b\x41\x4e\x53\x4b\x41\x4e\x00\x00\x00\x00\x00\x00\x00\x00\x02\x02"
-match type=regex pattern="^....\xfeSMB.{8}\x00\x00" service=microsoft-ds product=SMB2 confidence=0.99
-match type=substring pattern="\xfeSMB" service=microsoft-ds product=SMB2 confidence=0.96
+match type=regex pattern="^[\\s\\S]{4}\xfeSMB[\\s\\S]{8}\x00\x00" service=microsoft-ds product=SMB2 confidence=0.99
 
 # Anonymous LDAPv3 BindRequest. A BindResponse application tag (0x61) with the
 # same message id confirms LDAP independently of directory vendor.
 Probe TCP LDAPBind rarity=1 priority=98 timeout=1400 ports=389 fallback=GenericBanner
 send "\x30\x0c\x02\x01\x01\x60\x07\x02\x01\x03\x04\x00\x80\x00"
-match type=regex pattern="^\x30.\x02\x01\x01\x61" service=ldap product=LDAPv3 confidence=0.99
+match type=regex pattern="^\x30[\\s\\S]\x02\x01\x01\x61" service=ldap product=LDAPv3 confidence=0.99
 match type=substring pattern="OpenLDAP" service=ldap product=OpenLDAP confidence=0.98
 
 # RDP X.224 Connection Request with an 8-byte RDP Negotiation Request.
 Probe TCP RDPConnection rarity=1 priority=99 timeout=1500 ports=3389 fallback=GenericBanner
 send "\x03\x00\x00\x13\x0e\xe0\x00\x00\x00\x00\x00\x01\x00\x08\x00\x03\x00\x00\x00"
-match type=regex pattern="^\x03\x00..\x0e\xd0" service=ms-wbt-server product=RDP confidence=0.99
+match type=regex pattern="^\x03\x00[\\s\\S]{2}\x0e\xd0" service=ms-wbt-server product=RDP confidence=0.99
 match type=regex pattern="^\x03\x00[\\s\\S]*\x02\x00\x08\x00" service=ms-wbt-server product=RDP extra=negotiation-response confidence=0.98
 match type=regex pattern="^\x03\x00[\\s\\S]*\x03\x00\x08\x00" service=ms-wbt-server product=RDP extra=negotiation-failure confidence=0.98
 
@@ -191,21 +187,21 @@ match type=prefix pattern="RFB " service=vnc product=RFB confidence=0.96
 # ONC RPC NULL call for the NFS program, version 3. It is side-effect free.
 Probe TCP NFS3Null rarity=2 priority=96 timeout=1600 ports=2049 fallback=GenericBanner
 send "\x80\x00\x00\x28\x53\x4b\x4e\x46\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa3\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-match type=regex pattern="^....\x53\x4b\x4e\x46\x00\x00\x00\x01" service=nfs product=NFSv3 confidence=0.99
+match type=regex pattern="^[\\s\\S]{4}\x53\x4b\x4e\x46\x00\x00\x00\x01" service=nfs product=NFSv3 confidence=0.99
 
 # AMQP 0-9-1 protocol header. RabbitMQ replies with a connection.start frame or
 # a supported protocol header.
 Probe TCP AMQP091 rarity=1 priority=98 timeout=1500 ports=5672 fallback=GenericBanner
 send "AMQP\x00\x00\x09\x01"
 match type=prefix pattern="AMQP" service=amqp product=AMQP confidence=0.99
-match type=regex pattern="^\x01\x00\x00....\x00\x0a\x00\x0a" service=amqp product=RabbitMQ extra=connection.start confidence=0.99
+match type=regex pattern="^\x01\x00\x00[\\s\\S]{4}\x00\x0a\x00\x0a" service=amqp product=RabbitMQ extra=connection.start confidence=0.99
 match type=substring pattern="RabbitMQ" service=amqp product=RabbitMQ confidence=0.98
 
 # MQTT 3.1.1 CONNECT with client id 'skan'. CONNACK is the mandatory first
 # server control packet after a valid CONNECT.
 Probe TCP MQTTConnect rarity=1 priority=98 timeout=1400 ports=1883 fallback=GenericBanner
 send "\x10\x10\x00\x04MQTT\x04\x02\x00\x0a\x00\x04skan"
-match type=regex pattern="^\x20\x02.." service=mqtt product=MQTT version=3.1.1 confidence=0.99
+match type=regex pattern="^\x20\x02[\\s\\S]{2}" service=mqtt product=MQTT version=3.1.1 confidence=0.99
 match type=prefix pattern="\x20\x02" service=mqtt product=MQTT confidence=0.98
 
 # IRC registration uses a reserved scanner nickname and does not join channels.
@@ -275,15 +271,15 @@ match type=substring pattern="!trap" service=mikrotik-api product=MikroTik-Route
 # reserved .invalid name.
 Probe TCP DNSTCP rarity=2 priority=96 timeout=1400 ports=53 fallback=GenericBanner
 send "\x00\x1e\x53\x4b\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x04skan\x07invalid\x00\x00\x01\x00\x01"
-match type=regex pattern="^..\x53\x4b" service=dns product=DNS-over-TCP confidence=0.99
+match type=regex pattern="^[\\s\\S]{2}\x53\x4b[\x80-\xff]" service=dns product=DNS-over-TCP confidence=0.99
 
 
 # Kerberos v5 AS-REQ for the reserved INVALID realm. A framed KRB-ERROR or
 # AS-REP is a strong TCP/88 discriminator and does not authenticate.
 Probe TCP KerberosASReq rarity=2 priority=97 timeout=1600 ports=88 fallback=GenericBanner
 send "\x00\x00\x00\x7c\x6a\x7a\x30\x78\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\x0a\xa4\x6c\x30\x6a\xa0\x07\x03\x05\x00\x00\x00\x00\x00\xa1\x11\x30\x0f\xa0\x03\x02\x01\x01\xa1\x08\x30\x06\x1b\x04skan\xa2\x09\x1b\x07INVALID\xa3\x1c\x30\x1a\xa0\x03\x02\x01\x02\xa1\x13\x30\x11\x1b\x06krbtgt\x1b\x07INVALID\xa5\x11\x18\x0f20370101000000Z\xa7\x06\x02\x04SKAN\xa8\x08\x30\x06\x02\x01\x12\x02\x01\x11"
-match type=regex pattern="^....\x7e" service=kerberos product=Kerberos-v5 extra=KRB-ERROR confidence=0.99
-match type=regex pattern="^....\x6b" service=kerberos product=Kerberos-v5 extra=AS-REP confidence=0.99
+match type=regex pattern="^[\\s\\S]{4}\x7e" service=kerberos product=Kerberos-v5 extra=KRB-ERROR confidence=0.99
+match type=regex pattern="^[\\s\\S]{4}\x6b" service=kerberos product=Kerberos-v5 extra=AS-REP confidence=0.99
 
 # NNTP CAPABILITIES is mandatory in RFC 3977 and does not change server state.
 # VERSION is mandatory in the capability list; IMPLEMENTATION is optional.
@@ -292,7 +288,6 @@ send "CAPABILITIES\r\n"
 match type=regex pattern="^(?:20[01][^\r\n]*\r?\n)?101[^\r\n]*\r?\n[\s\S]*IMPLEMENTATION INN ([0-9A-Za-z.+_-]+)\r?\n" service=nntp product=INN version="$1" confidence=0.99
 match type=regex pattern="^(?:20[01][^\r\n]*\r?\n)?101[^\r\n]*\r?\n[\s\S]*VERSION ([0-9]+)\r?\n" service=nntp product=NNTP version="$1" confidence=0.99
 softmatch type=regex pattern="^(200|201)[ -]" service=nntp product=NNTP confidence=0.96
-match type=regex pattern="^(400|502)[ -]" service=nntp product=NNTP confidence=0.96
 
 # RFC 1928 method negotiation identifies SOCKS5 without requesting a relay.
 Probe TCP SOCKS5Greeting rarity=1 priority=98 timeout=1200 ports=1080,1081 fallback=GenericBanner
