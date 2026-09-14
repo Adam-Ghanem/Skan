@@ -26,6 +26,23 @@ DetectionError error_for_status(core::StatusCode status) noexcept
     }
 }
 
+bool transient_socket_error(int system_error) noexcept
+{
+    switch (system_error) {
+    case ECONNRESET:
+    case ECONNABORTED:
+    case ETIMEDOUT:
+    case EPIPE:
+    case ECONNREFUSED:
+#ifdef ENETRESET
+    case ENETRESET:
+#endif
+        return true;
+    default:
+        return false;
+    }
+}
+
 struct SeenService final {
     std::string target;
     std::uint16_t port{0U};
@@ -217,17 +234,17 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
         return;
     } else if (assessment == core::StatusCode::IoError &&
                response.kind == ServiceResponseKind::SocketError &&
-               response.system_error == ECONNRESET &&
+               transient_socket_error(response.system_error) &&
                pending.work.port_result.port.protocol == portscan::Protocol::Tcp &&
                pending.work.next_probe + 1U < pending.work.probe_indices.size()) {
-        Pending reset = std::move(iterator->second);
-        (void)engine_.cancel(reset.timer_id);
+        Pending failed_probe = std::move(iterator->second);
+        (void)engine_.cancel(failed_probe.timer_id);
         (void)transport_.cancel(response.id);
         pending_.erase(iterator);
-        ++reset.work.next_probe;
-        reset.work.retry_count = 0U;
+        ++failed_probe.work.next_probe;
+        failed_probe.work.retry_count = 0U;
         try {
-            queue_.push_front(std::move(reset.work));
+            queue_.push_front(std::move(failed_probe.work));
         } catch (const std::bad_alloc &) {
             status_ = core::StatusCode::MemoryError;
         }
