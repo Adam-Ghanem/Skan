@@ -389,7 +389,7 @@ StageResult ServiceDetectionStage::start(const std::vector<portscan::PortResult>
     }
     input_results_ = port_results;
     detect::ServiceDetectionConfig detection_config;
-    detection_config.timeout = config_.timeout;
+    detection_config.timeout = config_.service_timeout;
     detection_config.max_outstanding = config_.max_parallelism;
     detection_config.max_response_bytes = config_.max_response_bytes;
     detection_config.max_probes_per_port = config_.max_probes_per_port;
