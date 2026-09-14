@@ -1,5 +1,6 @@
 #include <cassert>
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -93,6 +94,7 @@ double parse_confidence(std::string_view value)
     double confidence = 0.0;
     const auto parsed = std::from_chars(value.data(), value.data() + value.size(), confidence);
     if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
+        !std::isfinite(confidence) ||
         confidence < 0.0 || confidence > 1.0) {
         throw std::runtime_error("fixture confidence is invalid");
     }
@@ -159,8 +161,7 @@ const skan::detect::ServiceProbeDefinition &probe_named(
     for (const auto &probe : database.probes()) {
         if (probe.name == name) return probe;
     }
-    assert(false);
-    return database.probes().front();
+    throw std::runtime_error("service probe not found: " + std::string{name});
 }
 
 void expect(
@@ -185,6 +186,19 @@ int main()
     skan::core::StatusCode status = skan::core::StatusCode::InternalError;
     const ServiceProbeDatabase database = ServiceProbeDatabase::load_file("data/service-probes.db", status);
     assert(status == skan::core::StatusCode::Ok);
+
+    {
+        bool rejected = false;
+        try {
+            (void)probe_named(database, "ProbeThatDoesNotExist");
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        if (!rejected) {
+            std::cerr << "missing service probe was not rejected\n";
+            return 1;
+        }
+    }
 
     expect(database, "HTTPGet", "HTTP/1.1 200 OK\r\nServer: Caddy/2.8.4\r\n\r\n", "http", "2.8.4");
     expect(database, "SSHBanner", "SSH-2.0-OpenSSH_9.8p1\r\n", "ssh", "9.8p1");
@@ -215,7 +229,7 @@ int main()
     expect(database, "SMTPBanner", "220 mail.example ESMTP ready\r\n", "smtp");
     expect(database, "POP3Capability", "+OK Dovecot POP3 ready\r\n", "pop3");
     expect(database, "IMAPCapability", "* OK Dovecot IMAP ready\r\n", "imap");
-    expect(database, "DNSTCP", std::string{"\x00\x1e\x53\x4b", 4U}, "dns");
+    expect(database, "DNSTCP", std::string{"\x00\x1e\x53\x4b\x81", 5U}, "dns");
     expect(database, "RedisInfo", "+PONG\r\n", "redis");
     expect(
         database,
@@ -225,8 +239,16 @@ int main()
         "7.4.1");
     expect(database, "MySQLGreeting", std::string{"\x2a\x00\x00\x00\x0a" "8.0.36\x00", 12U}, "mysql", "8.0.36");
     expect(database, "PostgreSQLSSLRequest", "N", "postgresql");
-    expect(database, "MongoHello", "reply maxWireVersion value", "mongodb");
-    expect(database, "SMB2Negotiate", std::string{"\x00\xfeSMB", 5U}, "microsoft-ds");
+    expect(
+        database,
+        "MongoHello",
+        std::string{"\x00\x00\x00\x00\x00\x00\x00\x00\x4e\x41\x4b\x53\xdd\x07\x00\x00", 16U},
+        "mongodb");
+    expect(
+        database,
+        "SMB2Negotiate",
+        std::string{"\x00\x00\x00\x66\xfeSMB\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", 18U},
+        "microsoft-ds");
     expect(database, "RDPConnection", std::string{"\x03\x00\x00\x13\x0e\xd0", 6U}, "ms-wbt-server");
     expect(database, "VNCBanner", "RFB 003.008\n", "vnc", "003.008");
     expect(database, "TelnetBanner", std::string{"\xff\xfb\x01", 3U}, "telnet");
@@ -287,6 +309,20 @@ int main()
             rejected = true;
         }
         assert(rejected);
+    }
+    {
+        std::istringstream invalid{
+            "non-finite-confidence\tmatch\tProbe\t00\tservice\t-\t-\tnan\n"};
+        bool rejected = false;
+        try {
+            (void)parse_cases(invalid);
+        } catch (const std::runtime_error &) {
+            rejected = true;
+        }
+        if (!rejected) {
+            std::cerr << "non-finite fixture confidence was not rejected\n";
+            return 1;
+        }
     }
     return 0;
 }
