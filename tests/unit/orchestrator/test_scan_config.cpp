@@ -25,6 +25,7 @@ int main()
     assert(!defaults.discovery_enabled);
     assert(!defaults.service_detection_enabled);
     assert(!defaults.os_detection_enabled);
+    assert(defaults.service_timeout == std::chrono::milliseconds{2500});
 
     auto invalid = valid_config();
     invalid.min_parallelism = 4U;
@@ -33,6 +34,10 @@ int main()
 
     invalid = valid_config();
     invalid.timeout = std::chrono::milliseconds{0};
+    assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
+
+    invalid = valid_config();
+    invalid.service_timeout = std::chrono::milliseconds{0};
     assert(invalid.validate() == skan::core::StatusCode::InvalidArgument);
 
     invalid = valid_config();
