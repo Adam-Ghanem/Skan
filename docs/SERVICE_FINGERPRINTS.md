@@ -11,7 +11,7 @@ match type=regex pattern="^HTTP/([0-9.]+)" service=http product=HTTP version="$1
 softmatch type=prefix pattern="HTTP/" service=http product=HTTP confidence=0.70
 ```
 
-`Probe` declares `TCP` or `UDP`, a unique name, rarity, priority, a per-probe timeout in milliseconds, optional port hints, and ordered fallback probe names. The global scan timeout remains a hard ceiling. Payload and pattern strings accept quoted `\r`, `\n`, `\t`, `\\`, `\"`, and `\xNN` escapes.
+`Probe` declares `TCP` or `UDP`, a unique name, rarity, priority, a per-probe timeout in milliseconds, optional port hints, and ordered fallback probe names. Each probe timeout is capped by the service-detection stage timeout; TCP port scanning uses a separate timeout budget so service/version detection does not inherit the connect-scan deadline. Payload and pattern strings accept quoted `\r`, `\n`, `\t`, `\\`, `\"`, and `\xNN` escapes.
 
 Hard `match` rules finish detection. `softmatch` rules retain a generic classification while later fallbacks look for stronger evidence. Soft evidence below `0.60` confidence is not published as a detected service. Across probes, Skan deterministically prefers match strength, publishable evidence, structural match quality, confidence, and specificity; a complete tie retains the earlier scheduled probe. Rules support exact, prefix, suffix, substring, and bounded ECMAScript regex matching. Regex input, pattern length, captures, database size, line size, probes, rules, fallbacks, responses, and extracted TLS names are all capped. Backreferences and common nested-quantifier forms are rejected.
 

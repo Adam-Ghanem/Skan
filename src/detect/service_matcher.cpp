@@ -11,6 +11,41 @@ namespace {
 constexpr std::size_t kMaximumMatchResponseBytes = 8192U;
 constexpr double kMinimumPublishedSoftMatchConfidence = 0.60;
 
+std::string_view first_ssh_identification_line(std::string_view response) noexcept
+{
+    std::size_t line_start = 0U;
+    while (line_start < response.size()) {
+        const std::size_t newline = response.find('\n', line_start);
+        std::size_t line_end = newline == std::string_view::npos ? response.size() : newline;
+        if (line_end > line_start && response[line_end - 1U] == '\r') {
+            --line_end;
+        }
+        const std::string_view line = response.substr(line_start, line_end - line_start);
+        if (line.starts_with("SSH-")) {
+            return line;
+        }
+        if (newline == std::string_view::npos) {
+            break;
+        }
+        line_start = newline + 1U;
+    }
+    return {};
+}
+
+bool is_ssh_identification_rule(const ServiceMatchRule &rule) noexcept
+{
+    if (rule.service != "ssh") {
+        return false;
+    }
+    if (rule.type == ServiceMatchType::Regex) {
+        return rule.pattern.starts_with("^SSH-");
+    }
+    if (rule.type == ServiceMatchType::Prefix) {
+        return rule.pattern.starts_with("SSH-");
+    }
+    return false;
+}
+
 std::string expand_template(
     std::string_view value,
     const std::match_results<std::string::const_iterator> *matches)
@@ -67,18 +102,27 @@ bool rule_matches(
     std::match_results<std::string::const_iterator> &matches,
     std::string &owned_response)
 {
+    std::string_view match_response = response;
+    if (is_ssh_identification_rule(rule)) {
+        match_response = first_ssh_identification_line(response);
+        if (match_response.empty()) {
+            return false;
+        }
+    }
+
     switch (rule.type) {
     case ServiceMatchType::Exact:
-        return response == rule.pattern;
+        return match_response == rule.pattern;
     case ServiceMatchType::Prefix:
-        return response.size() >= rule.pattern.size() && response.substr(0U, rule.pattern.size()) == rule.pattern;
+        return match_response.size() >= rule.pattern.size() &&
+               match_response.substr(0U, rule.pattern.size()) == rule.pattern;
     case ServiceMatchType::Suffix:
-        return response.size() >= rule.pattern.size() &&
-               response.substr(response.size() - rule.pattern.size()) == rule.pattern;
+        return match_response.size() >= rule.pattern.size() &&
+               match_response.substr(match_response.size() - rule.pattern.size()) == rule.pattern;
     case ServiceMatchType::Substring:
-        return response.find(rule.pattern) != std::string_view::npos;
+        return match_response.find(rule.pattern) != std::string_view::npos;
     case ServiceMatchType::Regex:
-        owned_response.assign(response);
+        owned_response.assign(match_response);
         if (!rule.compiled_regex.has_value()) {
             return false;
         }

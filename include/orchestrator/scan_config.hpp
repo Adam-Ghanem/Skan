@@ -57,6 +57,7 @@ struct ScanConfig final {
     std::size_t udp_retries{portscan::kDefaultUdpRetries};
 
     std::string service_db_path;
+    std::chrono::milliseconds service_timeout{2500};
     std::size_t max_response_bytes{8192U};
     std::size_t max_probes_per_port{3U};
     std::string os_db_path;
