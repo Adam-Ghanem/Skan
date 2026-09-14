@@ -62,8 +62,8 @@ core::StatusCode ScanConfig::validate() const noexcept
     if (udp_enabled && transport == ScanTransport::Connect) {
         return core::StatusCode::InvalidArgument;
     }
-    if (max_response_bytes == 0U || max_probes_per_port == 0U || udp_timeout.count() <= 0 ||
-        udp_max_outstanding == 0U) {
+    if (max_response_bytes == 0U || max_probes_per_port == 0U || service_timeout.count() <= 0 ||
+        udp_timeout.count() <= 0 || udp_max_outstanding == 0U) {
         return core::StatusCode::InvalidArgument;
     }
     if (transport != ScanTransport::Linux && interface_name.has_value()) {
