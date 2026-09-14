@@ -74,6 +74,16 @@ python3 -m tools.corpus.cli verify-roundtrip --output-dir build/corpus-runtime
 make test-corpus-runtime
 ```
 
+Re-import preserves `first_imported_revision` for every unchanged semantic ID
+while advancing current provenance and `last_verified_revision`. During a
+source-pin migration, a prior complete generation can be supplied with
+`import-runtime --history-dir <repository-relative-directory>`; its manifest,
+store hashes, counts, schema, and semantic IDs are validated before history is
+reconciled. New semantic IDs always receive the current pinned revision. A
+damaged canonical generation is rejected by default; the explicit
+`--discard-history` recovery option rebuilds it without preserving import
+history and cannot be combined with `--history-dir`.
+
 `verify-roundtrip` compares source runtime semantics, canonical records, and
 deterministically compiled artifacts. `make test-corpus-runtime` then loads all
 four generated databases through the production C++ `load_file` APIs and checks

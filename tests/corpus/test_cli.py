@@ -7,6 +7,7 @@ from io import StringIO
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -29,6 +30,8 @@ STORE_KINDS = {
     "os.jsonl": "os_fingerprint",
     "udp.jsonl": "udp_probe",
 }
+HISTORICAL_REVISION = "git:399abe4821e9ce9138f53b0cb8a769d75329ba1f"
+NEXT_REVISION = "git:1111111111111111111111111111111111111111"
 
 
 def make_repository(directory: Path) -> Path:
@@ -77,6 +80,126 @@ class CorpusCLITests(unittest.TestCase):
                 {name: (root / "corpus" / "canonical" / name).read_bytes() for name in STORE_KINDS},
             )
 
+    def test_reimport_preserves_the_first_imported_revision(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            sources = load_source_manifest(root / "corpus" / "sources" / "sources.json")
+            canonical = root / "corpus" / "canonical"
+            path = canonical / "services.jsonl"
+            records = load_jsonl(path, sources, expected_kind="service_matcher")
+            historical = replace(records[0], first_imported_revision=HISTORICAL_REVISION)
+            write_jsonl(path, (historical,) + records[1:], sources)
+
+            manifest_path = canonical / "manifest.json"
+            manifest = json.loads(manifest_path.read_bytes())
+            manifest["stores"]["services.jsonl"]["sha256"] = (
+                "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            )
+            manifest_path.write_bytes(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+            )
+
+            result, stderr = invoke(main, str(root), "import-runtime")
+            self.assertEqual(result, 0, stderr)
+            reimported = load_jsonl(path, sources, expected_kind="service_matcher")
+            by_id = {record.id: record for record in reimported}
+            self.assertEqual(
+                by_id[historical.id].first_imported_revision,
+                HISTORICAL_REVISION,
+            )
+
+    def test_reimport_preserves_history_across_a_source_revision_update(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            source_path = root / "corpus" / "sources" / "sources.json"
+            original_sources = load_source_manifest(source_path)
+            canonical = root / "corpus" / "canonical"
+            original = load_jsonl(
+                canonical / "services.jsonl",
+                original_sources,
+                expected_kind="service_matcher",
+            )[0]
+
+            source_manifest = json.loads(source_path.read_bytes())
+            source = source_manifest["sources"][0]
+            source["pinned_revision"] = NEXT_REVISION
+            source["source_url"] = (
+                "https://github.com/Adam-Ghanem/Skan/tree/"
+                f"{NEXT_REVISION.removeprefix('git:')}/data"
+            )
+            source_path.write_bytes(
+                json.dumps(source_manifest, indent=2).encode("utf-8") + b"\n"
+            )
+
+            with mock.patch("tools.corpus.compiler._SOURCE_MANIFEST", source_path):
+                result, stderr = invoke(main, str(root), "import-runtime")
+            self.assertEqual(result, 0, stderr)
+            updated_sources = load_source_manifest(source_path)
+            updated = {
+                record.id: record
+                for record in load_jsonl(
+                    canonical / "services.jsonl",
+                    updated_sources,
+                    expected_kind="service_matcher",
+                )
+            }[original.id]
+            self.assertEqual(
+                updated.first_imported_revision,
+                original.first_imported_revision,
+            )
+            self.assertEqual(updated.last_verified_revision, NEXT_REVISION)
+            self.assertEqual(updated.provenance[0].source_revision, NEXT_REVISION)
+
+    def test_import_can_reconcile_a_separate_validated_history_generation(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            sources = load_source_manifest(root / "corpus" / "sources" / "sources.json")
+            canonical = root / "corpus" / "canonical"
+            history = root / "build" / "canonical-history"
+            shutil.copytree(canonical, history)
+            path = history / "services.jsonl"
+            records = load_jsonl(path, sources, expected_kind="service_matcher")
+            historical = replace(records[0], first_imported_revision=HISTORICAL_REVISION)
+            write_jsonl(path, (historical,) + records[1:], sources)
+            manifest_path = history / "manifest.json"
+            manifest = json.loads(manifest_path.read_bytes())
+            manifest["stores"]["services.jsonl"]["sha256"] = (
+                "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            )
+            manifest_path.write_bytes(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+            )
+
+            result, stderr = invoke(
+                main,
+                str(root),
+                "import-runtime",
+                "--history-dir",
+                "build/canonical-history",
+            )
+            self.assertEqual(result, 0, stderr)
+            reimported = {
+                record.id: record
+                for record in load_jsonl(
+                    canonical / "services.jsonl",
+                    sources,
+                    expected_kind="service_matcher",
+                )
+            }
+            self.assertEqual(
+                reimported[historical.id].first_imported_revision,
+                HISTORICAL_REVISION,
+            )
+
     def test_compile_and_verify_roundtrip_are_deterministic(self) -> None:
         from tools.corpus.cli import main
 
@@ -121,14 +244,20 @@ class CorpusCLITests(unittest.TestCase):
             self.assertIn("exceeds", stderr)
             self.assertNotIn("Traceback", stderr)
 
-            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            self.assertEqual(
+                invoke(main, str(root), "import-runtime", "--discard-history")[0],
+                0,
+            )
             manifest.write_bytes(b"[" * 2000 + b"]" * 2000 + b"\n")
             result, stderr = invoke(main, str(root), "compile")
             self.assertNotEqual(result, 0)
             self.assertIn("manifest", stderr)
             self.assertNotIn("Traceback", stderr)
 
-            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            self.assertEqual(
+                invoke(main, str(root), "import-runtime", "--discard-history")[0],
+                0,
+            )
             (root / "data" / "service-probes.db").write_bytes(
                 (root / "data" / "service-probes.db").read_bytes().replace(b"rarity=1", b"rarity=2", 1)
             )
@@ -151,6 +280,70 @@ class CorpusCLITests(unittest.TestCase):
             self.assertNotEqual(result, 0)
             self.assertIn("manifest", stderr)
             self.assertNotIn("Traceback", stderr)
+
+    def test_import_rejects_invalid_history_manifest_unless_discard_is_explicit(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            canonical = root / "corpus" / "canonical"
+            before = {
+                name: (canonical / name).read_bytes()
+                for name in (*STORE_KINDS, "manifest.json")
+            }
+            (canonical / "manifest.json").write_bytes(b'{"stores":{}}\n')
+
+            result, stderr = invoke(main, str(root), "import-runtime")
+            self.assertNotEqual(result, 0)
+            self.assertIn("manifest", stderr)
+            self.assertEqual(
+                before | {"manifest.json": b'{"stores":{}}\n'},
+                {
+                    name: (canonical / name).read_bytes()
+                    for name in (*STORE_KINDS, "manifest.json")
+                },
+            )
+
+            result, stderr = invoke(
+                main, str(root), "import-runtime", "--discard-history"
+            )
+            self.assertEqual(result, 0, stderr)
+            self.assertNotEqual(
+                (canonical / "manifest.json").read_bytes(), b'{"stores":{}}\n'
+            )
+
+    def test_only_explicit_discard_recovers_an_incomplete_generation(self) -> None:
+        from tools.corpus.cli import main
+
+        cases = {
+            "manifest-only": {"manifest.json": b'{"stores":{}}\n'},
+            "partial-store": {"services.jsonl": b"{}\n"},
+        }
+        for label, artifacts in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                prefix="skan-cli-"
+            ) as directory:
+                root = make_repository(Path(directory))
+                canonical = root / "corpus" / "canonical"
+                for name, value in artifacts.items():
+                    (canonical / name).write_bytes(value)
+
+                result, stderr = invoke(main, str(root), "import-runtime")
+                self.assertNotEqual(result, 0)
+                self.assertIn("canonical", stderr)
+
+                result, stderr = invoke(
+                    main, str(root), "import-runtime", "--discard-history"
+                )
+                self.assertEqual(result, 0, stderr)
+                self.assertEqual(
+                    {item.name for item in canonical.iterdir()} & {
+                        *STORE_KINDS,
+                        "manifest.json",
+                    },
+                    {*STORE_KINDS, "manifest.json"},
+                )
 
     def test_import_failure_preserves_canonical_stores_without_traceback(self) -> None:
         from tools.corpus.cli import main

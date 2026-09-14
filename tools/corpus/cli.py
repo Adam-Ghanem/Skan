@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import hashlib
 import json
 import os
@@ -10,7 +11,7 @@ import tempfile
 from typing import Iterable
 
 from tools.corpus.compiler import CompilerError, compile_corpus, validate_runtime_graph, write_compiled_corpus
-from tools.corpus.io import CorpusIOError, load_jsonl, write_jsonl
+from tools.corpus.io import CorpusIOError, load_import_history, load_jsonl, write_jsonl
 from tools.corpus.model import ActiveProbeSemantics, CanonicalRecord, OSFingerprintSemantics, ServiceMatcherSemantics, UDPProbeSemantics
 from tools.corpus.runtime import ImportContext, RuntimeCorpusError, parse_os_runtime, parse_service_runtime, parse_udp_runtime
 from tools.corpus.sources import CorpusManifestError, SourcePolicy, load_source_manifest
@@ -211,16 +212,26 @@ def _store_records(records: Iterable[CanonicalRecord]) -> dict[str, tuple[Canoni
     return {name: tuple(group) for name, group in groups.items()}
 
 
-def _canonical_directory(root: Path, value: str | None, *, output: bool) -> Path:
+def _canonical_directory(
+    root: Path,
+    value: str | None,
+    *,
+    output: bool,
+    allow_incomplete: bool = False,
+) -> Path:
     path = _path_within(root, value, "corpus/canonical", "canonical directory")
     allowed = set(_STORE_KINDS) | {_CANONICAL_MANIFEST, "README.md"}
     _exact_directory(path, allowed, "canonical directory", require_all=False, must_exist=not output)
     if path.exists():
-        existing = {item.name for item in path.iterdir()} & set(_STORE_KINDS)
         required = set(_STORE_KINDS) | {_CANONICAL_MANIFEST}
-        if not output and not required <= {item.name for item in path.iterdir()}:
-            raise CorpusCLIError("canonical directory is missing: " + ", ".join(sorted(required - {item.name for item in path.iterdir()})))
-        if existing and existing != set(_STORE_KINDS):
+        entries = {item.name for item in path.iterdir()}
+        artifacts = entries & required
+        if not output and artifacts != required:
+            raise CorpusCLIError(
+                "canonical directory is missing: "
+                + ", ".join(sorted(required - artifacts))
+            )
+        if output and artifacts and artifacts != required and not allow_incomplete:
             raise CorpusCLIError("canonical directory is partially populated")
     return path
 
@@ -267,33 +278,83 @@ def _publish_stores(directory: Path, records: dict[str, tuple[CanonicalRecord, .
                 pass
 
 
+def _canonical_manifest_entries(directory: Path) -> dict[str, object]:
+    manifest_path = directory / _CANONICAL_MANIFEST
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise CorpusCLIError("canonical manifest is missing or unsafe")
+    manifest = _read_canonical_manifest(manifest_path)
+    if (
+        not isinstance(manifest, dict)
+        or set(manifest) != {"stores"}
+        or not isinstance(manifest["stores"], dict)
+        or set(manifest["stores"]) != set(_STORE_KINDS)
+    ):
+        raise CorpusCLIError("canonical manifest is invalid")
+    return manifest["stores"]
+
+
+def _validated_store_entry(
+    directory: Path, entries: dict[str, object], name: str, kind: str
+) -> tuple[Path, int]:
+    path = directory / name
+    if path.is_symlink() or not path.is_file():
+        raise CorpusCLIError(f"canonical store {name} is missing or unsafe")
+    entry = entries[name]
+    if (
+        not isinstance(entry, dict)
+        or set(entry) != {"count", "kind", "sha256"}
+        or entry["kind"] != kind
+        or type(entry["count"]) is not int
+        or entry["count"] < 1
+        or not isinstance(entry["sha256"], str)
+    ):
+        raise CorpusCLIError("canonical manifest is invalid")
+    value = path.read_bytes()
+    if entry["sha256"] != "sha256:" + hashlib.sha256(value).hexdigest():
+        raise CorpusCLIError(f"canonical manifest does not match {name}")
+    return path, entry["count"]
+
+
 def _load_canonical(root: Path, value: str | None, sources: dict[str, SourcePolicy]) -> tuple[CanonicalRecord, ...]:
     directory = _canonical_directory(root, value, output=False)
     records: list[CanonicalRecord] = []
     try:
-        manifest_path = directory / _CANONICAL_MANIFEST
-        if manifest_path.is_symlink() or not manifest_path.is_file():
-            raise CorpusCLIError("canonical manifest is missing or unsafe")
-        manifest = _read_canonical_manifest(manifest_path)
-        if not isinstance(manifest, dict) or set(manifest) != {"stores"} or not isinstance(manifest["stores"], dict) or set(manifest["stores"]) != set(_STORE_KINDS):
-            raise CorpusCLIError("canonical manifest is invalid")
+        entries = _canonical_manifest_entries(directory)
         for name, kind in _STORE_KINDS.items():
-            path = directory / name
-            if path.is_symlink():
-                raise CorpusCLIError(f"canonical store {name} must not be a symlink")
-            entry = manifest["stores"][name]
-            if not isinstance(entry, dict) or set(entry) != {"count", "kind", "sha256"} or entry["kind"] != kind or type(entry["count"]) is not int or entry["count"] < 1 or not isinstance(entry["sha256"], str):
-                raise CorpusCLIError("canonical manifest is invalid")
-            value = path.read_bytes()
-            if entry["sha256"] != "sha256:" + hashlib.sha256(value).hexdigest():
-                raise CorpusCLIError(f"canonical manifest does not match {name}")
+            path, count = _validated_store_entry(directory, entries, name, kind)
             loaded = load_jsonl(path, sources, expected_kind=kind)
-            if len(loaded) != entry["count"]:
+            if len(loaded) != count:
                 raise CorpusCLIError(f"canonical manifest does not match {name}")
             records.extend(loaded)
         return validate_runtime_graph(records)
     except (UnicodeDecodeError, json.JSONDecodeError, CorpusIOError, CompilerError) as exc:
         raise CorpusCLIError(f"canonical validation failed: {exc}") from exc
+
+
+def _existing_import_history(directory: Path, policy: SourcePolicy) -> dict[str, str]:
+    if not directory.exists():
+        return {}
+    stores = {item.name for item in directory.iterdir()} & set(_STORE_KINDS)
+    if not stores:
+        return {}
+    history: dict[str, str] = {}
+    try:
+        entries = _canonical_manifest_entries(directory)
+        for name, kind in _STORE_KINDS.items():
+            path, count = _validated_store_entry(directory, entries, name, kind)
+            loaded = load_import_history(path, policy, expected_kind=kind)
+            if len(loaded) != count:
+                raise CorpusCLIError(f"canonical manifest does not match {name}")
+            overlap = history.keys() & loaded.keys()
+            if overlap:
+                raise CorpusCLIError(
+                    "canonical history contains duplicate record id: "
+                    + sorted(overlap)[0]
+                )
+            history.update(loaded)
+    except (CorpusIOError, OSError) as exc:
+        raise CorpusCLIError(f"canonical history validation failed: {exc}") from exc
+    return history
 
 
 def _output_directory(root: Path, value: str | None) -> Path:
@@ -339,7 +400,31 @@ def _import_runtime(root: Path, arguments) -> None:
         checked = validate_runtime_graph(records)
     except CompilerError as exc:
         raise CorpusCLIError(f"runtime graph validation failed: {exc}") from exc
-    directory = _canonical_directory(root, arguments.canonical_dir, output=True)
+    directory = _canonical_directory(
+        root,
+        arguments.canonical_dir,
+        output=True,
+        allow_incomplete=arguments.discard_history,
+    )
+    history_directory = (
+        _canonical_directory(root, arguments.history_dir, output=False)
+        if arguments.history_dir is not None
+        else directory
+    )
+    history = (
+        {}
+        if arguments.discard_history
+        else _existing_import_history(history_directory, policy)
+    )
+    checked = tuple(
+        replace(
+            record,
+            first_imported_revision=history.get(
+                record.id, record.first_imported_revision
+            ),
+        )
+        for record in checked
+    )
     _publish_stores(directory, _store_records(checked), {policy.id: policy})
 
 
@@ -374,6 +459,10 @@ def _parser() -> argparse.ArgumentParser:
         subparser.add_argument("--runtime-dir")
         subparser.add_argument("--canonical-dir")
         subparser.add_argument("--output-dir")
+        if command == "import-runtime":
+            history = subparser.add_mutually_exclusive_group()
+            history.add_argument("--history-dir")
+            history.add_argument("--discard-history", action="store_true")
     return parser
 
 
