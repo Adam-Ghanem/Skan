@@ -358,6 +358,44 @@ std::string ipv4_text(std::uint32_t address)
     return buffer;
 }
 
+bool tcp_response_matches_submission(
+    const packet::TCP &tcp,
+    const portscan::PortSubmission &submission) noexcept
+{
+    const std::uint16_t flags = tcp.flags();
+    const bool rst = packet::has_flag(flags, packet::TcpFlag::Rst);
+    const std::uint32_t acknowledgment = tcp.acknowledgment_number();
+
+    if (submission.probe == portscan::ScanProbeType::TcpSyn) {
+        return acknowledgment == submission.sequence_number + 1U || (rst && acknowledgment == 0U);
+    }
+    if (!portscan::is_raw_tcp_probe(submission.probe) || !rst) {
+        return false;
+    }
+    if (acknowledgment == 0U) {
+        return true;
+    }
+    switch (submission.probe) {
+    case portscan::ScanProbeType::TcpNull:
+        // RFC 793 reset generation acknowledges SEG.SEQ + SEG.LEN. A true NULL
+        // segment has no data/SYN/FIN sequence space, so the expected ACK is SEQ.
+        return acknowledgment == submission.sequence_number;
+    case portscan::ScanProbeType::TcpFin:
+    case portscan::ScanProbeType::TcpXmas:
+        return acknowledgment == submission.sequence_number + 1U;
+    case portscan::ScanProbeType::TcpWindow:
+    case portscan::ScanProbeType::TcpMaimon:
+        // These probes carry ACK; a standards-conforming CLOSED peer returns RST
+        // with SEQ=SEG.ACK and no acknowledgment field.
+        return false;
+    case portscan::ScanProbeType::TcpConnect:
+    case portscan::ScanProbeType::TcpSyn:
+    case portscan::ScanProbeType::Udp:
+        return false;
+    }
+    return false;
+}
+
 } // namespace
 
 const char *network_scan_status_name(NetworkScanStatus status) noexcept
@@ -503,7 +541,7 @@ bool LinuxNetworkScanTransport::is_open() const noexcept
 
 bool LinuxNetworkScanTransport::supports(portscan::ScanProbeType probe) const noexcept
 {
-    return is_open() && probe == portscan::ScanProbeType::TcpSyn;
+    return is_open() && portscan::is_raw_tcp_probe(probe);
 }
 
 core::StatusCode LinuxNetworkScanTransport::submit(
@@ -513,7 +551,7 @@ core::StatusCode LinuxNetworkScanTransport::submit(
     if (!is_open()) {
         return core::StatusCode::PermissionDenied;
     }
-    if (submission.id == 0U || submission.probe != portscan::ScanProbeType::TcpSyn || !callback ||
+    if (submission.id == 0U || !portscan::is_raw_tcp_probe(submission.probe) || !callback ||
         submission.target.empty()) {
         return core::StatusCode::InvalidArgument;
     }
@@ -687,7 +725,7 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
                 const core::IpAddress quoted_source = core::IpAddress::from_ipv6(quoted_ip->source_address());
                 const core::IpAddress quoted_destination = core::IpAddress::from_ipv6(quoted_ip->destination_address());
                 for (const auto &[id, pending] : pending_) {
-                    if (pending.submission.probe != portscan::ScanProbeType::TcpSyn ||
+                    if (!portscan::is_raw_tcp_probe(pending.submission.probe) ||
                         pending.submission.source_ip.bytes != quoted_source.bytes ||
                         pending.submission.target_ip.bytes != quoted_destination.bytes ||
                         quoted_tcp->source_port() != pending.submission.source_port ||
@@ -714,7 +752,7 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
                 const core::IpAddress quoted_source = core::IpAddress::from_ipv4(quoted_ip->source_address());
                 const core::IpAddress quoted_destination = core::IpAddress::from_ipv4(quoted_ip->destination_address());
                 for (const auto &[id, pending] : pending_) {
-                    if (pending.submission.probe != portscan::ScanProbeType::TcpSyn ||
+                    if (!portscan::is_raw_tcp_probe(pending.submission.probe) ||
                         pending.submission.source_ip.bytes != quoted_source.bytes ||
                         pending.submission.target_ip.bytes != quoted_destination.bytes ||
                         quoted_tcp->source_port() != pending.submission.source_port ||
@@ -739,13 +777,8 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
                 pending.submission.target_ip.bytes != observed_source.bytes ||
                 pending.submission.source_ip.bytes != observed_destination.bytes ||
                 pending.submission.source_port != tcp.destination_port() ||
-                pending.submission.port.number != tcp.source_port()) {
-                continue;
-            }
-            const bool ack_matches = tcp.acknowledgment_number() == pending.submission.sequence_number + 1U;
-            const bool rst_without_ack = packet::has_flag(tcp.flags(), packet::TcpFlag::Rst) &&
-                                         tcp.acknowledgment_number() == 0U;
-            if (!ack_matches && !rst_without_ack) {
+                pending.submission.port.number != tcp.source_port() ||
+                !tcp_response_matches_submission(tcp, pending.submission)) {
                 continue;
             }
             if (matched_id.has_value()) {
@@ -786,22 +819,38 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
     const std::uint32_t source_address = observation.ipv4->source_address();
     const packet::TCP &tcp = *observation.tcp;
     std::optional<portscan::PortProbeId> matched_id;
-    if (tcp.acknowledgment_number() != 0U) {
+    const auto lookup_candidate = [this, &tcp, source_address](std::uint32_t sequence) noexcept
+        -> std::optional<portscan::PortProbeId> {
         const CorrelationKey key{
             source_address,
             tcp.destination_port(),
             tcp.source_port(),
-            tcp.acknowledgment_number() - 1U,
+            sequence,
             core::IpAddress::from_ipv4(source_address)};
         const CorrelationResult found = correlation_.lookup(key, std::chrono::steady_clock::now());
-        if (found.status == CorrelationStatus::Found && found.entry.has_value()) {
-            matched_id = static_cast<portscan::PortProbeId>(found.entry->token);
+        if (found.status != CorrelationStatus::Found || !found.entry.has_value()) {
+            return std::nullopt;
+        }
+        const auto id = static_cast<portscan::PortProbeId>(found.entry->token);
+        const auto pending = pending_.find(id);
+        if (pending == pending_.end() || !tcp_response_matches_submission(tcp, pending->second.submission)) {
+            return std::nullopt;
+        }
+        return id;
+    };
+    if (tcp.acknowledgment_number() != 0U) {
+        // SYN/FIN/Xmas consume one sequence number; a NULL segment consumes none.
+        // Try the one-byte-control form first, then the exact ACK form used by NULL.
+        matched_id = lookup_candidate(tcp.acknowledgment_number() - 1U);
+        if (!matched_id.has_value()) {
+            matched_id = lookup_candidate(tcp.acknowledgment_number());
         }
     } else {
         for (const auto &[id, pending] : pending_) {
             if (pending.correlation_key.target_ipv4 == source_address &&
                 pending.submission.source_port == tcp.destination_port() &&
-                pending.submission.port.number == tcp.source_port()) {
+                pending.submission.port.number == tcp.source_port() &&
+                tcp_response_matches_submission(tcp, pending.submission)) {
                 if (matched_id.has_value()) {
                     matched_id.reset();
                     break;

@@ -56,6 +56,8 @@ PortScanScheduler::PortScanScheduler(
         probe_ = std::make_unique<TcpConnectProbe>();
     } else if (config_.method == ScanProbeType::TcpSyn) {
         probe_ = std::make_unique<TcpSynProbe>();
+    } else if (is_raw_tcp_probe(config_.method)) {
+        probe_ = std::make_unique<TcpFlagProbe>(config_.method);
     }
 }
 

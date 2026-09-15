@@ -15,6 +15,30 @@ python3 -m json.tool "$tmp_dir/connect.json" >/dev/null
 "$skan_bin" -sS --transport offline -p 80 --output json 192.0.2.1 >"$tmp_dir/syn.json"
 python3 -m json.tool "$tmp_dir/syn.json" >/dev/null
 
+for scan_case in \
+  "sN null OPEN_OR_FILTERED" \
+  "sF fin OPEN_OR_FILTERED" \
+  "sX xmas OPEN_OR_FILTERED" \
+  "sW window FILTERED" \
+  "sM maimon OPEN_OR_FILTERED"; do
+  read -r alias method expected_state <<<"$scan_case"
+  "$skan_bin" "-$alias" --transport offline -p 80 --output json \
+    192.0.2.1 >"$tmp_dir/$method-alias.json"
+  "$skan_bin" scan 192.0.2.1 --method "$method" --transport offline -p 80 --output json \
+    >"$tmp_dir/$method-method.json"
+  python3 - "$tmp_dir/$method-alias.json" "$tmp_dir/$method-method.json" "$expected_state" <<'PY'
+import json
+import sys
+
+for path in sys.argv[1:3]:
+    with open(path, encoding="utf-8") as handle:
+        report = json.load(handle)
+    ports = [port for host in report["hosts"] for port in host["ports"]]
+    assert len(ports) == 1, (path, ports)
+    assert ports[0]["state"] == sys.argv[3], (path, ports[0])
+PY
+done
+
 "$skan_bin" -sU --transport offline --udp-ports 53 --output json 192.0.2.1 >"$tmp_dir/udp.json"
 python3 -m json.tool "$tmp_dir/udp.json" >/dev/null
 

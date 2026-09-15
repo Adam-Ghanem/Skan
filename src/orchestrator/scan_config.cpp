@@ -69,7 +69,7 @@ core::StatusCode ScanConfig::validate() const noexcept
     if (transport != ScanTransport::Linux && interface_name.has_value()) {
         return core::StatusCode::InvalidArgument;
     }
-    if (port_scan_enabled && transport == ScanTransport::Linux && port_method != portscan::ScanProbeType::TcpSyn) {
+    if (port_scan_enabled && transport == ScanTransport::Linux && !portscan::is_raw_tcp_probe(port_method)) {
         return core::StatusCode::InvalidArgument;
     }
     if (port_scan_enabled && transport == ScanTransport::Connect && port_method != portscan::ScanProbeType::TcpConnect) {

@@ -21,6 +21,11 @@ enum class Protocol {
 enum class ScanProbeType {
     TcpConnect = 0,
     TcpSyn,
+    TcpNull,
+    TcpFin,
+    TcpXmas,
+    TcpWindow,
+    TcpMaimon,
     Udp
 };
 
@@ -42,6 +47,8 @@ enum class ScanReason {
     LocalAddressUnavailable,
     SynAck,
     Rst,
+    RstWindowOpen,
+    RstWindowZero,
     Timeout,
     SocketError,
     MalformedResponse,
@@ -101,6 +108,24 @@ PortSelection parse_tcp_ports(std::string_view specification);
 PortSelection parse_udp_ports(std::string_view specification);
 std::vector<Port> default_tcp_ports();
 std::vector<Port> default_udp_ports();
+
+/** True only for the explicitly reviewed raw TCP scan families. */
+constexpr bool is_raw_tcp_probe(ScanProbeType probe) noexcept
+{
+    switch (probe) {
+    case ScanProbeType::TcpSyn:
+    case ScanProbeType::TcpNull:
+    case ScanProbeType::TcpFin:
+    case ScanProbeType::TcpXmas:
+    case ScanProbeType::TcpWindow:
+    case ScanProbeType::TcpMaimon:
+        return true;
+    case ScanProbeType::TcpConnect:
+    case ScanProbeType::Udp:
+        return false;
+    }
+    return false;
+}
 
 const char *protocol_name(Protocol protocol) noexcept;
 const char *scan_probe_type_name(ScanProbeType probe) noexcept;

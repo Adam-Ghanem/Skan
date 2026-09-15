@@ -150,6 +150,16 @@ const char *scan_probe_type_name(ScanProbeType probe) noexcept
         return "connect";
     case ScanProbeType::TcpSyn:
         return "syn";
+    case ScanProbeType::TcpNull:
+        return "null";
+    case ScanProbeType::TcpFin:
+        return "fin";
+    case ScanProbeType::TcpXmas:
+        return "xmas";
+    case ScanProbeType::TcpWindow:
+        return "window";
+    case ScanProbeType::TcpMaimon:
+        return "maimon";
     case ScanProbeType::Udp:
         return "udp";
     default:
@@ -196,6 +206,10 @@ const char *scan_reason_name(ScanReason reason) noexcept
         return "SYN_ACK";
     case ScanReason::Rst:
         return "RST";
+    case ScanReason::RstWindowOpen:
+        return "RST_WINDOW_OPEN";
+    case ScanReason::RstWindowZero:
+        return "RST_WINDOW_ZERO";
     case ScanReason::Timeout:
         return "TIMEOUT";
     case ScanReason::SocketError:
