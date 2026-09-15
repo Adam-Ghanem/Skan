@@ -226,6 +226,11 @@ int main(int argc, char **argv)
         return fail("rsync probe semantics mismatch");
     }
 
+    const auto *http = find_service_probe(service, "HTTPGet");
+    if (http == nullptr || !has_port_hint(*http, 9200U)) {
+        return fail("HTTPGet Elasticsearch port coverage is missing");
+    }
+
     const skan::detect::ServiceMatcher service_matcher(service);
     const auto nntp_match = service_matcher.match(
         *nntp,
@@ -258,6 +263,27 @@ int main(int argc, char **argv)
         rsync_match.service != "rsync" || rsync_match.product != "rsyncd" ||
         rsync_match.version != "31.0" || rsync_match.confidence < 0.99) {
         return fail("rsync compiled matcher mismatch");
+    }
+
+    const auto elasticsearch_match = service_matcher.match(
+        *http,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+        "{\"name\":\"node\",\"cluster_name\":\"elasticsearch\","
+        "\"version\":{\"number\":\"8.13.4\",\"build_flavor\":\"default\"},"
+        "\"tagline\":\"You Know, for Search\"}");
+    if (!elasticsearch_match.matched || elasticsearch_match.service != "elasticsearch" ||
+        elasticsearch_match.product != "Elasticsearch" ||
+        elasticsearch_match.version != "8.13.4" || elasticsearch_match.confidence < 0.99) {
+        return fail("Elasticsearch version-before-tagline matcher mismatch");
+    }
+    const auto elasticsearch_collision = service_matcher.match(
+        *http,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+        "{\"name\":\"search-proxy\",\"version\":{\"number\":\"8.12.2\"}}");
+    if (!elasticsearch_collision.matched || elasticsearch_collision.service != "http" ||
+        elasticsearch_collision.product != "HTTP" || elasticsearch_collision.version != "1.1" ||
+        elasticsearch_collision.confidence < 0.88) {
+        return fail("Elasticsearch collision was not contained by generic HTTP");
     }
 
     skan::core::StatusCode udp_status = skan::core::StatusCode::InternalError;
