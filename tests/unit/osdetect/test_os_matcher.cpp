@@ -25,6 +25,11 @@ skan::osdetect::TCPObservation linux_observation()
     return observation;
 }
 
+bool contains(const std::vector<std::string> &values, const std::string &needle)
+{
+    return std::find(values.begin(), values.end(), needle) != values.end();
+}
+
 } // namespace
 
 int main()
@@ -64,6 +69,38 @@ int main()
     assert(mismatch_match != mismatch_matches.end());
     assert(mismatch_match->confidence < 1.0);
     assert(!mismatch_match->mismatched_fields.empty());
+
+    // ACK/sequence behavior currently has no probe provenance in the observation
+    // model. It must therefore fail closed as unavailable instead of scoring the
+    // first TCP response (normally a SYN/SYN-ACK) against behavior that may have
+    // been defined for a different probe class.
+    core::StatusCode behavior_status = core::StatusCode::InternalError;
+    const db::OSFingerprintDatabase behavior_database = db::OSFingerprintDatabase::parse(
+        "Fingerprint ProbeScopedBehavior\n"
+        "ID=probe-scoped-behavior\n"
+        "SPECIFICITY=3\n"
+        "ADDRESS_FAMILY=IPv4\n"
+        "Class Test | Test\n"
+        "TTL=64\n"
+        "ACK_BEHAVIOR=RST_WITHOUT_ACK\n"
+        "SEQUENCE_BEHAVIOR=RANDOMIZED\n",
+        behavior_status,
+        core::AddressFamily::IPv4);
+    assert(behavior_status == core::StatusCode::Ok);
+    osdetect::OSMatcher behavior_matcher(behavior_database);
+    osdetect::ObservedOSFingerprint ambiguous_behavior;
+    auto syn_observation = linux_observation();
+    syn_observation.ack_behavior = osdetect::AckBehavior::AcknowledgesSyn;
+    syn_observation.sequence_behavior = osdetect::SequenceBehavior::Zero;
+    ambiguous_behavior.tcp_observations.push_back(std::move(syn_observation));
+    const auto behavior_matches = behavior_matcher.match(ambiguous_behavior, 1U);
+    assert(behavior_matches.size() == 1U);
+    assert(behavior_matches[0].confidence == 1.0);
+    assert(contains(behavior_matches[0].matched_fields, "TTL"));
+    assert(contains(behavior_matches[0].unavailable_fields, "ACK_BEHAVIOR"));
+    assert(contains(behavior_matches[0].unavailable_fields, "SEQUENCE_BEHAVIOR"));
+    assert(!contains(behavior_matches[0].mismatched_fields, "ACK_BEHAVIOR"));
+    assert(!contains(behavior_matches[0].mismatched_fields, "SEQUENCE_BEHAVIOR"));
 
     osdetect::ObservedOSFingerprint unavailable;
     const auto unavailable_matches = matcher.match(unavailable, 2U);
