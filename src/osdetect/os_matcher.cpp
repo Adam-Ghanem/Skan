@@ -159,16 +159,9 @@ Evidence compare(const db::FingerprintSignature &signature, const ObservedOSFing
         }
         break;
     case db::FingerprintField::AckBehavior:
-        if (tcp != nullptr && tcp->ack_behavior != AckBehavior::Unknown) {
-            evidence.available = true;
-            evidence.matches = ack_behavior_name(tcp->ack_behavior) == signature.text;
-        }
-        break;
     case db::FingerprintField::SequenceBehavior:
-        if (tcp != nullptr && tcp->sequence_behavior != SequenceBehavior::Unknown) {
-            evidence.available = true;
-            evidence.matches = sequence_behavior_name(tcp->sequence_behavior) == signature.text;
-        }
+        // These behaviors currently lack probe provenance. Treat them as
+        // unavailable rather than comparing an unrelated first TCP response.
         break;
     case db::FingerprintField::ResponseBehavior:
         if (tcp != nullptr && tcp->response_behavior != ResponseBehavior::Unknown) {
