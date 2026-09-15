@@ -217,7 +217,7 @@ TEST_SOURCES := \
 	tests/unit/portscan/test_port_types.cpp \
 	tests/unit/portscan/test_port_probe.cpp \
 	tests/unit/portscan/test_port_scheduler.cpp \
-		tests/unit/portscan/test_udp_scan.cpp \
+			tests/unit/portscan/test_udp_scan.cpp \
 	tests/integration/portscan/test_portscan_local.cpp \
 	tests/unit/detect/test_service_types.cpp \
 	tests/unit/detect/test_service_db.cpp \
@@ -261,10 +261,10 @@ TEST_SOURCES := \
 			tests/unit/net/test_packet_receiver.cpp \
 			tests/unit/net/test_packet_filter.cpp \
 			tests/unit/net/test_linux_transport.cpp \
-		tests/unit/net/test_network_scan_transport.cpp \
-		tests/unit/net/test_udp_network_scan_transport.cpp \
-		tests/unit/net/test_linux_os_probe_transport.cpp \
-		tests/unit/net/test_linux_discovery_transport.cpp \
+			tests/unit/net/test_network_scan_transport.cpp \
+			tests/unit/net/test_udp_network_scan_transport.cpp \
+			tests/unit/net/test_linux_os_probe_transport.cpp \
+			tests/unit/net/test_linux_discovery_transport.cpp \
 				 tests/integration/net/test_linux_loopback.cpp \
 			tests/unit/orchestrator/test_scan_config.cpp \
 			tests/unit/orchestrator/test_scan_state.cpp \
@@ -369,16 +369,21 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_target_engine \
 				$(BUILD_DIR)/test_target_pipeline
 
-.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus test-service-corpus test-corpus-runtime install check-line-endings check-version package-deb clean
+.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus test-service-corpus corpus-runtime test-corpus-runtime install check-line-endings check-version package-deb clean
 
 all: $(TARGET)
 
-install: $(TARGET)
+install: $(TARGET) corpus-runtime
 	$(INSTALL) -d "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(DATADIR)" \
 		"$(DESTDIR)$(DOCDIR)" "$(DESTDIR)$(MANDIR)/man1"
 	$(INSTALL) -m 0755 "$(TARGET)" "$(DESTDIR)$(BINDIR)/skan"
-	$(INSTALL) -m 0644 data/service-probes.db data/udp-probes.db \
-		data/os-fingerprints.db data/os-fingerprints-v6.db "$(DESTDIR)$(DATADIR)/"
+	$(INSTALL) -m 0644 \
+		$(CORPUS_RUNTIME_DIR)/service-probes.db \
+		$(CORPUS_RUNTIME_DIR)/udp-probes.db \
+		$(CORPUS_RUNTIME_DIR)/os-fingerprints.db \
+		$(CORPUS_RUNTIME_DIR)/os-fingerprints-v6.db \
+		$(CORPUS_RUNTIME_DIR)/manifest.json \
+		"$(DESTDIR)$(DATADIR)/"
 	$(INSTALL) -m 0644 README.md LICENSE ARCHITECTURE.md SECURITY.md "$(DESTDIR)$(DOCDIR)/"
 	$(INSTALL) -m 0644 docs/skan.1 "$(DESTDIR)$(MANDIR)/man1/skan.1"
 
@@ -391,7 +396,7 @@ check-version:
 		test "$$upstream_version" = "$(SKAN_VERSION)" || { \
 			echo "VERSION ($(SKAN_VERSION)) does not match Debian upstream version ($$upstream_version)" >&2; \
 			exit 1; \
-		}; \
+	}; \
 	fi
 
 check-line-endings:
@@ -413,9 +418,11 @@ test-corpus:
 test-service-corpus: $(BUILD_DIR)/test_service_corpus
 	./$(BUILD_DIR)/test_service_corpus
 
-test-corpus-runtime: $(CORPUS_RUNTIME_TEST)
+corpus-runtime: $(CORPUS_RUNTIME_TEST)
 	python3 -m tools.corpus.cli verify-roundtrip --output-dir $(CORPUS_RUNTIME_DIR)
 	./$(CORPUS_RUNTIME_TEST) $(CORPUS_RUNTIME_DIR)
+
+test-corpus-runtime: corpus-runtime
 
 $(TARGET): $(CPP_OBJECTS) $(C_OBJECTS) | bin
 	$(CXX) $(LDFLAGS) $^ -o $@

@@ -11,10 +11,18 @@ make -C "$repo_root" install DESTDIR="$stage" PREFIX=/usr
 test -x "$stage/usr/bin/skan"
 test "$(stat -c %a "$stage/usr/bin/skan")" = 755
 
+runtime_dir="$repo_root/build/corpus-runtime"
 for database in service-probes.db udp-probes.db os-fingerprints.db os-fingerprints-v6.db; do
+    test -s "$runtime_dir/$database"
     test -s "$stage/usr/share/skan/$database"
     test "$(stat -c %a "$stage/usr/share/skan/$database")" = 644
+    cmp -s "$runtime_dir/$database" "$stage/usr/share/skan/$database"
 done
+
+test -s "$runtime_dir/manifest.json"
+test -s "$stage/usr/share/skan/manifest.json"
+test "$(stat -c %a "$stage/usr/share/skan/manifest.json")" = 644
+cmp -s "$runtime_dir/manifest.json" "$stage/usr/share/skan/manifest.json"
 
 test -s "$stage/usr/share/doc/skan/README.md"
 test -s "$stage/usr/share/doc/skan/LICENSE"
