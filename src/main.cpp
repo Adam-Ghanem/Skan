@@ -1391,7 +1391,10 @@ int run_nmap_compatible(int argc, char **argv)
     targets.reserve(static_cast<std::size_t>(argc));
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
-        if (!argument.empty() && argument.front() == '-') {
+        if (argument.size() > 2U && argument.starts_with("-p") && argument != "-p-") {
+            options.emplace_back("-p");
+            options.emplace_back(argument.substr(2U));
+        } else if (!argument.empty() && argument.front() == '-') {
             options.emplace_back(argument);
             if (option_requires_value(argument)) {
                 if (index + 1 >= argc) {
