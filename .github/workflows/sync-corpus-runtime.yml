@@ -1,0 +1,46 @@
+name: Sync runtime corpus
+
+on:
+  push:
+    branches:
+      - "fix/corpus-runtime-sync"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out sync branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: fix/corpus-runtime-sync
+          fetch-depth: 0
+
+      - name: Regenerate runtime-backed canonical stores
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m tools.corpus.cli import-runtime
+          python3 -m tools.corpus.cli verify-roundtrip --output-dir build/corpus-runtime
+
+      - name: Commit regenerated stores
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            corpus/canonical/active-probes.jsonl \
+            corpus/canonical/services.jsonl \
+            corpus/canonical/os.jsonl \
+            corpus/canonical/udp.jsonl \
+            corpus/canonical/manifest.json
+          if git diff --cached --quiet; then
+            echo "No corpus changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(corpus): sync runtime canonical stores"
+          git push origin HEAD:fix/corpus-runtime-sync
