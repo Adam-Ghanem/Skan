@@ -15,6 +15,31 @@ python3 -m json.tool "$tmp_dir/connect.json" >/dev/null
 "$skan_bin" -sS --transport offline -p 80 --output json 192.0.2.1 >"$tmp_dir/syn.json"
 python3 -m json.tool "$tmp_dir/syn.json" >/dev/null
 
+"$skan_bin" -sA --transport offline -p 80 --output json 192.0.2.1 >"$tmp_dir/ack.json"
+python3 - "$tmp_dir/ack.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+ports = [port for host in report["hosts"] for port in host["ports"]]
+assert [(port["port"], port["probe"], port["state"], port["reason"])
+        for port in ports] == [(80, "ack", "FILTERED", "ACK_TIMEOUT")], ports
+PY
+
+if "$skan_bin" -sA --transport connect -p 80 192.0.2.1 >/dev/null 2>&1; then
+  echo "ACK connect transport unexpectedly accepted" >&2
+  exit 1
+fi
+if "$skan_bin" -sA -sV -p 80 192.0.2.1 >/dev/null 2>&1; then
+  echo "ACK service detection unexpectedly accepted" >&2
+  exit 1
+fi
+if "$skan_bin" -sA -O -p 80 192.0.2.1 >/dev/null 2>&1; then
+  echo "ACK OS detection unexpectedly accepted" >&2
+  exit 1
+fi
+
 "$skan_bin" -sU --transport offline --udp-ports 53 --output json 192.0.2.1 >"$tmp_dir/udp.json"
 python3 -m json.tool "$tmp_dir/udp.json" >/dev/null
 
@@ -142,6 +167,18 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 assert [host["address"] for host in report["hosts"]] == ["192.0.2.1"], report
 assert [port for host in report["hosts"] for port in host["ports"]] == [], report
 assert report["summary"]["filtered_ports"] == 1, report["summary"]
+PY
+
+"$skan_bin" -sA --transport offline -p 80 --open --output json \
+  --output-file "$tmp_dir/ack-open-only.json" 192.0.2.1
+python3 - "$tmp_dir/ack-open-only.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+assert [port for host in report["hosts"] for port in host["ports"]] == [], report
+assert report["summary"]["filtered_ports"] == 1, report
 PY
 
 "$skan_bin" -sU --transport offline -p 53 --open -oA \

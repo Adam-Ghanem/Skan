@@ -33,11 +33,12 @@ Skan has not yet been accepted into the official Debian or Ubuntu archives, so p
 ```bash
 skan -sT -p 22,80,443 192.0.2.10
 sudo skan -sS --top-ports 100 192.0.2.10
+sudo skan -sA -p 22,443 192.0.2.10
 sudo skan -sU -p 53 192.0.2.10
 skan -sV --top-ports 100 192.0.2.10
 ```
 
-TCP connect scans normally run without root. Live SYN, UDP, and other raw-packet modes can require `sudo`; the package never installs Skan setuid and does not assign Linux capabilities automatically.
+TCP connect scans normally run without root. Live SYN, ACK, UDP, and other raw-packet modes can require `sudo`; the package never installs Skan setuid and does not assign Linux capabilities automatically. ACK scans map filtering only: a reset is `UNFILTERED`, while a timeout is `FILTERED`; neither result identifies an open service.
 
 ## ⚡ Highlights
 
@@ -143,6 +144,7 @@ The native `skan scan <target>` interface remains supported. A scoped Nmap-compa
 ```bash
 skan -sT -p 22,80,443 127.0.0.1
 sudo skan -sS -sV --top-ports 100 192.0.2.2
+sudo skan -sA -p 22,443 --reason 192.0.2.2
 sudo skan -sU -p 53 --transport linux 192.0.2.2
 skan -sn 192.0.2.0/24
 sudo skan -sS -p 1-1024 -T4 -oA scan-result 192.0.2.2
@@ -155,6 +157,7 @@ sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 | --- | --- |
 | `-sT` | TCP Connect scan |
 | `-sS` | Capability-gated Linux SYN scan |
+| `-sA` | Capability-gated Linux ACK firewall-mapping scan; reports only `FILTERED` or `UNFILTERED` |
 | `-sU` | Capability-gated Linux UDP scan |
 | `-sn` / `-Pn` | Discovery-only / skip discovery |
 | `-sV` / `-O` | Service/version / OS detection |

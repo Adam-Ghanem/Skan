@@ -6,6 +6,7 @@
 #include <new>
 
 #include "portscan/tcp_connect.hpp"
+#include "portscan/tcp_ack.hpp"
 #include "portscan/tcp_syn.hpp"
 
 namespace skan::portscan {
@@ -56,6 +57,8 @@ PortScanScheduler::PortScanScheduler(
         probe_ = std::make_unique<TcpConnectProbe>();
     } else if (config_.method == ScanProbeType::TcpSyn) {
         probe_ = std::make_unique<TcpSynProbe>();
+    } else if (config_.method == ScanProbeType::TcpAck) {
+        probe_ = std::make_unique<TcpAckProbe>();
     }
 }
 

@@ -34,6 +34,16 @@ enum class NetworkScanStatus {
 
 const char *network_scan_status_name(NetworkScanStatus status) noexcept;
 
+/** Pure, allocation-free correlation policy shared by both IP receive paths. */
+bool matches_tcp_reply(
+    const portscan::PortSubmission &submission,
+    const PacketObservation &observation) noexcept;
+
+/** Match a bounded ICMP quote of an emitted, unfragmented base-header TCP probe. */
+bool matches_tcp_unreachable(
+    const portscan::PortSubmission &submission,
+    const PacketObservation &observation) noexcept;
+
 struct NetworkScanConfig final {
     std::string interface_name;
     std::size_t max_frame_size{65535U};
@@ -69,7 +79,7 @@ struct NetworkScanResult final {
 };
 
 /**
- * Capability-gated real TCP SYN adapter. It implements only the existing PortScanTransport
+ * Capability-gated real TCP SYN/ACK adapter. It implements only the existing PortScanTransport
  * contract; packet construction, scheduling, timing, and result classification remain in Phase 2,
  * Phase 4, and Phase 7 components.
  */

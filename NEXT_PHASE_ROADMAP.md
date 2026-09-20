@@ -1,7 +1,15 @@
 # Skan Next-Phase Roadmap
 
 **Author:** Manus AI
-**Status:** Phase 33 scoped Nmap-core compatibility implemented. Earlier phase records are retained as historical context and are superseded by later status sections.
+**Status:** Phase 33 scoped Nmap-core compatibility implemented; Phase 34 TCP ACK firewall mapping is under implementation and verification. Earlier phase records are retained as historical context and are superseded by later status sections.
+
+## Phase 34 delivery boundary
+
+The current feature branch adds first-party TCP ACK scanning (`-sA`, `--method ack`) through the existing scheduler and Linux raw transport. A correlated reset means `UNFILTERED`, not `OPEN`; silence means `FILTERED`. SYN/Connect/UDP remain separate scan methods. Service and OS detection are rejected for ACK scans.
+
+The delivery gate includes deterministic dual-stack TCP/ICMP correlation tests, scheduler invalid/duplicate/late-response tests, all four writers, CLI option ordering, and isolated dual-stack CI namespace tests for reset, silent drop, and ICMP rejection. Live acceptance and independent review must succeed before this boundary is marked complete. This does not claim all advanced scan families or Nmap feature parity.
+
+The remaining approved roadmap continues with service fingerprint corpus coverage, OS fingerprinting validation, traceroute/discovery, adaptive scheduling, scripting, databases, runtime/resume/packet tracing, and cross-platform transport compatibility. These are not implied by ACK support.
 
 ## Completed Phase 16 boundary
 
