@@ -1,0 +1,100 @@
+name: Bootstrap Skan v0.1.2 Release
+
+on:
+  push:
+    branches:
+      - "release/v0.1.2-bootstrap"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-v0.1.2-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: v0.1.2
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(<VERSION)" = "0.1.2"
+          test "$(git rev-parse HEAD)" = "1be05116316c361e90a8a663ef885a98f8ffacdb"
+          make check-version
+
+      - name: Build Debian package
+        run: |
+          docker build --tag skan-debian12-builder --file tests/packaging/Dockerfile.builder .
+          docker run --rm --network none \
+            --volume "$PWD:/work" \
+            --workdir /work \
+            skan-debian12-builder \
+            bash scripts/build_deb.sh
+
+      - name: Validate package and prepare release assets
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t packages < <(find dist -maxdepth 1 -type f -name 'skan_*_amd64.deb' -print)
+          test "${#packages[@]}" -eq 1
+          docker run --rm \
+            --volume "$PWD/dist:/dist:ro" \
+            skan-debian12-builder \
+            lintian --fail-on error "/dist/$(basename "${packages[0]}")"
+          bash scripts/test_deb_package.sh \
+            "${packages[0]}" \
+            "debian:12@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443"
+          bash scripts/test_deb_package.sh \
+            "${packages[0]}" \
+            "ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
+          bash scripts/prepare_release_assets.sh "${packages[0]}" release-assets
+          package="release-assets/$(basename "${packages[0]}")"
+          test -s "$package"
+          test -s release-assets/SHA256SUMS
+          (cd release-assets && sha256sum -c SHA256SUMS)
+          echo "path=$package" >>"$GITHUB_OUTPUT"
+
+      - name: Create tag on verified main commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          main_sha="$(git rev-parse HEAD)"
+          if existing=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha' 2>/dev/null); then
+            test "$existing" = "$main_sha"
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" \
+              -f sha="$main_sha" >/dev/null
+          fi
+
+      - name: Publish GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="${{ steps.package.outputs.path }}"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$package" release-assets/SHA256SUMS --clobber
+          else
+            gh release create "$RELEASE_TAG" "$package" release-assets/SHA256SUMS \
+              --verify-tag \
+              --generate-notes \
+              --title "Skan 0.1.2"
+          fi
+          release_id="$(gh api "repos/$GH_REPO/releases/tags/$RELEASE_TAG" --jq '.id')"
+          gh api --method PATCH "repos/$GH_REPO/releases/$release_id" \
+            -f make_latest=true >/dev/null
