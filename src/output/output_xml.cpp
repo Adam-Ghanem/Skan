@@ -228,6 +228,18 @@ void write_os_detection(XmlWriter &xml, const osdetect::OSDetectionResult &resul
     }
     xml.element(depth + 1U, "state", osdetect::os_detection_state_name(result.state));
     xml.element(depth + 1U, "error", osdetect::os_detection_error_name(result.error));
+    if (!result.vendor.empty()) {
+        xml.element(depth + 1U, "vendor", result.vendor);
+    }
+    if (!result.family.empty()) {
+        xml.element(depth + 1U, "family", result.family);
+    }
+    if (!result.generation.empty()) {
+        xml.element(depth + 1U, "generation", result.generation);
+    }
+    if (!result.device_type.empty()) {
+        xml.element(depth + 1U, "device-type", result.device_type);
+    }
     xml.element(depth + 1U, "confidence", detail::number(result.confidence));
     xml.element(depth + 1U, "probes-sent", std::to_string(result.probes_sent));
     xml.element(depth + 1U, "responses-received", std::to_string(result.responses_received));
