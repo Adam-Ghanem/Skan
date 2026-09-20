@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(<VERSION)" = "0.1.2"
-          test "$(git rev-parse HEAD)" = "1be05116316c361e90a8a663ef885a98f8ffacdb"
+          test "$(git rev-parse HEAD)" = "763b196ee8e0c871c485b77516f090f57ba36460"
           make check-version
 
       - name: Build Debian package
