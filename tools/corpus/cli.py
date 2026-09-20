@@ -30,6 +30,13 @@ _STORE_KINDS = {
     "os.jsonl": "os_fingerprint",
     "udp.jsonl": "udp_probe",
 }
+_SUPPLEMENTAL_CANONICAL_FILES = {
+    "cpe.jsonl",
+    "devices.jsonl",
+    "products.jsonl",
+    "registry.jsonl",
+    "web.jsonl",
+}
 _CANONICAL_MANIFEST = "manifest.json"
 _MAX_CANONICAL_MANIFEST_BYTES = 64 << 10
 _ARTIFACTS = {
@@ -220,7 +227,7 @@ def _canonical_directory(
     allow_incomplete: bool = False,
 ) -> Path:
     path = _path_within(root, value, "corpus/canonical", "canonical directory")
-    allowed = set(_STORE_KINDS) | {_CANONICAL_MANIFEST, "README.md"}
+    allowed = set(_STORE_KINDS) | _SUPPLEMENTAL_CANONICAL_FILES | {_CANONICAL_MANIFEST, "README.md"}
     _exact_directory(path, allowed, "canonical directory", require_all=False, must_exist=not output)
     if path.exists():
         required = set(_STORE_KINDS) | {_CANONICAL_MANIFEST}
