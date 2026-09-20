@@ -21,10 +21,10 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: v0.1.2
     steps:
-      - name: Check out current main
+      - name: Check out immutable v0.1.2 release cut
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: main
+          ref: 5c6fad176d8bc5d444aa5cb62755dde8f5e8a70c
           fetch-depth: 0
           persist-credentials: false
 
@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(<VERSION)" = "0.1.2"
-          test "$(git rev-parse HEAD)" = "566ced520430e117bb56bbc6351807e16ac68eb9"
+          test "$(git rev-parse HEAD)" = "5c6fad176d8bc5d444aa5cb62755dde8f5e8a70c"
           make check-version
 
       - name: Build Debian package
