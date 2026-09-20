@@ -1,6 +1,7 @@
 #include "portscan/udp_scan.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <fstream>
@@ -17,6 +18,7 @@ namespace {
 
 constexpr std::size_t kMaximumPayloadBytes = 512U;
 constexpr std::size_t kMaximumResponseBytes = 1U << 20U;
+constexpr std::size_t kMaximumDatabaseBytes = 1U << 20U;
 constexpr std::uint16_t kFirstEphemeralPort = 40000U;
 constexpr std::uint16_t kLastEphemeralPort = 60000U;
 
@@ -193,6 +195,10 @@ UDPProbeDatabase UDPProbeDatabase::built_in()
 UDPProbeDatabase UDPProbeDatabase::parse(std::string_view text, core::StatusCode &status)
 {
     UDPProbeDatabase database;
+    if (text.size() > kMaximumDatabaseBytes) {
+        status = core::StatusCode::ParseError;
+        return database;
+    }
     status = core::StatusCode::Ok;
     try {
         std::istringstream input{std::string(text)};
@@ -269,18 +275,40 @@ UDPProbeDatabase UDPProbeDatabase::parse(std::string_view text, core::StatusCode
 
 UDPProbeDatabase UDPProbeDatabase::load_file(const std::string &path, core::StatusCode &status)
 {
-    std::ifstream input(path);
+    std::ifstream input(path, std::ios::binary);
     if (!input.is_open()) {
         status = core::StatusCode::NotFound;
         return {};
     }
-    std::ostringstream contents;
-    contents << input.rdbuf();
-    if (!input.good() && !input.eof()) {
-        status = core::StatusCode::IoError;
+
+    try {
+        std::string contents;
+        contents.reserve(kMaximumDatabaseBytes);
+        std::array<char, 8192U> buffer{};
+
+        while (input) {
+            input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+            const std::streamsize bytes_read = input.gcount();
+            if (bytes_read <= 0) {
+                continue;
+            }
+            const std::size_t count = static_cast<std::size_t>(bytes_read);
+            if (contents.size() > kMaximumDatabaseBytes - count) {
+                status = core::StatusCode::ParseError;
+                return {};
+            }
+            contents.append(buffer.data(), count);
+        }
+
+        if (!input.eof()) {
+            status = core::StatusCode::IoError;
+            return {};
+        }
+        return parse(contents, status);
+    } catch (const std::bad_alloc &) {
+        status = core::StatusCode::MemoryError;
         return {};
     }
-    return parse(contents.str(), status);
 }
 
 const UDPProbeDefinition *UDPProbeDatabase::for_port(std::uint16_t port) const noexcept
