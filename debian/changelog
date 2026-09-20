@@ -1,3 +1,11 @@
+skan (0.1.2-1) unstable; urgency=medium
+
+  * Improve service evidence arbitration, probe fallback, and timeout handling.
+  * Detect SSH identifications after bounded pre-banner lines.
+  * Expand the clean-room service corpus and preserve canonical import history.
+
+ -- Adam Ghanem <adam.ghanem.it@gmail.com>  Mon, 14 Sep 2026 00:00:00 +0100
+
 skan (0.1.1-1) unstable; urgency=medium
 
   * Correct package-purge acceptance checks and release asset ownership.

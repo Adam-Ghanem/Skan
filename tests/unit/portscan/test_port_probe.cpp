@@ -5,6 +5,7 @@
 
 #include "packet/tcp.hpp"
 #include "portscan/port_probe.hpp"
+#include "portscan/tcp_ack.hpp"
 #include "portscan/tcp_connect.hpp"
 #include "portscan/tcp_syn.hpp"
 
@@ -20,6 +21,19 @@ skan::portscan::PortSubmission make_syn_submission()
                                                  std::chrono::milliseconds{100},
                                                  2U};
     assert(probe.build(7U, host, port, config, submission) == skan::core::StatusCode::Ok);
+    return submission;
+}
+
+skan::portscan::PortSubmission make_ack_submission()
+{
+    skan::portscan::TcpAckProbe probe;
+    skan::portscan::PortSubmission submission;
+    const skan::core::Host host{"127.0.0.1", std::nullopt, true};
+    const skan::portscan::Port port{80U, skan::portscan::Protocol::Tcp};
+    const skan::portscan::PortScanConfig config{skan::portscan::ScanProbeType::TcpAck,
+                                                 std::chrono::milliseconds{100},
+                                                 2U};
+    assert(probe.build(9U, host, port, config, submission) == skan::core::StatusCode::Ok);
     return submission;
 }
 
@@ -105,6 +119,55 @@ int main()
            skan::core::StatusCode::Ok);
     assert(state == PortState::Open);
     assert(reason == ScanReason::SynAck);
+
+    TcpAckProbe ack_probe;
+    assert(TcpAckProbe::sequence_for(1520202736U) != 0U);
+    PortSubmission ack_submission = make_ack_submission();
+    const auto parsed_ack_request = skan::packet::TCP::parse(ack_submission.packet);
+    assert(parsed_ack_request.has_value());
+    assert(parsed_ack_request->source_port() == ack_submission.source_port);
+    assert(parsed_ack_request->destination_port() == ack_submission.port.number);
+    assert(skan::packet::has_flag(parsed_ack_request->flags(), skan::packet::TcpFlag::Ack));
+    assert(!skan::packet::has_flag(parsed_ack_request->flags(), skan::packet::TcpFlag::Syn));
+    assert(!skan::packet::has_flag(parsed_ack_request->flags(), skan::packet::TcpFlag::Rst));
+    assert(ack_submission.acknowledgment_number != 0U);
+    assert(parsed_ack_request->acknowledgment_number() == ack_submission.acknowledgment_number);
+    assert(ack_probe.timeout_state() == PortState::Filtered);
+    assert(ack_probe.timeout_reason() == ScanReason::AckTimeout);
+
+    skan::packet::TCP ack_rst;
+    ack_rst.set_source_port(ack_submission.port.number);
+    ack_rst.set_destination_port(ack_submission.source_port);
+    ack_rst.set_sequence_number(ack_submission.acknowledgment_number);
+    ack_rst.set_acknowledgment_number(0U);
+    ack_rst.set_flags(static_cast<std::uint16_t>(skan::packet::TcpFlag::Rst));
+    ack_rst.set_window(0U);
+    PortResponse ack_rst_response{9U, "127.0.0.1", PortResponseKind::Packet, 0,
+                                  serialize_tcp(ack_rst), PortScanClock::now()};
+    assert(ack_probe.assess(ack_rst_response, ack_submission, state, reason) ==
+           skan::core::StatusCode::Ok);
+    assert(state == PortState::Unfiltered);
+    assert(reason == ScanReason::AckRst);
+
+    ack_rst.set_sequence_number(ack_submission.acknowledgment_number + 1U);
+    PortResponse wrong_ack_reset{9U, "127.0.0.1", PortResponseKind::Packet, 0,
+                                 serialize_tcp(ack_rst), PortScanClock::now()};
+    assert(ack_probe.assess(wrong_ack_reset, ack_submission, state, reason) ==
+           skan::core::StatusCode::NotFound);
+
+    PortResponse ack_syn_response{9U, "127.0.0.1", PortResponseKind::Packet, 0,
+                                  serialize_tcp(syn_ack), PortScanClock::now()};
+    assert(ack_probe.assess(ack_syn_response, ack_submission, state, reason) ==
+           skan::core::StatusCode::NotFound);
+
+    PortResponse ack_unreachable{9U, "127.0.0.1", PortResponseKind::Unreachable, 0, {}, PortScanClock::now()};
+    assert(ack_probe.assess(ack_unreachable, ack_submission, state, reason) ==
+           skan::core::StatusCode::Ok);
+    assert(state == PortState::Filtered);
+    assert(reason == ScanReason::IcmpNetworkUnreachable);
+    ack_unreachable.source_address = "127.0.0.2";
+    assert(ack_probe.assess(ack_unreachable, ack_submission, state, reason) ==
+           skan::core::StatusCode::NotFound);
 
     skan::packet::TCP rst;
     rst.set_source_port(syn_submission.port.number);

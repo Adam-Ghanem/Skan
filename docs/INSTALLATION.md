@@ -2,10 +2,10 @@
 
 ## End-user installation on Ubuntu or Debian
 
-Download the `amd64` `.deb` attached to a Skan GitHub Release. For version 0.1.1, install it from the directory containing the download:
+Download the `amd64` `.deb` attached to a Skan GitHub Release. For version 0.1.2, install it from the directory containing the download:
 
 ```bash
-sudo apt install ./skan_0.1.1-1_amd64.deb
+sudo apt install ./skan_0.1.2-1_amd64.deb
 ```
 
 APT resolves the package's factual C++ runtime dependencies from the configured distribution repositories. The Skan package itself runs no maintainer scripts and performs no network activity during installation.
@@ -46,10 +46,11 @@ TCP connect scans normally work without root:
 skan -sT -p 80,443 192.0.2.10
 ```
 
-Live SYN, UDP, discovery, and other raw-packet operations can require root:
+Live SYN, ACK, UDP, discovery, and other raw-packet operations can require root. ACK results map filtering only: an exact reset is `UNFILTERED` and a timeout is `FILTERED`; neither identifies an open service.
 
 ```bash
 sudo skan -sS --top-ports 100 192.0.2.10
+sudo skan -sA -p 22,443 192.0.2.10
 sudo skan -sU -p 53 192.0.2.10
 ```
 

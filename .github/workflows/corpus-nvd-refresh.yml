@@ -1,0 +1,319 @@
+name: NVD CPE Intelligence Refresh
+# Final Task 12 refresh trigger: build and verify the complete pinned NVD CPE index with the bounded-memory stream parser. Re-run from current PR head.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/fingerprint-corpus-v2-multisource
+    paths:
+      - .github/workflows/corpus-nvd-refresh.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build-nvd-cpe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: codex/fingerprint-corpus-v2-multisource
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download and verify complete NVD CPE dictionary feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/nvd-cpe-feed /tmp/nvd-cpe-pages /tmp/nvd-cpe-out /tmp/nvd-cpe-split
+          mkdir -p /tmp/nvd-cpe-feed /tmp/nvd-cpe-pages /tmp/nvd-cpe-out /tmp/nvd-cpe-split
+
+          base="https://nvd.nist.gov/feeds/json/cpe/2.0/nvdcpe-2.0"
+          curl --fail --location --retry 4 --retry-all-errors \
+            "${base}.meta" --output /tmp/nvd-cpe-meta-before.txt
+          curl --fail --location --retry 4 --retry-all-errors \
+            "${base}.tar.gz" --output /tmp/nvdcpe-2.0.tar.gz
+          curl --fail --location --retry 4 --retry-all-errors \
+            "${base}.meta" --output /tmp/nvd-cpe-meta-after.txt
+
+          tar --no-same-owner -xzf /tmp/nvdcpe-2.0.tar.gz -C /tmp/nvd-cpe-feed
+
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          from pathlib import Path
+
+          def parse_meta(path: Path) -> dict[str, str]:
+              values: dict[str, str] = {}
+              for line in path.read_text(encoding="utf-8").splitlines():
+                  key, sep, value = line.partition(":")
+                  if sep:
+                      values[key.strip()] = value.strip()
+              required = {"lastModifiedDate", "size", "sha256"}
+              missing = sorted(required.difference(values))
+              if missing:
+                  raise SystemExit(f"NVD META missing fields: {missing}")
+              return values
+
+          before = parse_meta(Path("/tmp/nvd-cpe-meta-before.txt"))
+          after = parse_meta(Path("/tmp/nvd-cpe-meta-after.txt"))
+          for key in ("lastModifiedDate", "size", "sha256"):
+              if before[key] != after[key]:
+                  raise SystemExit(f"NVD feed changed during download: {key}")
+
+          shards = sorted(Path("/tmp/nvd-cpe-feed").rglob("*.json"), key=lambda path: str(path))
+          if not shards:
+              raise SystemExit("NVD CPE archive contains no JSON shards")
+          empty = [str(path) for path in shards if path.stat().st_size == 0]
+          if empty:
+              raise SystemExit(f"NVD CPE archive contains empty JSON shards: {empty[:3]}")
+
+          expected_size = int(before["size"])
+          actual_size = sum(path.stat().st_size for path in shards)
+          if actual_size != expected_size:
+              raise SystemExit(
+                  f"NVD feed aggregate size mismatch: expected {expected_size}, got {actual_size} "
+                  f"across {len(shards)} JSON shards"
+              )
+
+          archive = Path("/tmp/nvdcpe-2.0.tar.gz")
+          digest = hashlib.sha256()
+          with archive.open("rb") as handle:
+              for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                  digest.update(chunk)
+          archive_sha = digest.hexdigest()
+
+          shard_manifest = [
+              {"path": str(path), "bytes": path.stat().st_size}
+              for path in shards
+          ]
+          Path("/tmp/nvd-cpe-shards.json").write_text(
+              json.dumps(shard_manifest, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          verified = {
+              "last_modified": before["lastModifiedDate"],
+              "uncompressed_bytes": actual_size,
+              "json_shards": len(shards),
+              "published_uncompressed_sha256": before["sha256"].lower(),
+              "archive_sha256": archive_sha,
+          }
+          Path("/tmp/nvd-cpe-out/feed-verification.json").write_text(
+              json.dumps(verified, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(verified, sort_keys=True))
+          PY
+
+      - name: Split all NVD shards into deterministic bounded-memory chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import json
+          from pathlib import Path
+
+          from tools.corpus.nvd_feed import split_nvd_cpe_feed
+
+          shard_manifest = json.loads(Path("/tmp/nvd-cpe-shards.json").read_text(encoding="utf-8"))
+          total_products = 0
+          global_chunk = 0
+          per_shard: list[dict[str, object]] = []
+          for shard_index, item in enumerate(shard_manifest):
+              source = Path(str(item["path"]))
+              split_root = Path("/tmp/nvd-cpe-split") / f"shard-{shard_index:05d}"
+              stats = split_nvd_cpe_feed(source, split_root, chunk_size=10_000)
+              total_products += int(stats["products"])
+              local_chunks = sorted(split_root.glob("page-*.json"))
+              if len(local_chunks) != int(stats["chunks"]):
+                  raise SystemExit(f"split chunk count mismatch for {source}")
+              for chunk in local_chunks:
+                  destination = Path("/tmp/nvd-cpe-pages") / f"page-{global_chunk:05d}.json"
+                  chunk.replace(destination)
+                  global_chunk += 1
+              per_shard.append({"source": source.name, **stats})
+
+          if total_products < 1_000_000:
+              raise SystemExit(f"NVD CPE dictionary unexpectedly small: {total_products}")
+          if global_chunk < 100:
+              raise SystemExit(f"NVD CPE chunk count unexpectedly small: {global_chunk}")
+          stats = {
+              "products": total_products,
+              "chunks": global_chunk,
+              "chunk_size": 10_000,
+              "source_shards": len(shard_manifest),
+              "per_shard": per_shard,
+          }
+          Path("/tmp/nvd-cpe-out/split-stats.json").write_text(
+              json.dumps(stats, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({key: value for key, value in stats.items() if key != "per_shard"}, sort_keys=True))
+          PY
+
+      - name: Build deterministic SQLite intelligence index twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from __future__ import annotations
+          import hashlib
+          import json
+          from pathlib import Path
+          import sqlite3
+
+          from tools.corpus.adapters.common import AdapterContext
+          from tools.corpus.cpe_sqlite import build_cpe_sqlite
+
+          root = Path("/tmp/nvd-cpe-out")
+          verification = json.loads((root / "feed-verification.json").read_text(encoding="utf-8"))
+          split_stats = json.loads((root / "split-stats.json").read_text(encoding="utf-8"))
+          source_url = "https://nvd.nist.gov/feeds/json/cpe/2.0/nvdcpe-2.0.tar.gz"
+          manifest = {
+              "schema_version": 1,
+              "source_id": "nvd-cpe",
+              "source_url": source_url,
+              "revision": verification["last_modified"],
+              "total_results": int(split_stats["products"]),
+              "pages": int(split_stats["chunks"]),
+              "results_per_page": int(split_stats["chunk_size"]),
+              "source_shards": int(verification["json_shards"]),
+              "sha256": verification["archive_sha256"],
+              "published_uncompressed_sha256": verification["published_uncompressed_sha256"],
+              "uncompressed_bytes": int(verification["uncompressed_bytes"]),
+          }
+          (root / "download-manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+
+          context = AdapterContext(
+              source_id="nvd-cpe",
+              revision=str(manifest["revision"]),
+              source_url=str(manifest["source_url"]),
+              source_license="NIST-Public-Data",
+              source_hash="sha256:" + str(manifest["sha256"]),
+          )
+          pages = sorted(Path("/tmp/nvd-cpe-pages").glob("page-*.json"))
+          sqlite_a = root / "skan-nvd-cpe-a.sqlite"
+          sqlite_b = root / "skan-nvd-cpe-b.sqlite"
+          stats = build_cpe_sqlite(pages, sqlite_a, context)
+          build_cpe_sqlite(pages, sqlite_b, context)
+          bytes_a = sqlite_a.read_bytes()
+          bytes_b = sqlite_b.read_bytes()
+          if bytes_a != bytes_b:
+              raise SystemExit("NVD SQLite regeneration is not byte deterministic")
+          sqlite_sha256 = hashlib.sha256(bytes_a).hexdigest()
+          sqlite_path = root / "skan-nvd-cpe.sqlite"
+          sqlite_a.replace(sqlite_path)
+          sqlite_b.unlink()
+
+          with sqlite3.connect(sqlite_path) as db:
+              integrity = db.execute("PRAGMA integrity_check").fetchone()[0]
+              actual = int(db.execute("SELECT COUNT(*) FROM cpe").fetchone()[0])
+              active = int(db.execute("SELECT COUNT(*) FROM cpe WHERE status != 'deprecated'").fetchone()[0])
+              vendors = int(db.execute("SELECT COUNT(DISTINCT vendor) FROM cpe WHERE vendor IS NOT NULL").fetchone()[0])
+              products = int(db.execute("SELECT COUNT(DISTINCT vendor || char(0) || product) FROM cpe").fetchone()[0])
+          if integrity != "ok":
+              raise SystemExit(f"SQLite integrity check failed: {integrity}")
+          if actual < 1_000_000:
+              raise SystemExit(f"SQLite CPE row count unexpectedly small: {actual}")
+          if actual != int(manifest["total_results"]):
+              raise SystemExit(
+                  f"SQLite CPE row count mismatch: expected {manifest['total_results']}, got {actual}"
+              )
+          report = {
+              **manifest,
+              **stats,
+              "sqlite_integrity": integrity,
+              "sqlite_rows": actual,
+              "active_rows": active,
+              "distinct_vendors": vendors,
+              "distinct_products": products,
+              "sqlite_sha256": sqlite_sha256,
+              "byte_deterministic_regeneration": True,
+          }
+          (root / "nvd-cpe-stats.json").write_text(
+              json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          lock = {
+              "schema_version": 1,
+              "source_id": "nvd-cpe",
+              "source_url": manifest["source_url"],
+              "revision": manifest["revision"],
+              "sha256": manifest["sha256"],
+              "license_policy": "NIST-Public-Data",
+              "attribution": "NIST National Vulnerability Database",
+              "adapter_version": 1,
+          }
+          (root / "nvd-cpe-lock.json").write_text(
+              json.dumps(lock, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(report, sort_keys=True))
+          PY
+
+      - name: Compress intelligence database
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v zstd >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y zstd
+          fi
+          zstd -T0 -10 --force /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite \
+            -o /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst
+          sha256sum /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst > /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst.sha256
+          ls -lh /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst
+
+      - name: Publish NVD intelligence artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: skan-nvd-cpe-intelligence
+          path: |
+            /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst
+            /tmp/nvd-cpe-out/skan-nvd-cpe.sqlite.zst.sha256
+            /tmp/nvd-cpe-out/nvd-cpe-stats.json
+            /tmp/nvd-cpe-out/download-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit NVD source lock and report
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="codex/fingerprint-corpus-v2-multisource"
+          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3; do
+            git fetch --no-tags origin "$branch"
+            git reset --hard "origin/$branch"
+            mkdir -p corpus/locks corpus/reports
+            cp /tmp/nvd-cpe-out/nvd-cpe-lock.json corpus/locks/nvd-cpe.json
+            cp /tmp/nvd-cpe-out/nvd-cpe-stats.json corpus/reports/nvd-cpe-stats.json
+            git add corpus/locks/nvd-cpe.json corpus/reports/nvd-cpe-stats.json
+            if git diff --cached --quiet; then
+              echo "NVD CPE report is already current"
+              exit 0
+            fi
+            git commit -m "data(corpus): refresh NVD CPE intelligence manifest"
+            if git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+              push https://github.com/${GITHUB_REPOSITORY}.git \
+              HEAD:"$branch"; then
+              exit 0
+            fi
+            echo "NVD publish raced with another branch update; retrying from latest head ($attempt/3)"
+          done
+
+          echo "NVD CPE report publish failed after 3 race-safe retries" >&2
+          exit 1
