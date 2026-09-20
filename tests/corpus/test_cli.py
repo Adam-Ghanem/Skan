@@ -214,6 +214,18 @@ class CorpusCLITests(unittest.TestCase):
             result, stderr = invoke(main, str(root), "verify-roundtrip")
             self.assertEqual(result, 0, stderr)
 
+    def test_verify_roundtrip_allows_supplemental_canonical_stores(self) -> None:
+        from tools.corpus.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="skan-cli-") as directory:
+            root = make_repository(Path(directory))
+            self.assertEqual(invoke(main, str(root), "import-runtime")[0], 0)
+            canonical = root / "corpus" / "canonical"
+            for name in ("cpe.jsonl", "devices.jsonl", "products.jsonl", "registry.jsonl", "web.jsonl"):
+                (canonical / name).write_bytes(b"{}\\n")
+            result, stderr = invoke(main, str(root), "verify-roundtrip")
+            self.assertEqual(result, 0, stderr)
+
     def test_compile_rejects_tampered_or_mixed_canonical_generation(self) -> None:
         from tools.corpus.cli import main
 
