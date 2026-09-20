@@ -118,22 +118,32 @@ int main()
     const skan::output::TerminalCapabilities wide{true, 120U, false, true};
     const skan::output::TerminalCapabilities medium{true, 100U, false, true};
     const skan::output::TerminalCapabilities narrow{true, 72U, false, true};
+    const skan::output::TerminalCapabilities tiny{true, 63U, false, true};
     const skan::output::TerminalCapabilities plain{false, 200U, false, false};
 
     const std::string wide_output = render(wide, report_fixture());
     const std::string medium_output = render(medium, report_fixture());
     const std::string narrow_output = render(narrow, report_fixture());
+    const std::string tiny_output = render(tiny, report_fixture());
     const std::string plain_output = render(plain, report_fixture());
 
     assert_fixture("wide.golden", wide_output);
     assert_fixture("medium.golden", medium_output);
     assert_fixture("narrow.golden", narrow_output);
+    assert_fixture("tiny.golden", tiny_output);
     assert_fixture("plain.golden", plain_output);
     assert_width(wide_output, wide.columns);
     assert_width(medium_output, medium.columns);
     assert_width(narrow_output, narrow.columns);
+    assert_width(tiny_output, tiny.columns);
     assert(plain_output.find('\x1b') == std::string::npos);
     assert(plain_output.find("\xe2\x94") == std::string::npos);
+    assert(tiny_output.find('\x1b') == std::string::npos);
+    assert(tiny_output.find("\xe2\x94") == std::string::npos);
+    assert(wide_output.rfind("◈ SKAN", 0U) == 0U);
+    assert(wide_output.find("╭") == std::string::npos);
+    assert(wide_output.find("REASON") == std::string::npos);
+    assert(wide_output.find("\nTarget  2001:db8::10\n● ") != std::string::npos);
     assert(wide_output.find("https") != std::string::npos);
     assert(wide_output.find("ssl/http") != std::string::npos);
     assert(wide_output.find(static_cast<char>(0x9b)) == std::string::npos);
