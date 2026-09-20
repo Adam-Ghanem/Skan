@@ -25,6 +25,7 @@ match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: Jetty(?:\\(([0-9A-Z
 match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: Apache-Coyote/([0-9A-Za-z.+_-]+)" service=http product=Apache-Tomcat version="$2" extra="HTTP/$1" confidence=0.98
 match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Xx]-[Pp]owered-[Bb]y: Express" service=http product=Express confidence=0.93
 match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*\"tagline\"[ ]*:[ ]*\"You Know, for Search\"[\\s\\S]*\"number\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=elasticsearch product=Elasticsearch version="$2" confidence=0.99
+match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*\"number\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"[\\s\\S]*\"tagline\"[ ]*:[ ]*\"You Know, for Search\"" service=elasticsearch product=Elasticsearch version="$2" confidence=0.99
 match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*\"distribution\"[ ]*:[ ]*\"opensearch\"[\\s\\S]*\"number\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=opensearch product=OpenSearch version="$2" confidence=0.99
 match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*\"couchdb\"[ ]*:[ ]*\"Welcome\"[\\s\\S]*\"version\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=couchdb product=Apache-CouchDB version="$2" confidence=0.99
 match type=regex pattern="^HTTP/([0-9.]+)[\\s\\S]*[Ss]erver: CouchDB/([0-9A-Za-z.+_-]+)" service=couchdb product=Apache-CouchDB version="$2" confidence=0.99
@@ -96,6 +97,11 @@ send "*1\r\n$4\r\nPING\r\n*2\r\n$4\r\nINFO\r\n$6\r\nserver\r\n"
 match type=regex pattern="redis_version:([0-9][0-9A-Za-z.+_-]*)" service=redis product=Redis version="$1" confidence=0.99
 match type=substring pattern="+PONG\r\n" service=redis product=Redis confidence=0.98
 softmatch type=regex pattern="^-((NOAUTH|NOPERM|ERR))[\\s\\S]*" service=redis product=Redis extra="$1" confidence=0.84
+
+# ZooKeeper srvr is a read-only server-status command with a distinctive version banner.
+Probe TCP ZooKeeperServer rarity=1 priority=97 timeout=1300 ports=2181 fallback=GenericBanner
+send "srvr\n"
+match type=regex pattern="^Zookeeper version: ([0-9][0-9A-Za-z.+_-]*)[\\s\\S]*Mode: (leader|follower|standalone|observer)" service=zookeeper product=Apache-ZooKeeper version="$1" extra="mode $2" confidence=0.99
 
 # MySQL/MariaDB sends a protocol-v10 greeting before authentication.
 Probe TCP MySQLGreeting rarity=1 priority=98 timeout=1400 ports=3306 fallback=GenericBanner
