@@ -45,7 +45,7 @@ softmatch type=prefix pattern="\x16\x03" service=tls product=TLS tunnel=tls conf
 softmatch type=prefix pattern="\x15\x03" service=tls product=TLS tunnel=tls extra=alert confidence=0.88
 
 # SSH servers normally speak first. The newline is benign and allows banner capture.
-Probe TCP SSHBanner rarity=1 priority=100 timeout=1400 ports=22,2222,8022 fallback=GenericBanner,HTTPGet
+Probe TCP SSHBanner rarity=1 priority=100 timeout=1400 ports=22,2222,8022 fallback=HTTPGet,GenericBanner
 send "\r\n"
 match type=regex pattern="^SSH-([0-9.]+)-OpenSSH_([0-9A-Za-z.p+_-]+)" service=ssh product=OpenSSH version="$2" extra="protocol $1" confidence=0.99
 match type=regex pattern="^SSH-([0-9.]+)-dropbear_([0-9A-Za-z.p+_-]+)" service=ssh product=Dropbear-SSH version="$2" extra="protocol $1" confidence=0.99
