@@ -6,7 +6,7 @@
       "source_class": "first_party",
       "name": "Skan first-party corpus",
       "homepage": "https://github.com/Adam-Ghanem/Skan",
-      "source_url": "https://github.com/Adam-Ghanem/Skan/tree/0550402dcf6a381fbda0ba437700fd2901cdb82c/data",
+      "source_url": "https://github.com/Adam-Ghanem/Skan/tree/db3ea70d1163d92194a7c315e6bc5e31d20cba83/data",
       "license_spdx_or_policy": "MIT",
       "redistribution_allowed": true,
       "attribution_required": false,
@@ -18,7 +18,7 @@
         "udp_probe"
       ],
       "blocked_data_classes": [],
-      "pinned_revision": "git:0550402dcf6a381fbda0ba437700fd2901cdb82c",
+      "pinned_revision": "git:db3ea70d1163d92194a7c315e6bc5e31d20cba83",
       "expected_hash": null,
       "adapter": "skan_first_party",
       "notes": "Repository-owned runtime corpus; runtime DBs remain authoritative until compiler validation is complete."
