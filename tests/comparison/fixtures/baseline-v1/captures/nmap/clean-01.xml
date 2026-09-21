@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" version="7.95">
+  <host>
+    <status state="up" reason="localhost-response" />
+    <address addr="127.0.0.1" addrtype="ipv4" />
+    <ports>
+      <port protocol="tcp" portid="8080">
+        <state state="open" reason="syn-ack" />
+        <service name="http" product="exampled" version="1.2.3" method="probed" conf="10" />
+      </port>
+      <port protocol="tcp" portid="8081">
+        <state state="closed" reason="reset" />
+      </port>
+    </ports>
+  </host>
+  <runstats>
+    <finished elapsed="1.234" summary="Nmap done" />
+  </runstats>
+</nmaprun>

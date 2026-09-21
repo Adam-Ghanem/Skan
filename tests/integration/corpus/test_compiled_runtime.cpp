@@ -138,14 +138,14 @@ int main(int argc, char **argv)
     skan::core::StatusCode service_status = skan::core::StatusCode::InternalError;
     const auto service = skan::detect::ServiceProbeDatabase::load_file(
         (directory / "service-probes.db").string(), service_status);
-    if (service_status != skan::core::StatusCode::Ok || service.probes().size() != 41U) {
+    if (service_status != skan::core::StatusCode::Ok || service.probes().size() != 49U) {
         return fail("service probe loader or count mismatch");
     }
     std::size_t service_rules = 0U;
     for (const auto &probe : service.probes()) {
         service_rules += probe.rules.size();
     }
-    if (service_rules != 142U) {
+    if (service_rules != 150U) {
         return fail("service rule count mismatch");
     }
     const auto *ssh = find_service_probe(service, "SSHBanner");

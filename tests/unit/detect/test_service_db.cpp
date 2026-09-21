@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <string>
 
 #include "detect/service_db.hpp"
@@ -60,6 +61,21 @@ int main()
     assert(https_probes.size() == 3U);
     assert(built_in.probes()[https_probes[0]].name == "TLSClientHello");
     assert(built_in.probes()[https_probes[1]].name == "HTTPGet");
+
+    const auto expect_first_probe = [&built_in](std::uint16_t port, const char *name) {
+        const auto probes = built_in.ordered_probe_indices(
+            {port, skan::portscan::Protocol::Tcp}, 3U);
+        assert(!probes.empty());
+        assert(built_in.probes()[probes.front()].name == name);
+    };
+    expect_first_probe(9090U, "PrometheusBuildInfo");
+    expect_first_probe(3000U, "GrafanaHealth");
+    expect_first_probe(8200U, "VaultHealth");
+    expect_first_probe(4222U, "NATSInfo");
+    expect_first_probe(2379U, "EtcdVersion");
+    expect_first_probe(8086U, "InfluxDBPing");
+    expect_first_probe(8500U, "ConsulStatus");
+    expect_first_probe(2181U, "ZooKeeperRuok");
 
     skan::core::StatusCode bad_status = skan::core::StatusCode::Ok;
     const ServiceProbeDatabase bad = ServiceProbeDatabase::parse(

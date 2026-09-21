@@ -6,13 +6,36 @@
 #include "portscan/udp_scan.hpp"
 
 namespace {
-constexpr std::size_t kMaximumDatabaseBytes = 1U << 20U;
 
-int fail(const char *message)
+constexpr std::size_t kMaximumDatabaseBytes = 1U << 20U;
+constexpr char kValidPrefix[] = "probe DEFAULT 0 generic 512 00\n#";
+
+bool failed(
+    const char *contract,
+    skan::core::StatusCode actual,
+    skan::core::StatusCode expected,
+    std::size_t definitions,
+    std::size_t expected_definitions)
 {
-    std::cerr << "udp loader bounds probe: " << message << '\n';
-    return 1;
+    if (actual == expected && definitions == expected_definitions) {
+        return false;
+    }
+    std::cerr << contract << " failed: status=" << static_cast<int>(actual)
+              << " expected_status=" << static_cast<int>(expected)
+              << " definitions=" << definitions
+              << " expected_definitions=" << expected_definitions << '\n';
+    return true;
 }
+
+std::string database_with_size(std::size_t size)
+{
+    std::string text{kValidPrefix};
+    if (text.size() < size) {
+        text.append(size - text.size(), 'x');
+    }
+    return text;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -20,35 +43,40 @@ int main(int argc, char **argv)
     using skan::core::StatusCode;
     using skan::portscan::UDPProbeDatabase;
 
-    if (argc != 3) {
-        return fail("usage: udp_loader_bounds_probe OVERSIZED VALID");
+    if (argc != 4) {
+        std::cerr << "usage: udp_loader_bounds_probe OVERSIZED_DB VALID_DB MISSING_DB\n";
+        return 64;
     }
 
-    std::string oversized = "probe DEFAULT 0 generic 512 00\n#";
-    oversized.append(kMaximumDatabaseBytes, 'x');
     StatusCode status = StatusCode::InternalError;
-    const auto parsed = UDPProbeDatabase::parse(oversized, status);
-    if (status != StatusCode::ParseError || !parsed.definitions().empty()) {
-        return fail("direct parse accepted an oversized database");
+    const auto exact = UDPProbeDatabase::parse(database_with_size(kMaximumDatabaseBytes), status);
+    if (failed("exact-size direct input", status, StatusCode::Ok, exact.definitions().size(), 1U)) {
+        return 1;
     }
 
     status = StatusCode::InternalError;
-    const auto oversized_file = UDPProbeDatabase::load_file(argv[1], status);
-    if (status != StatusCode::ParseError || !oversized_file.definitions().empty()) {
-        return fail("file loader accepted an oversized database");
+    const auto direct = UDPProbeDatabase::parse(database_with_size(kMaximumDatabaseBytes + 1U), status);
+    if (failed("oversized direct input", status, StatusCode::ParseError, direct.definitions().size(), 0U)) {
+        return 2;
+    }
+
+    status = StatusCode::InternalError;
+    const auto file = UDPProbeDatabase::load_file(argv[1], status);
+    if (failed("oversized file input", status, StatusCode::ParseError, file.definitions().size(), 0U)) {
+        return 3;
     }
 
     status = StatusCode::InternalError;
     const auto valid = UDPProbeDatabase::load_file(argv[2], status);
-    if (status != StatusCode::Ok || valid.definitions().size() != 1U ||
+    if (failed("valid file input", status, StatusCode::Ok, valid.definitions().size(), 1U) ||
         valid.default_probe().name != "DEFAULT") {
-        return fail("bounded loader rejected a valid database");
+        return 4;
     }
 
     status = StatusCode::InternalError;
-    const auto missing = UDPProbeDatabase::load_file("/definitely/not/a/skan/udp/database", status);
-    if (status != StatusCode::NotFound || !missing.definitions().empty()) {
-        return fail("missing-file status contract changed");
+    const auto missing = UDPProbeDatabase::load_file(argv[3], status);
+    if (failed("missing file input", status, StatusCode::NotFound, missing.definitions().size(), 0U)) {
+        return 5;
     }
 
     return 0;

@@ -370,7 +370,7 @@ TEST_BINARIES := \
 				$(BUILD_DIR)/test_target_engine \
 				$(BUILD_DIR)/test_target_pipeline
 
-.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus test-service-corpus corpus-runtime test-corpus-runtime install check-line-endings check-version package-deb clean
+.PHONY: all release debug asan ubsan coverage fuzz benchmark test test-corpus test-comparison test-service-corpus corpus-runtime test-corpus-runtime install check-line-endings check-version package-deb clean
 
 all: $(TARGET)
 
@@ -415,6 +415,9 @@ package-deb:
 
 test-corpus:
 	python3 -m unittest discover -s tests/corpus -p 'test_*.py' -v
+
+test-comparison:
+	python3 -m unittest discover -s tests/comparison -p 'test_*.py' -v
 
 test-service-corpus: $(BUILD_DIR)/test_service_corpus
 	./$(BUILD_DIR)/test_service_corpus
@@ -849,8 +852,7 @@ test: $(TEST_BINARIES)
 				./$(BUILD_DIR)/test_target_engine
 				./$(BUILD_DIR)/test_target_pipeline
 	$(MAKE) test-corpus
-
-
+	$(MAKE) test-comparison
 
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)

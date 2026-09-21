@@ -141,28 +141,77 @@ match type=substring pattern="CQL_VERSION" service=cassandra product=Apache-Cass
 Probe TCP ClickHouseVersion rarity=1 priority=99 timeout=1400 ports=8123 fallback=HTTPGet,GenericBanner
 send "GET /?query=SELECT%20version%28%29 HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
 match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\\r\\n\\r\\n([0-9][0-9A-Za-z.+_-]*)" service=clickhouse product=ClickHouse version="$1" confidence=0.99
-match type=substring pattern="X-ClickHouse-" service=clickhouse product=ClickHouse confidence=0.98
-match type=regex pattern="ClickHouse server version ([0-9][0-9A-Za-z.+_-]*)" service=clickhouse product=ClickHouse version="$1" confidence=0.99
+match type=regex pattern="^HTTP/[0-9.]+ [0-9]{3}[\\s\\S]*\\r\\nX-ClickHouse-[A-Za-z0-9-]+:" service=clickhouse product=ClickHouse confidence=0.98
+match type=regex pattern="^HTTP/[0-9.]+ [0-9]{3}[\\s\\S]*ClickHouse server version ([0-9][0-9A-Za-z.+_-]*)" service=clickhouse product=ClickHouse version="$1" confidence=0.99
 
 # Docker Engine unauthenticated HTTP API version endpoint.
 Probe TCP DockerVersion rarity=1 priority=100 timeout=1400 ports=2375 fallback=HTTPGet,GenericBanner
 send "GET /version HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
 match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\"Version\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=docker product=Docker-Engine version="$1" confidence=0.99
-match type=substring pattern="Docker-Experimental" service=docker product=Docker-Engine confidence=0.97
+match type=regex pattern="^HTTP/[0-9.]+ [0-9]{3}[\\s\\S]*Docker-Experimental:[ ]*(true|false)" service=docker product=Docker-Engine confidence=0.97
 
 # Kubernetes read-only /version endpoint for plaintext API endpoints.
 Probe TCP KubernetesVersion rarity=2 priority=99 timeout=1400 ports=8080 fallback=HTTPGet,GenericBanner
 send "GET /version HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\"gitVersion\"[ ]*:[ ]*\"v?([0-9][0-9A-Za-z.+_-]*)\"" service=kubernetes product=Kubernetes version="$1" confidence=0.99
-match type=substring pattern="gitVersion" service=kubernetes product=Kubernetes confidence=0.94
+match type=regex pattern="^HTTP/[0-9.]+ 200(?=[\\s\\S]*\"gitCommit\"[ ]*:)[\\s\\S]*\"gitVersion\"[ ]*:[ ]*\"v?([0-9][0-9A-Za-z.+_-]*)\"" service=kubernetes product=Kubernetes version="$1" confidence=0.99
+match type=regex pattern="^HTTP/[0-9.]+ 200(?=[\\s\\S]*\"major\"[ ]*:)(?=[\\s\\S]*\"minor\"[ ]*:)(?=[\\s\\S]*\"gitCommit\"[ ]*:)[\\s\\S]*\\{" service=kubernetes product=Kubernetes confidence=0.95
 
 # Matrix client versions endpoint. M_UNRECOGNIZED still strongly indicates a
 # Matrix homeserver when paired with the protocol-specific URL.
 Probe TCP MatrixVersions rarity=2 priority=96 timeout=1400 ports=8008,8080 fallback=HTTPGet,GenericBanner
 send "GET /_matrix/client/versions HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
 match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\"versions\"[ ]*:[ ]*\\[" service=matrix product=Matrix-Homeserver confidence=0.99
-match type=substring pattern="M_UNRECOGNIZED" service=matrix product=Matrix-Homeserver confidence=0.94
-match type=substring pattern="Synapse" service=matrix product=Synapse confidence=0.96
+match type=regex pattern="^HTTP/[0-9.]+ (400|404)[\\s\\S]*\"errcode\"[ ]*:[ ]*\"M_UNRECOGNIZED\"" service=matrix product=Matrix-Homeserver confidence=0.94
+match type=regex pattern="^HTTP/[0-9.]+ [0-9]{3}[\\s\\S]*\"name\"[ ]*:[ ]*\"Synapse\"" service=matrix product=Synapse confidence=0.96
+
+# Prometheus documents this read-only endpoint as returning a success envelope
+# whose data object carries string-valued build information.
+Probe TCP PrometheusBuildInfo rarity=1 priority=100 timeout=1400 ports=9090 fallback=HTTPGet,GenericBanner
+send "GET /api/v1/status/buildinfo HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ 200(?=[\\s\\S]*\"status\"[ ]*:[ ]*\"success\")(?=[\\s\\S]*\"data\"[ ]*:[ ]*\\{)(?=[\\s\\S]*\"revision\"[ ]*:)[\\s\\S]*\"version\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=prometheus product=Prometheus version="$1" confidence=0.99
+
+# Grafana's unauthenticated health endpoint returns commit, database health, and
+# version evidence in a small JSON response.
+Probe TCP GrafanaHealth rarity=1 priority=100 timeout=1400 ports=3000 fallback=HTTPGet,GenericBanner
+send "GET /api/health HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ 200(?=[\\s\\S]*\"commit\"[ ]*:[ ]*\"[0-9A-Za-z._-]+\")(?=[\\s\\S]*\"database\"[ ]*:[ ]*\"ok\")[\\s\\S]*\"version\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=grafana product=Grafana version="$1" confidence=0.99
+
+# Vault-compatible servers expose a read-only health tuple. Multiple documented
+# status codes represent active, standby, sealed, or uninitialized states.
+Probe TCP VaultHealth rarity=1 priority=100 timeout=1400 ports=8200 fallback=HTTPGet,GenericBanner
+send "GET /v1/sys/health HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ (?:200|429|472|473|474|501|503|530)(?=[\\s\\S]*\"initialized\"[ ]*:[ ]*(?:true|false))(?=[\\s\\S]*\"sealed\"[ ]*:[ ]*(?:true|false))(?=[\\s\\S]*\"server_time_utc\"[ ]*:[ ]*[0-9]+)[\\s\\S]*\"version\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=vault product=Vault-API version="$1" confidence=0.99
+
+# NATS sends an INFO JSON line immediately after accepting a client. Requiring
+# the INFO operation plus server_id and proto prevents generic JSON collisions.
+Probe TCP NATSInfo rarity=1 priority=100 timeout=1200 ports=4222 fallback=GenericBanner
+send ""
+match type=regex pattern="^INFO[ ]+\\{(?=[\\s\\S]*\"server_id\"[ ]*:[ ]*\"[^\"]+\")(?=[\\s\\S]*\"proto\"[ ]*:[ ]*[0-9]+)[\\s\\S]*\"version\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=nats product=NATS version="$1" confidence=0.99
+
+# etcd exposes a read-only version document containing independent server and
+# cluster versions. Only the server version is published as product evidence.
+Probe TCP EtcdVersion rarity=1 priority=100 timeout=1400 ports=2379 fallback=HTTPGet,GenericBanner
+send "GET /version HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ 200(?=[\\s\\S]*\"etcdcluster\"[ ]*:[ ]*\"[0-9][0-9A-Za-z.+_-]*\")[\\s\\S]*\"etcdserver\"[ ]*:[ ]*\"([0-9][0-9A-Za-z.+_-]*)\"" service=etcd product=etcd version="$1" confidence=0.99
+
+# InfluxDB's read-only ping endpoint reports availability and, for versioned
+# instances, the exact server version in an HTTP response header.
+Probe TCP InfluxDBPing rarity=1 priority=100 timeout=1200 ports=8086 fallback=HTTPGet,GenericBanner
+send "GET /ping HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ (?:200|204)[\\s\\S]*\\r\\n[Xx]-[Ii]nflux[Dd][Bb]-[Vv]ersion:[ ]*([0-9][0-9A-Za-z.+_-]*)\\r\\n" service=influxdb product=InfluxDB version="$1" confidence=0.99
+
+# Consul's unauthenticated status endpoint is read-only. Consul 1.9+ attaches
+# the default ACL policy header to every API response, providing vendor-specific
+# evidence without interpreting the returned leader address.
+Probe TCP ConsulStatus rarity=1 priority=99 timeout=1300 ports=8500 fallback=HTTPGet,GenericBanner
+send "GET /v1/status/leader HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+match type=regex pattern="^HTTP/[0-9.]+ 200[\\s\\S]*\\r\\n[Xx]-[Cc]onsul-[Dd]efault-[Aa][Cc][Ll]-[Pp]olicy:[ ]*(?:allow|deny)\\r\\n" service=consul product=Consul confidence=0.99
+
+# ruok is a side-effect-free ZooKeeper health command. Exact matching keeps an
+# arbitrary banner containing the same four bytes from becoming evidence.
+Probe TCP ZooKeeperRuok rarity=1 priority=99 timeout=1100 ports=2181 fallback=GenericBanner
+send "ruok"
+match type=exact pattern="imok" service=zookeeper product=Apache-ZooKeeper confidence=0.99
 
 # SMB2 NEGOTIATE with a single SMB 2.0.2 dialect. The 4-byte Direct TCP
 # transport header declares the exact 102-byte SMB2 message that follows.

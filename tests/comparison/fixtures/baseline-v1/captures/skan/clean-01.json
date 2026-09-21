@@ -1,0 +1,22 @@
+{
+  "scanner": {"name": "Skan", "version": "0.1.1"},
+  "scan": {"duration_ms": 1234},
+  "hosts": [
+    {
+      "address": "127.0.0.1",
+      "family": "ipv4",
+      "state": "up",
+      "ports": [
+        {"target": "127.0.0.1", "port": 8080, "protocol": "tcp", "state": "open", "probe": "tcp-connect", "reason": "connected"},
+        {"target": "127.0.0.1", "port": 8081, "protocol": "tcp", "state": "closed", "probe": "tcp-connect", "reason": "refused"}
+      ],
+      "services": [
+        {"target": "127.0.0.1", "port": 8080, "protocol": "tcp", "port_state": "open", "state": "detected", "service": "http", "product": "exampled", "version": "1.2.3", "confidence": 0.98, "method": "probe", "error": "none"}
+      ],
+      "os": [],
+      "warnings": [],
+      "errors": []
+    }
+  ],
+  "summary": {"hosts": 1, "ports_scanned": 2}
+}

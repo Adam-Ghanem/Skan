@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "baseline_id": "synthetic-contract-v1",
+  "manifest": {
+    "path": "manifest.json",
+    "sha256": "7ae3e15e33470354f514f47760e7c181505018a831c8fe0eea7c8c2e9e652e4d"
+  },
+  "environment": {
+    "lab": "synthetic-fixture",
+    "machine": "test"
+  },
+  "captures": [
+    {
+      "scenario_id": "clean-01",
+      "profile": "synthetic-contract",
+      "condition": "clean-lan",
+      "skan": {
+        "path": "captures/skan/clean-01.json",
+        "sha256": "4e228f5a52c1d82cb0a39b76af73c38ff64de530bd91814f11c1af9a4fac0820"
+      },
+      "nmap": {
+        "path": "captures/nmap/clean-01.xml",
+        "sha256": "2cf6a425f3c4f7dd7c8782d4adb25b9dcf43421d09bb83e2d9ccefbd5e8a84d6"
+      }
+    },
+    {
+      "scenario_id": "latency-01",
+      "profile": "synthetic-contract",
+      "condition": "latency-20ms",
+      "skan": {
+        "path": "captures/skan/latency-01.json",
+        "sha256": "4e228f5a52c1d82cb0a39b76af73c38ff64de530bd91814f11c1af9a4fac0820"
+      },
+      "nmap": {
+        "path": "captures/nmap/latency-01.xml",
+        "sha256": "2cf6a425f3c4f7dd7c8782d4adb25b9dcf43421d09bb83e2d9ccefbd5e8a84d6"
+      }
+    }
+  ]
+}

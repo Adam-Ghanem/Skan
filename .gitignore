@@ -8,6 +8,7 @@ compile_commands.json
 
 .vscode/
 .idea/
+.worktrees/
 .DS_Store
 Thumbs.db
 *.swp

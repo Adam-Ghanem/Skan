@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "suite_id": "synthetic-bundle-contract-v1",
+  "scenarios": [
+    {
+      "id": "clean-01",
+      "target": "127.0.0.1",
+      "protocol": "tcp",
+      "timeout_seconds": 30,
+      "authorization": "operator-controlled-lab",
+      "expectations": [
+        {"port": 8080, "state": "open", "service": "http", "product": "exampled", "version": "1.2.3"},
+        {"port": 8081, "state": "closed"}
+      ]
+    },
+    {
+      "id": "latency-01",
+      "target": "127.0.0.1",
+      "protocol": "tcp",
+      "timeout_seconds": 30,
+      "authorization": "operator-controlled-lab",
+      "expectations": [
+        {"port": 8080, "state": "open", "service": "http", "product": "exampled", "version": "1.2.3"},
+        {"port": 8081, "state": "closed"}
+      ]
+    }
+  ]
+}

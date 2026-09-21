@@ -143,8 +143,8 @@ class RuntimeServiceImportTests(unittest.TestCase):
 
     def test_imports_current_first_party_service_runtime(self) -> None:
         records = self.parse((ROOT / "data" / "service-probes.db").read_bytes())
-        self.assertEqual(sum(record.kind == "active_probe" for record in records), 40)
-        self.assertEqual(sum(record.kind == "service_matcher" for record in records), 140)
+        self.assertEqual(sum(record.kind == "active_probe" for record in records), 49)
+        self.assertEqual(sum(record.kind == "service_matcher" for record in records), 150)
 
     def test_rejects_unknown_directives_and_malformed_quotes(self) -> None:
         self.assert_rejected(
