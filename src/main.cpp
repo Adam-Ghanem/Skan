@@ -91,7 +91,7 @@ void print_help()
               << "  --timing <T0..T5>      Select adaptive Skan timing profile\n"
               << "  --min-parallelism <n>  Set adaptive minimum parallelism\n"
               << "  --max-parallelism <n>  Set adaptive maximum parallelism\n"
-              << "  --retries <n>          Set bounded adaptive timeout retries\n"
+              << "  --retries <n>          Set bounded confirmation retries (default 1)\n"
               << "  --adaptive-timing      Enable adaptive timing controls\n"
               << "  --discovery            Run host discovery before port scanning\n"
               << "  --no-discovery         Skip host discovery (default)\n"

@@ -184,6 +184,7 @@ StageResult PortScanStage::start()
     scan_config.timing_profile.min_parallelism = config_.min_parallelism;
     scan_config.timing_profile.max_parallelism = config_.max_parallelism;
     scan_config.timing_profile.max_retries = config_.retries;
+    scan_config.retries = config_.retries;
     configured_ports_.clear();
     for (const std::uint16_t port : config_.ports) {
         configured_ports_.push_back(portscan::Port{port, portscan::Protocol::Tcp});
@@ -398,6 +399,7 @@ StageResult ServiceDetectionStage::start(const std::vector<portscan::PortResult>
     detection_config.timing_profile.min_parallelism = config_.min_parallelism;
     detection_config.timing_profile.max_parallelism = config_.max_parallelism;
     detection_config.timing_profile.max_retries = config_.retries;
+    detection_config.retries = config_.retries;
     detect::ServiceProbeDatabase database;
     if (config_.service_db_path.empty()) {
         database = detect::ServiceProbeDatabase::built_in();

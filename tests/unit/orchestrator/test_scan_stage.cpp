@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -34,6 +35,8 @@ skan::portscan::PortResult open_tcp_port(const char *target, std::uint16_t port)
 
 int main()
 {
+    assert(skan::orchestrator::ScanConfig{}.retries == 1U);
+
     skan::io::IOEngine engine;
     assert(engine.initialization_status() == skan::core::StatusCode::Ok);
     const auto scan_config = config();
@@ -103,5 +106,40 @@ int main()
     assert(delayed_service_stage.results().front().state == skan::detect::DetectionState::Detected);
     assert(delayed_service_stage.results().front().service == "http");
     assert(delayed_service_stage.results().front().version == "2.4.29");
+
+    // The default CLI configuration must reach the port scheduler so one
+    // transient refusal is confirmed before CLOSED is published.
+    skan::io::IOEngine retry_engine;
+    auto retry_config = config();
+    retry_config.port_method = skan::portscan::ScanProbeType::TcpConnect;
+    retry_config.ports = {22U};
+    skan::portscan::RecordingPortScanTransport *retry_transport = nullptr;
+    skan::orchestrator::ScanStageDependencies retry_dependencies;
+    retry_dependencies.port_transport =
+        [&retry_transport](skan::io::IOEngine &, const skan::orchestrator::ScanConfig &)
+        -> std::unique_ptr<skan::portscan::PortScanTransport> {
+        auto transport = std::make_unique<skan::portscan::RecordingPortScanTransport>();
+        retry_transport = transport.get();
+        return transport;
+    };
+    retry_dependencies.after_port_submit =
+        [&retry_transport](skan::portscan::PortScanScheduler &) {
+        assert(retry_transport != nullptr);
+        const auto first = retry_transport->submissions().front();
+        retry_transport->deliver({first.id, first.target,
+                                  skan::portscan::PortResponseKind::ConnectionRefused,
+                                  ECONNREFUSED, {}, skan::portscan::PortScanClock::now()});
+        assert(retry_transport->submissions().size() == 2U);
+        const auto confirmation = retry_transport->submissions().back();
+        retry_transport->deliver({confirmation.id, confirmation.target,
+                                  skan::portscan::PortResponseKind::Connected,
+                                  0, {}, skan::portscan::PortScanClock::now()});
+    };
+    skan::orchestrator::PortScanStage retry_stage(
+        retry_engine, retry_config, retry_config.targets.front(), &retry_dependencies);
+    assert(retry_stage.start().success());
+    assert(retry_stage.results().size() == 1U);
+    assert(retry_stage.results().front().state == skan::portscan::PortState::Open);
+    assert(retry_stage.results().front().retry_count == 1U);
     return 0;
 }

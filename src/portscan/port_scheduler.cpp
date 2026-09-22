@@ -40,6 +40,19 @@ ScanReason submission_failure_reason(core::StatusCode status) noexcept
     }
 }
 
+bool should_confirm_negative(
+    ScanProbeType probe,
+    PortState state,
+    ScanReason reason) noexcept
+{
+    if (probe != ScanProbeType::TcpConnect) {
+        return false;
+    }
+    return (state == PortState::Closed && reason == ScanReason::ConnectionRefused) ||
+           (state == PortState::Filtered && reason == ScanReason::Timeout) ||
+           (state == PortState::Unknown && reason == ScanReason::SocketError);
+}
+
 } // namespace
 
 PortScanScheduler::PortScanScheduler(
@@ -320,6 +333,7 @@ void PortScanScheduler::append_terminal_result(
         result.reason = reason;
         result.rtt_ms = rtt_ms;
         result.timestamp = PortScanClock::now();
+        result.retry_count = work.retry_count;
         results_.push_back(std::move(result));
         results_sorted_ = false;
     } catch (const std::bad_alloc &) {
@@ -345,11 +359,27 @@ void PortScanScheduler::complete_pending(
     if (rtt_ms < 0.0) {
         rtt_ms = 0.0;
     }
-    append_terminal_result(pending.work, config_.method, state, reason, rtt_ms);
     if (timing_ != nullptr) {
         timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt_ms)});
         timing_->metrics().set_parallelism(pending_.size(), pending_.size());
     }
+    const std::size_t max_retries =
+        timing_ == nullptr ? config_.retries : timing_->profile().max_retries;
+    if (should_confirm_negative(config_.method, state, reason) &&
+        pending.work.retry_count < max_retries) {
+        ++pending.work.retry_count;
+        try {
+            queue_.push_front(std::move(pending.work));
+            if (timing_ != nullptr) {
+                ++timing_->metrics().retry_count;
+            }
+            pump();
+            return;
+        } catch (const std::bad_alloc &) {
+            status_ = core::StatusCode::MemoryError;
+        }
+    }
+    append_terminal_result(pending.work, config_.method, state, reason, rtt_ms);
     pump();
 }
 
@@ -364,19 +394,23 @@ void PortScanScheduler::on_timeout(PortProbeId id) noexcept
     pending_.erase(iterator);
     if (timing_ != nullptr) {
         timing_->on_timeout();
-        if (timing_->should_retry(pending.work.retry_count)) {
-            ++pending.work.retry_count;
-            try {
-                queue_.push_front(std::move(pending.work));
+        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+    }
+    const std::size_t max_retries =
+        timing_ == nullptr ? config_.retries : timing_->profile().max_retries;
+    if (pending.work.retry_count < max_retries) {
+        ++pending.work.retry_count;
+        try {
+            queue_.push_front(std::move(pending.work));
+            if (timing_ != nullptr) {
                 ++timing_->metrics().retry_count;
                 timing_->metrics().set_parallelism(pending_.size(), pending_.size());
-                pump();
-                return;
-            } catch (const std::bad_alloc &) {
-                status_ = core::StatusCode::MemoryError;
             }
+            pump();
+            return;
+        } catch (const std::bad_alloc &) {
+            status_ = core::StatusCode::MemoryError;
         }
-        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
     }
     append_terminal_result(
         pending.work,

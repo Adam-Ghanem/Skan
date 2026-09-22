@@ -51,7 +51,7 @@ struct ScanConfig final {
     bool adaptive_timing{false};
     std::size_t min_parallelism{1U};
     std::size_t max_parallelism{portscan::kDefaultMaxOutstanding};
-    std::size_t retries{0U};
+    std::size_t retries{1U};
     std::chrono::milliseconds udp_timeout{portscan::kDefaultUdpTimeout};
     std::size_t udp_max_outstanding{portscan::kDefaultUdpMaxOutstanding};
     std::size_t udp_retries{portscan::kDefaultUdpRetries};

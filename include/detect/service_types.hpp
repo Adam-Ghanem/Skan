@@ -86,6 +86,7 @@ struct ServiceDetectionConfig final {
     std::size_t max_probes_per_port{3U};
     bool adaptive_timing{false};
     scanengine::TimingProfile timing_profile{};
+    std::size_t retries{0U};
 };
 
 struct ServiceDetectionSelection final {

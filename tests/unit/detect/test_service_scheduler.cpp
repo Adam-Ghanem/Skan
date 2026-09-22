@@ -465,6 +465,39 @@ int main()
         assert(scheduler.results().front().probe_name == "OnlyProbe");
     }
 
+    // A transient TCP reset must retry the same service probe before the
+    // scheduler gives up or moves on to a weaker fallback.
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP StableProbe rarity=1 priority=100 timeout=100 ports=80\n"
+            "send \"PING\"\n"
+            "match type=prefix pattern=\"PONG\" service=stable product=Stable confidence=0.95\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceDetectionConfig config{1U, std::chrono::milliseconds{100}, 32U, 1U};
+        config.retries = 1U;
+        ServiceScheduler scheduler(engine, transport, database, config);
+        assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, ServiceResponseKind::SocketError, ECONNRESET, {}, false,
+                           DetectionClock::now()});
+        assert(scheduler.results().empty());
+        assert(transport.submissions().size() == 2U);
+        assert(transport.submissions().back().probe_name == "StableProbe");
+
+        const auto retry = transport.submissions().back();
+        transport.deliver({retry.id, retry.target, ServiceResponseKind::Data, 0,
+                           {'P', 'O', 'N', 'G'}, false, DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == DetectionState::Detected);
+        assert(scheduler.results().front().service == "stable");
+    }
+
     {
         skan::io::IOEngine engine;
         RecordingServiceTransport transport;

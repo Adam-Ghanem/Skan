@@ -255,6 +255,26 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
                response.kind == ServiceResponseKind::SocketError &&
                transient_socket_error(response.system_error) &&
                pending.work.port_result.port.protocol == portscan::Protocol::Tcp) {
+        const std::size_t max_retries =
+            timing_ == nullptr ? config_.retries : timing_->profile().max_retries;
+        if (pending.work.retry_count < max_retries) {
+            Pending failed_probe = std::move(iterator->second);
+            (void)engine_.cancel(failed_probe.timer_id);
+            (void)transport_.cancel(response.id);
+            pending_.erase(iterator);
+            ++failed_probe.work.retry_count;
+            try {
+                queue_.push_front(std::move(failed_probe.work));
+                if (timing_ != nullptr) {
+                    ++timing_->metrics().retry_count;
+                    timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+                }
+            } catch (const std::bad_alloc &) {
+                status_ = core::StatusCode::MemoryError;
+            }
+            pump();
+            return;
+        }
         if (pending.work.next_probe + 1U < pending.work.probe_indices.size()) {
             Pending failed_probe = std::move(iterator->second);
             (void)engine_.cancel(failed_probe.timer_id);
@@ -598,19 +618,23 @@ void ServiceScheduler::on_timeout(ServiceProbeId id) noexcept
     pending_.erase(iterator);
     if (timing_ != nullptr) {
         timing_->on_timeout();
-        if (timing_->should_retry(pending.work.retry_count)) {
-            ++pending.work.retry_count;
-            try {
-                queue_.push_front(std::move(pending.work));
+        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+    }
+    const std::size_t max_retries =
+        timing_ == nullptr ? config_.retries : timing_->profile().max_retries;
+    if (pending.work.retry_count < max_retries) {
+        ++pending.work.retry_count;
+        try {
+            queue_.push_front(std::move(pending.work));
+            if (timing_ != nullptr) {
                 ++timing_->metrics().retry_count;
                 timing_->metrics().set_parallelism(pending_.size(), pending_.size());
-                pump();
-                return;
-            } catch (const std::bad_alloc &) {
-                status_ = core::StatusCode::MemoryError;
             }
+            pump();
+            return;
+        } catch (const std::bad_alloc &) {
+            status_ = core::StatusCode::MemoryError;
         }
-        timing_->metrics().set_parallelism(pending_.size(), pending_.size());
     }
     if (pending.work.best_match.has_value() &&
         pending.work.best_match->strength == ServiceMatchStrength::Hard &&

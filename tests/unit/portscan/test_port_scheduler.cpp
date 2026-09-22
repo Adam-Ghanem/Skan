@@ -60,6 +60,31 @@ int main()
         assert(scheduler.pending_count() == 1U);
     }
 
+    // A transient connect refusal must not permanently classify a port as
+    // closed when a bounded confirmation attempt reaches it successfully.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{100}, 1U};
+        config.retries = 1U;
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{22U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, PortResponseKind::ConnectionRefused, ECONNREFUSED, {},
+                           PortScanClock::now()});
+        assert(scheduler.results().empty());
+        assert(transport.submissions().size() == 2U);
+
+        const auto confirmation = transport.submissions().back();
+        transport.deliver({confirmation.id, confirmation.target, PortResponseKind::Connected, 0, {},
+                           PortScanClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Open);
+        assert(scheduler.results().front().retry_count == 1U);
+    }
+
     {
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
@@ -86,6 +111,27 @@ int main()
             assert(result.state == PortState::Filtered);
             assert(result.reason == ScanReason::Timeout);
         }
+    }
+
+    // Timeout retries are bounded even without adaptive timing enabled.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{1}, 1U};
+        config.retries = 1U;
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
+        assert(scheduler.results().empty());
+        assert(transport.submissions().size() == 2U);
+
+        const auto retry = transport.submissions().back();
+        transport.deliver({retry.id, retry.target, PortResponseKind::Connected, 0, {}, PortScanClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Open);
+        assert(scheduler.results().front().retry_count == 1U);
     }
 
     {
