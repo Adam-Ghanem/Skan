@@ -2,7 +2,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from tools.corpus.model import CanonicalRecord, Provenance, stable_record_id, validate_record
+from tools.corpus.external_model import CanonicalRecord, Provenance, stable_record_id, validate_record
 from tools.corpus.sources import load_source_manifest
 
 

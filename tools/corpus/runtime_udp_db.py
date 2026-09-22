@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from typing import Any, Iterable
 
-from tools.corpus.model import CanonicalRecord, Provenance, stable_record_id
+from tools.corpus.external_model import CanonicalRecord, Provenance, stable_record_id
 
 
 _SOURCE_ID = "skan-first-party"

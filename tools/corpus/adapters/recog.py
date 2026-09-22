@@ -3,7 +3,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from tools.corpus.adapters.common import AdapterContext, make_record
-from tools.corpus.model import CanonicalRecord
+from tools.corpus.external_model import CanonicalRecord
 
 
 _ALLOWED_FLAGS = {"REG_ICASE", "REG_DOT_NEWLINE", "REG_MULTILINE"}

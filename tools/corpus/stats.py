@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Iterable
 
-from tools.corpus.model import CanonicalRecord
+from tools.corpus.external_model import CanonicalRecord
 
 
 _DETECTION_KINDS = {"service_matcher", "active_probe", "os_fingerprint", "udp_probe", "web_fingerprint", "device_fingerprint"}

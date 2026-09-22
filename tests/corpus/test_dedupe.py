@@ -2,7 +2,7 @@ import unittest
 from dataclasses import replace
 
 from tools.corpus.dedupe import merge_records
-from tools.corpus.model import CanonicalRecord, Provenance, stable_record_id
+from tools.corpus.external_model import CanonicalRecord, Provenance, stable_record_id
 
 
 def provenance(source_id: str, record_id: str, hash_char: str) -> Provenance:

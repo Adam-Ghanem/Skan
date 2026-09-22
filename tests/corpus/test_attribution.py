@@ -5,13 +5,13 @@ import unittest
 
 from tools.corpus.adapters.common import AdapterContext, make_record
 from tools.corpus.attribution import render_notices
-from tools.corpus.sources import load_source_manifest
+from tools.corpus.external_sources import load_source_manifest
 
 
 class AttributionTests(unittest.TestCase):
     def test_renders_only_used_external_sources_with_required_policy(self) -> None:
         root = Path(__file__).resolve().parents[2]
-        sources = load_source_manifest(root / "corpus/sources/sources.json")
+        sources = load_source_manifest(root / "corpus/sources/external-sources.json")
         recog = AdapterContext("rapid7-recog", "v3.1.29", "https://x", "BSD-2-Clause", "sha256:" + "a" * 64)
         nvd = AdapterContext("nvd-cpe", "2026-09-07", "https://nvd.nist.gov", "NIST-Public-Data", "sha256:" + "d" * 64)
         records = [

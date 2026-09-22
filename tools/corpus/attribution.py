@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping
 
-from tools.corpus.model import CanonicalRecord
-from tools.corpus.sources import SourcePolicy
+from tools.corpus.external_model import CanonicalRecord
+from tools.corpus.external_sources import SourcePolicy
 
 
 _SPECIAL = {

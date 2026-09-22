@@ -4,8 +4,8 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from tools.corpus.io import record_to_dict
-from tools.corpus.model import CanonicalRecord, Provenance, stable_record_id
+from tools.corpus.external_io import record_to_dict
+from tools.corpus.external_model import CanonicalRecord, Provenance, stable_record_id
 from tools.corpus.validate import validate_root
 
 

@@ -5,7 +5,7 @@ import re
 from typing import Any, Iterable
 
 from tools.corpus.adapters.common import AdapterContext, make_record
-from tools.corpus.model import CanonicalRecord
+from tools.corpus.external_model import CanonicalRecord
 
 
 _DIMENSIONS = (

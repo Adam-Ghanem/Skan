@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Iterable
 
-from tools.corpus.model import CanonicalRecord, Provenance
+from tools.corpus.external_model import CanonicalRecord, Provenance
 
 
 _STATUS_RANK = {

@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from tools.corpus.adapters.common import AdapterContext, make_record
-from tools.corpus.model import CanonicalRecord
+from tools.corpus.external_model import CanonicalRecord
 
 
 @dataclass(frozen=True)

@@ -373,8 +373,10 @@ InterfaceEnumerationResult enumerate_interfaces_result()
     InterfaceEnumerationResult result;
     ifaddrs *addresses = nullptr;
     if (::getifaddrs(&addresses) != 0) {
-        result.status = InterfaceStatus::EnumerationFailed;
         result.system_error = errno;
+        result.status = result.system_error == EACCES || result.system_error == EPERM
+                            ? InterfaceStatus::PermissionDenied
+                            : InterfaceStatus::EnumerationFailed;
         result.message = std::strerror(result.system_error);
         return result;
     }

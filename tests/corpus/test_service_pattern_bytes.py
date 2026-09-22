@@ -13,11 +13,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = load_source_manifest(ROOT / "corpus" / "sources" / "sources.json")
-REVISION = "git:399abe4821e9ce9138f53b0cb8a769d75329ba1f"
-SOURCE_URL = (
-    "https://github.com/Adam-Ghanem/Skan/tree/"
-    "399abe4821e9ce9138f53b0cb8a769d75329ba1f/data"
-)
+POLICY = SOURCES["skan-first-party"]
+REVISION = POLICY.pinned_revision
+SOURCE_URL = POLICY.source_url
 
 
 def service_record(
@@ -81,10 +79,10 @@ class ServicePatternByteContractTests(unittest.TestCase):
         binary = service_record(pattern_hex="5e485454502f285b302d392e5d2b29")
         self.assertEqual(stable_record_id(textual), stable_record_id(binary))
         parsed = parse_record(textual, SOURCES)
-        self.assertIsNone(parsed.body.pattern)  # type: ignore[union-attr]
+        self.assertEqual(parsed.body.pattern, "^HTTP/([0-9.]+)")  # type: ignore[union-attr]
         self.assertEqual(
             parsed.body.pattern_hex,  # type: ignore[union-attr]
-            "5e485454502f285b302d392e5d2b29",
+            None,
         )
 
     def test_regex_byte_limit_matches_runtime_limit(self) -> None:

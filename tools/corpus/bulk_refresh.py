@@ -12,8 +12,8 @@ from tools.corpus.adapters.recog import parse_recog_xml
 from tools.corpus.adapters.wappalyzer import parse_wappalyzer_json
 from tools.corpus.attribution import render_notices
 from tools.corpus.compile_external import compile_records
-from tools.corpus.model import CanonicalRecord
-from tools.corpus.sources import SourcePolicy, load_source_manifest
+from tools.corpus.external_model import CanonicalRecord
+from tools.corpus.external_sources import SourcePolicy, load_source_manifest
 
 
 def _hash_file(path: Path) -> str:
@@ -76,7 +76,7 @@ def refresh_detection_sources(
     wappalyzer_json: Path,
     output_root: Path,
 ) -> dict[str, object]:
-    sources = load_source_manifest(repo_root / "corpus/sources/sources.json")
+    sources = load_source_manifest(repo_root / "corpus/sources/external-sources.json")
     recog_policy = sources["rapid7-recog"]
     iana_policy = sources["iana-services"]
     wapp_policy = sources["wappalyzergo"]

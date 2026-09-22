@@ -8,8 +8,8 @@ import sys
 import tempfile
 from typing import Mapping
 
-from tools.corpus.io import write_jsonl
-from tools.corpus.model import CanonicalRecord, validate_record
+from tools.corpus.external_io import write_jsonl
+from tools.corpus.external_model import CanonicalRecord, validate_record
 from tools.corpus.runtime_os_db import emit_os_db, parse_os_db
 from tools.corpus.runtime_service_db import emit_service_db, parse_service_db
 from tools.corpus.runtime_udp_db import emit_udp_db, parse_udp_db

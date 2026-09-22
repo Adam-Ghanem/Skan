@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
-from tools.corpus.model import CanonicalRecord
+from tools.corpus.external_model import CanonicalRecord
 from tools.corpus.source_lock import SourceLock, verify_snapshot
 
 

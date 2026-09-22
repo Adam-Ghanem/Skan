@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from tools.corpus.adapters.nvd_cpe import parse_cpe23_name
-from tools.corpus.model import CanonicalRecord
+from tools.corpus.external_model import CanonicalRecord
 
 
 @dataclass(frozen=True, order=True)

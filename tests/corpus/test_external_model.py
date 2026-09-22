@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from tools.corpus.model import CanonicalRecord, Provenance, stable_record_id, validate_record
-from tools.corpus.sources import SourcePolicy
+from tools.corpus.external_model import CanonicalRecord, Provenance, stable_record_id, validate_record
+from tools.corpus.external_sources import SourcePolicy
 
 
 SOURCE = SourcePolicy(

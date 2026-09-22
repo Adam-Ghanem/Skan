@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <iostream>
 #include <string>
 
 #include "net/interface.hpp"
@@ -89,6 +90,17 @@ int main()
            skan::core::ExitCode::Runtime);
 
     const skan::net::InterfaceEnumerationResult enumeration = skan::net::enumerate_interfaces_result();
+    if (!enumeration.success()) {
+        if (enumeration.status == skan::net::InterfaceStatus::PermissionDenied ||
+            enumeration.status == skan::net::InterfaceStatus::NotSupported) {
+            std::cout << "SKIPPED: interface enumeration unavailable: " << enumeration.message << '\n';
+            return 0;
+        }
+        std::cerr << "unexpected interface enumeration failure: "
+                  << skan::net::interface_status_name(enumeration.status) << " "
+                  << enumeration.message << '\n';
+        return 1;
+    }
     assert(enumeration.status == skan::net::InterfaceStatus::Success);
     assert(std::all_of(enumeration.interfaces.begin(), enumeration.interfaces.end(),
                        [](const auto &item) { return item.mtu >= 0U; }));

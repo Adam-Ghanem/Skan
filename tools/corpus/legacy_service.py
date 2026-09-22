@@ -769,9 +769,7 @@ def _validated_service_graph(
         for record in ordered:
             body = record.body
             assert isinstance(body, ServiceMatcherSemantics)
-            if body.pattern_hex is None:
-                raise LegacyServiceError("matcher pattern must be canonicalized to pattern_hex")
-            pattern = bytes.fromhex(body.pattern_hex)
+            pattern = _matcher_pattern_bytes(body)
             if body.matcher_type == "regex" and not _regex_is_bounded(pattern):
                 raise LegacyServiceError(
                     f"probe {probe_name}: regex violates runtime bounded-regex policy"
@@ -799,6 +797,14 @@ def _escape_runtime_bytes(value: bytes) -> str:
             output.append(f"\\x{byte:02x}")
     output.append('"')
     return "".join(output)
+
+
+def _matcher_pattern_bytes(matcher: ServiceMatcherSemantics) -> bytes:
+    if matcher.pattern is not None:
+        return matcher.pattern.encode("utf-8")
+    if matcher.pattern_hex is not None:
+        return bytes.fromhex(matcher.pattern_hex)
+    raise LegacyServiceError("matcher must contain pattern text or pattern_hex")
 
 
 def _assignment(key: str, value: str) -> str:
@@ -845,12 +851,11 @@ def compile_legacy_service(
         for matcher_record in grouped[body.probe_name]:
             matcher = matcher_record.body
             assert isinstance(matcher, ServiceMatcherSemantics)
-            assert matcher.pattern_hex is not None
             prefix = "softmatch" if matcher.strength == "soft" else "match"
             parts = [
                 prefix,
                 f"type={matcher.matcher_type}",
-                "pattern=" + _escape_runtime_bytes(bytes.fromhex(matcher.pattern_hex)),
+                "pattern=" + _escape_runtime_bytes(_matcher_pattern_bytes(matcher)),
                 _assignment("service", matcher.service),
             ]
             if matcher.product is not None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any
 
-from tools.corpus.model import CanonicalRecord, Provenance, stable_record_id
+from tools.corpus.external_model import CanonicalRecord, Provenance, stable_record_id
 
 
 @dataclass(frozen=True)

@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 from tools.corpus.dedupe import merge_records
-from tools.corpus.io import write_jsonl
-from tools.corpus.model import CanonicalRecord, validate_record
-from tools.corpus.sources import SourcePolicy
+from tools.corpus.external_io import write_jsonl
+from tools.corpus.external_model import CanonicalRecord, validate_record
+from tools.corpus.external_sources import SourcePolicy
 
 
 _KIND_FILES = {
