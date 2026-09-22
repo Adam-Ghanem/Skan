@@ -360,6 +360,85 @@ int main()
         assert(scheduler.results().front().version == "2.4.29");
     }
 
+    // TCP segmentation must not change the selected fingerprint. A generic
+    // HTTP match in the first chunk must remain provisional until the response
+    // is complete, so a later Server header can win deterministically.
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP HTTPGet rarity=1 priority=100 timeout=100 ports=80\n"
+            "send \"GET / HTTP/1.0\\r\\n\\r\\n\"\n"
+            "match type=regex pattern=\"^HTTP/([0-9.]+)[\\\\s\\\\S]*Server: Apache/([0-9.]+)\" service=http product=Apache-httpd version=\"$2\" confidence=0.99\n"
+            "match type=regex pattern=\"^HTTP/([0-9.]+)\" service=http product=HTTP version=\"$1\" confidence=0.88\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+
+        const auto detect = [&database](const std::vector<std::string_view> &chunks) {
+            skan::io::IOEngine engine;
+            RecordingServiceTransport transport;
+            ServiceScheduler scheduler(
+                engine, transport, database,
+                ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 256U, 1U});
+            assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
+            const auto submission = transport.submissions().front();
+            for (const std::string_view chunk : chunks) {
+                transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                                   response_bytes(chunk), false, DetectionClock::now()});
+            }
+            transport.deliver({submission.id, submission.target, ServiceResponseKind::Closed, 0, {}, false,
+                               DetectionClock::now()});
+            assert(scheduler.complete());
+            assert(scheduler.results().size() == 1U);
+            return scheduler.results().front();
+        };
+
+        const ServiceResult single_chunk = detect({
+            "HTTP/1.1 200 OK\r\nServer: Apache/2.4.29\r\nConnection: close\r\n\r\n"});
+        const ServiceResult split_chunks = detect({
+            "HTTP/1.1 200 OK\r\n",
+            "Server: Apache/2.4.29\r\nConnection: close\r\n\r\n"});
+        assert(single_chunk.product == "Apache-httpd");
+        assert(split_chunks.product == single_chunk.product);
+        assert(split_chunks.version == single_chunk.version);
+        assert(split_chunks.confidence == single_chunk.confidence);
+    }
+
+    // SSH identification is one CRLF-terminated record. Matching a capture at
+    // the end of an intermediate TCP chunk can otherwise truncate the version.
+    {
+        skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+        const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
+            "Probe TCP SSHBanner rarity=1 priority=100 timeout=100 ports=22\n"
+            "send \"\\r\\n\"\n"
+            "match type=regex pattern=\"^SSH-([0-9.]+)-OpenSSH_([0-9A-Za-z.p+_-]+)\" service=ssh product=OpenSSH version=\"$2\" confidence=0.99\n"
+            "match type=prefix pattern=\"SSH-\" service=ssh product=SSH confidence=0.84\n",
+            status);
+        assert(status == skan::core::StatusCode::Ok);
+
+        const auto detect = [&database](const std::vector<std::string_view> &chunks) {
+            skan::io::IOEngine engine;
+            RecordingServiceTransport transport;
+            ServiceScheduler scheduler(
+                engine, transport, database,
+                ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 128U, 1U});
+            assert(scheduler.submit({open_port("127.0.0.1", 22U)}) == skan::core::StatusCode::Ok);
+            const auto submission = transport.submissions().front();
+            for (const std::string_view chunk : chunks) {
+                transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                                   response_bytes(chunk), false, DetectionClock::now()});
+            }
+            assert(scheduler.complete());
+            return scheduler.results().front();
+        };
+
+        const ServiceResult single_chunk = detect({"SSH-2.0-OpenSSH_9.6\r\n"});
+        const ServiceResult split_chunks = detect({"SSH-2.0-OpenSSH_9", ".6\r\n"});
+        assert(single_chunk.product == "OpenSSH");
+        assert(split_chunks.product == single_chunk.product);
+        assert(split_chunks.version == single_chunk.version);
+        assert(split_chunks.confidence == single_chunk.confidence);
+    }
+
     {
         skan::core::StatusCode status = skan::core::StatusCode::InternalError;
         const ServiceProbeDatabase database = ServiceProbeDatabase::parse(

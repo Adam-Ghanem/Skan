@@ -31,6 +31,9 @@ int main()
         transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
                            {'H', 'T', 'T', 'P', '/', '1', '.', '1', ' ', '2', '0', '0'}, false,
                            DetectionClock::now()});
+        assert(!detector.complete());
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Closed, 0, {}, false,
+                           DetectionClock::now()});
         assert(detector.complete());
         assert(detector.results().size() == 1U);
         assert(detector.results().front().port.number == 80U);

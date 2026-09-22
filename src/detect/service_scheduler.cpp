@@ -43,6 +43,25 @@ bool transient_socket_error(int system_error) noexcept
     }
 }
 
+bool requires_terminal_response(std::string_view response) noexcept
+{
+    // RFC 4253 identifies SSH with one CRLF-terminated line. A regex capture
+    // at the end of an intermediate chunk can otherwise publish a truncated
+    // product version.
+    if (response.starts_with("SSH-")) {
+        return response.find('\n') == std::string_view::npos;
+    }
+
+    // HTTP header fingerprints are incomplete until the empty line. Publishing
+    // a status-line or partial Server match before that boundary makes the
+    // selected product/version depend on arbitrary TCP segmentation.
+    if (!response.starts_with("HTTP/")) {
+        return false;
+    }
+    return response.find("\r\n\r\n") == std::string_view::npos &&
+           response.find("\n\n") == std::string_view::npos;
+}
+
 struct SeenService final {
     std::string target;
     std::uint16_t port{0U};
@@ -251,8 +270,8 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
             pump();
             return;
         }
-        if (pending.work.best_soft_match.has_value() &&
-            service_match_is_publishable(*pending.work.best_soft_match)) {
+        if (pending.work.best_match.has_value() &&
+            service_match_is_publishable(*pending.work.best_match)) {
             Pending finished = std::move(iterator->second);
             (void)engine_.cancel(finished.timer_id);
             (void)transport_.cancel(response.id);
@@ -264,9 +283,9 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
                 rtt_ms = 0.0;
             }
             append_result(finished.work.port_result,
-                          &database_.probes()[finished.work.best_soft_probe_index],
+                          &database_.probes()[finished.work.best_match_probe_index],
                           DetectionState::Detected, DetectionError::None,
-                          &*finished.work.best_soft_match, rtt_ms);
+                          &*finished.work.best_match, rtt_ms);
             if (timing_ != nullptr) {
                 timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt_ms)});
                 timing_->metrics().set_parallelism(pending_.size(), pending_.size());
@@ -329,7 +348,13 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
         return;
     }
     if (match.matched) {
-        if (match.strength == ServiceMatchStrength::Hard) {
+        if (!pending.work.best_match.has_value() ||
+            service_match_is_better(match, *pending.work.best_match)) {
+            pending.work.best_match = match;
+            pending.work.best_match_probe_index = active_probe_index;
+        }
+        if (match.strength == ServiceMatchStrength::Hard &&
+            !requires_terminal_response(pending.response)) {
             complete_pending(
                 response.id,
                 DetectionState::Detected,
@@ -337,11 +362,6 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
                 &match,
                 response.received_at == DetectionTimePoint{} ? DetectionClock::now() : response.received_at);
             return;
-        }
-        if (!pending.work.best_soft_match.has_value() ||
-            service_match_is_better(match, *pending.work.best_soft_match)) {
-            pending.work.best_soft_match = match;
-            pending.work.best_soft_probe_index = active_probe_index;
         }
     }
     if (response.kind != ServiceResponseKind::Closed) {
@@ -352,6 +372,16 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
     (void)engine_.cancel(finished.timer_id);
     (void)transport_.cancel(response.id);
     pending_.erase(iterator);
+    if (finished.work.best_match.has_value() &&
+        finished.work.best_match->strength == ServiceMatchStrength::Hard &&
+        service_match_is_publishable(*finished.work.best_match)) {
+        append_result(finished.work.port_result,
+                      &database_.probes()[finished.work.best_match_probe_index],
+                      DetectionState::Detected, DetectionError::None,
+                      &*finished.work.best_match);
+        pump();
+        return;
+    }
     if (finished.work.next_probe + 1U < finished.work.probe_indices.size()) {
         ++finished.work.next_probe;
         try {
@@ -368,12 +398,12 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
     if (rtt_ms < 0.0) {
         rtt_ms = 0.0;
     }
-    if (finished.work.best_soft_match.has_value() &&
-        service_match_is_publishable(*finished.work.best_soft_match)) {
+    if (finished.work.best_match.has_value() &&
+        service_match_is_publishable(*finished.work.best_match)) {
         append_result(finished.work.port_result,
-                      &database_.probes()[finished.work.best_soft_probe_index],
+                      &database_.probes()[finished.work.best_match_probe_index],
                       DetectionState::Detected, DetectionError::None,
-                      &*finished.work.best_soft_match, rtt_ms);
+                      &*finished.work.best_match, rtt_ms);
     } else {
         append_result(
             finished.work.port_result,
@@ -582,7 +612,14 @@ void ServiceScheduler::on_timeout(ServiceProbeId id) noexcept
         }
         timing_->metrics().set_parallelism(pending_.size(), pending_.size());
     }
-    if (pending.work.next_probe + 1U < pending.work.probe_indices.size()) {
+    if (pending.work.best_match.has_value() &&
+        pending.work.best_match->strength == ServiceMatchStrength::Hard &&
+        service_match_is_publishable(*pending.work.best_match)) {
+        append_result(pending.work.port_result,
+                      &database_.probes()[pending.work.best_match_probe_index],
+                      DetectionState::Detected, DetectionError::None,
+                      &*pending.work.best_match);
+    } else if (pending.work.next_probe + 1U < pending.work.probe_indices.size()) {
         ++pending.work.next_probe;
         pending.work.retry_count = 0U;
         try {
@@ -590,12 +627,12 @@ void ServiceScheduler::on_timeout(ServiceProbeId id) noexcept
         } catch (const std::bad_alloc &) {
             status_ = core::StatusCode::MemoryError;
         }
-    } else if (pending.work.best_soft_match.has_value() &&
-               service_match_is_publishable(*pending.work.best_soft_match)) {
+    } else if (pending.work.best_match.has_value() &&
+               service_match_is_publishable(*pending.work.best_match)) {
         append_result(pending.work.port_result,
-                      &database_.probes()[pending.work.best_soft_probe_index],
+                      &database_.probes()[pending.work.best_match_probe_index],
                       DetectionState::Detected, DetectionError::None,
-                      &*pending.work.best_soft_match);
+                      &*pending.work.best_match);
     } else {
         append_result(
             pending.work.port_result,
