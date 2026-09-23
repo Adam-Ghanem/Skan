@@ -81,7 +81,11 @@ PortScanScheduler::~PortScanScheduler()
         (void)engine_.cancel(entry.second.timer_id);
         (void)transport_.cancel(entry.first);
     }
+    for (const auto &entry : deferred_retries_) {
+        (void)engine_.cancel(entry.second.timer_id);
+    }
     pending_.clear();
+    deferred_retries_.clear();
     queue_.clear();
 }
 
@@ -91,7 +95,8 @@ core::StatusCode PortScanScheduler::validate_config() const noexcept
         return engine_.initialization_status();
     }
     if (!probe_ || !transport_.supports(config_.method) || config_.timeout.count() <= 0 ||
-        config_.max_outstanding == 0U || (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
+        config_.retry_delay.count() < 0 || config_.max_outstanding == 0U ||
+        (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
         return !probe_ || !transport_.supports(config_.method) ? core::StatusCode::PermissionDenied
                                                                : core::StatusCode::InvalidArgument;
     }
@@ -228,7 +233,7 @@ std::size_t PortScanScheduler::pending_count() const noexcept
 
 bool PortScanScheduler::complete() const noexcept
 {
-    return submitted_ && queue_.empty() && pending_.empty();
+    return submitted_ && queue_.empty() && pending_.empty() && deferred_retries_.empty();
 }
 
 core::StatusCode PortScanScheduler::status() const noexcept
@@ -363,23 +368,104 @@ void PortScanScheduler::complete_pending(
         timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt_ms)});
         timing_->metrics().set_parallelism(pending_.size(), pending_.size());
     }
+    finish_attempt(std::move(pending.work), state, reason, rtt_ms);
+}
+
+void PortScanScheduler::finish_attempt(
+    WorkItem work,
+    PortState state,
+    ScanReason reason,
+    std::optional<double> rtt_ms) noexcept
+{
     const std::size_t max_retries =
         timing_ == nullptr ? config_.retries : timing_->profile().max_retries;
-    if (should_confirm_negative(config_.method, state, reason) &&
-        pending.work.retry_count < max_retries) {
-        ++pending.work.retry_count;
-        try {
-            queue_.push_front(std::move(pending.work));
-            if (timing_ != nullptr) {
-                ++timing_->metrics().retry_count;
-            }
+    if (should_confirm_negative(config_.method, state, reason)) {
+        std::size_t matching_observations = 0U;
+        if (state == PortState::Closed) {
+            matching_observations = ++work.closed_observations;
+        } else if (state == PortState::Filtered) {
+            matching_observations = ++work.filtered_observations;
+        } else {
+            matching_observations = ++work.error_observations;
+        }
+
+        if (matching_observations < 2U && work.retry_count < max_retries && defer_retry(work)) {
             pump();
             return;
-        } catch (const std::bad_alloc &) {
-            status_ = core::StatusCode::MemoryError;
         }
+
+        const std::size_t evidence_kinds =
+            static_cast<std::size_t>(work.closed_observations > 0U) +
+            static_cast<std::size_t>(work.filtered_observations > 0U) +
+            static_cast<std::size_t>(work.error_observations > 0U);
+        if (matching_observations < 2U && evidence_kinds > 1U) {
+            append_terminal_result(
+                work,
+                config_.method,
+                PortState::Unknown,
+                ScanReason::ConflictingEvidence,
+                rtt_ms);
+            pump();
+            return;
+        }
+    } else if ((reason == ScanReason::Timeout || reason == ScanReason::AckTimeout) &&
+               work.retry_count < max_retries && defer_retry(work)) {
+        pump();
+        return;
     }
-    append_terminal_result(pending.work, config_.method, state, reason, rtt_ms);
+
+    append_terminal_result(work, config_.method, state, reason, rtt_ms);
+    pump();
+}
+
+bool PortScanScheduler::defer_retry(WorkItem work) noexcept
+{
+    if (next_retry_id_ == 0U) {
+        status_ = core::StatusCode::InternalError;
+        return false;
+    }
+    const RetryId retry_id = next_retry_id_++;
+    ++work.retry_count;
+    const io::TimerId timer_id = engine_.schedule(
+        config_.retry_delay,
+        [this, retry_id]() { on_retry_ready(retry_id); });
+    if (timer_id == 0U) {
+        status_ = core::StatusCode::InternalError;
+        return false;
+    }
+    try {
+        const auto inserted = deferred_retries_.emplace(
+            retry_id,
+            DeferredRetry{std::move(work), timer_id});
+        if (!inserted.second) {
+            (void)engine_.cancel(timer_id);
+            status_ = core::StatusCode::InternalError;
+            return false;
+        }
+    } catch (const std::bad_alloc &) {
+        (void)engine_.cancel(timer_id);
+        status_ = core::StatusCode::MemoryError;
+        return false;
+    }
+    if (timing_ != nullptr) {
+        ++timing_->metrics().retry_count;
+    }
+    return true;
+}
+
+void PortScanScheduler::on_retry_ready(RetryId id) noexcept
+{
+    const auto iterator = deferred_retries_.find(id);
+    if (iterator == deferred_retries_.end()) {
+        return;
+    }
+    WorkItem work = std::move(iterator->second.work);
+    deferred_retries_.erase(iterator);
+    try {
+        queue_.push_front(std::move(work));
+    } catch (const std::bad_alloc &) {
+        status_ = core::StatusCode::MemoryError;
+    }
     pump();
 }
 
@@ -396,33 +482,15 @@ void PortScanScheduler::on_timeout(PortProbeId id) noexcept
         timing_->on_timeout();
         timing_->metrics().set_parallelism(pending_.size(), pending_.size());
     }
-    const std::size_t max_retries =
-        timing_ == nullptr ? config_.retries : timing_->profile().max_retries;
-    if (pending.work.retry_count < max_retries) {
-        ++pending.work.retry_count;
-        try {
-            queue_.push_front(std::move(pending.work));
-            if (timing_ != nullptr) {
-                ++timing_->metrics().retry_count;
-                timing_->metrics().set_parallelism(pending_.size(), pending_.size());
-            }
-            pump();
-            return;
-        } catch (const std::bad_alloc &) {
-            status_ = core::StatusCode::MemoryError;
-        }
-    }
-    append_terminal_result(
-        pending.work,
-        config_.method,
+    finish_attempt(
+        std::move(pending.work),
         probe_->timeout_state(),
         probe_->timeout_reason());
-    pump();
 }
 
 void PortScanScheduler::stop_if_idle() noexcept
 {
-    if (submitted_ && queue_.empty() && pending_.empty()) {
+    if (submitted_ && queue_.empty() && pending_.empty() && deferred_retries_.empty()) {
         engine_.stop();
     }
 }

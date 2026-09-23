@@ -236,6 +236,8 @@ const char *scan_reason_name(ScanReason reason) noexcept
         return "LATE_RESPONSE";
     case ScanReason::UnsupportedProtocol:
         return "UNSUPPORTED_PROTOCOL";
+    case ScanReason::ConflictingEvidence:
+        return "CONFLICTING_EVIDENCE";
     default:
         return "UNKNOWN";
     }

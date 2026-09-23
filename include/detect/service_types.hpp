@@ -87,6 +87,7 @@ struct ServiceDetectionConfig final {
     bool adaptive_timing{false};
     scanengine::TimingProfile timing_profile{};
     std::size_t retries{0U};
+    std::chrono::milliseconds retry_delay{250};
 };
 
 struct ServiceDetectionSelection final {

@@ -43,16 +43,26 @@ public:
     const scanengine::TimingController *timing_controller() const noexcept;
 
 private:
+    using RetryId = std::uint64_t;
+
     struct WorkItem final {
         core::Host host;
         Port port;
         std::size_t retry_count{0U};
+        std::size_t closed_observations{0U};
+        std::size_t filtered_observations{0U};
+        std::size_t error_observations{0U};
     };
 
     struct Pending final {
         WorkItem work;
         PortSubmission submission;
         PortScanTimePoint started_at{};
+        io::TimerId timer_id{0U};
+    };
+
+    struct DeferredRetry final {
+        WorkItem work;
         io::TimerId timer_id{0U};
     };
 
@@ -70,6 +80,13 @@ private:
         PortState state,
         ScanReason reason,
         PortScanTimePoint completed_at) noexcept;
+    void finish_attempt(
+        WorkItem work,
+        PortState state,
+        ScanReason reason,
+        std::optional<double> rtt_ms = std::nullopt) noexcept;
+    bool defer_retry(WorkItem work) noexcept;
+    void on_retry_ready(RetryId id) noexcept;
     void on_timeout(PortProbeId id) noexcept;
     void stop_if_idle() noexcept;
 
@@ -80,9 +97,11 @@ private:
     std::unique_ptr<scanengine::TimingController> timing_;
     std::deque<WorkItem> queue_;
     std::unordered_map<PortProbeId, Pending> pending_;
+    std::unordered_map<RetryId, DeferredRetry> deferred_retries_;
     mutable std::vector<PortResult> results_;
     mutable bool results_sorted_{true};
     PortProbeId next_id_{1U};
+    RetryId next_retry_id_{1U};
     core::StatusCode status_{core::StatusCode::Ok};
     bool submitted_{false};
 };

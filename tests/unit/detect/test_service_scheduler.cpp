@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "detect/service_scheduler.hpp"
@@ -479,6 +480,7 @@ int main()
         RecordingServiceTransport transport;
         ServiceDetectionConfig config{1U, std::chrono::milliseconds{100}, 32U, 1U};
         config.retries = 1U;
+        config.retry_delay = std::chrono::milliseconds{10};
         ServiceScheduler scheduler(engine, transport, database, config);
         assert(scheduler.submit({open_port("127.0.0.1", 80U)}) == skan::core::StatusCode::Ok);
 
@@ -486,6 +488,10 @@ int main()
         transport.deliver({first.id, first.target, ServiceResponseKind::SocketError, ECONNRESET, {}, false,
                            DetectionClock::now()});
         assert(scheduler.results().empty());
+        assert(transport.submissions().size() == 1U);
+        assert(!scheduler.complete());
+        std::this_thread::sleep_for(std::chrono::milliseconds{12});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         assert(transport.submissions().size() == 2U);
         assert(transport.submissions().back().probe_name == "StableProbe");
 

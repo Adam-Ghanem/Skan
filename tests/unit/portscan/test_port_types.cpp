@@ -51,5 +51,6 @@ int main()
     assert(std::string{scan_reason_name(ScanReason::Timeout)} == "TIMEOUT");
     assert(std::string{scan_reason_name(ScanReason::AckRst)} == "ACK_RST");
     assert(std::string{scan_reason_name(ScanReason::AckTimeout)} == "ACK_TIMEOUT");
+    assert(std::string{scan_reason_name(ScanReason::ConflictingEvidence)} == "CONFLICTING_EVIDENCE");
     return 0;
 }

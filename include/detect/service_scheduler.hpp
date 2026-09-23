@@ -47,6 +47,8 @@ public:
     const scanengine::TimingController *timing_controller() const noexcept;
 
 private:
+    using RetryId = std::uint64_t;
+
     struct WorkItem final {
         portscan::PortResult port_result;
         std::vector<std::size_t> probe_indices;
@@ -65,10 +67,17 @@ private:
         io::TimerId timer_id{0U};
     };
 
+    struct DeferredRetry final {
+        WorkItem work;
+        io::TimerId timer_id{0U};
+    };
+
     core::StatusCode validate_config() const noexcept;
     void sort_results() const noexcept;
     void pump() noexcept;
     void start_or_retry(WorkItem work) noexcept;
+    bool defer_retry(WorkItem work) noexcept;
+    void on_retry_ready(RetryId id) noexcept;
     void complete_pending(
         ServiceProbeId id,
         DetectionState state,
@@ -93,9 +102,11 @@ private:
     std::unique_ptr<scanengine::TimingController> timing_;
     std::deque<WorkItem> queue_;
     std::unordered_map<ServiceProbeId, Pending> pending_;
+    std::unordered_map<RetryId, DeferredRetry> deferred_retries_;
     mutable std::vector<ServiceResult> results_;
     mutable bool results_sorted_{true};
     ServiceProbeId next_id_{1U};
+    RetryId next_retry_id_{1U};
     core::StatusCode status_{core::StatusCode::Ok};
     bool submitted_{false};
 };

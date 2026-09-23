@@ -67,6 +67,7 @@ int main()
         RecordingPortScanTransport transport;
         PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{100}, 1U};
         config.retries = 1U;
+        config.retry_delay = std::chrono::milliseconds{10};
         PortScanScheduler scheduler(engine, transport, config);
         assert(scheduler.submit(loopback_target(), {{22U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
 
@@ -74,6 +75,10 @@ int main()
         transport.deliver({first.id, first.target, PortResponseKind::ConnectionRefused, ECONNREFUSED, {},
                            PortScanClock::now()});
         assert(scheduler.results().empty());
+        assert(transport.submissions().size() == 1U);
+        assert(!scheduler.complete());
+        std::this_thread::sleep_for(std::chrono::milliseconds{12});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         assert(transport.submissions().size() == 2U);
 
         const auto confirmation = transport.submissions().back();
@@ -82,6 +87,33 @@ int main()
         assert(scheduler.complete());
         assert(scheduler.results().size() == 1U);
         assert(scheduler.results().front().state == PortState::Open);
+        assert(scheduler.results().front().retry_count == 1U);
+    }
+
+    // Contradictory negative evidence is reported honestly instead of
+    // whichever network outcome happened to arrive last.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{100}, 1U};
+        config.retries = 1U;
+        config.retry_delay = std::chrono::milliseconds{1};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{80U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, PortResponseKind::ConnectionRefused, ECONNREFUSED, {},
+                           PortScanClock::now()});
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
+        const auto confirmation = transport.submissions().back();
+        transport.deliver({confirmation.id, confirmation.target, PortResponseKind::SocketError, ETIMEDOUT, {},
+                           PortScanClock::now()});
+
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Unknown);
+        assert(scheduler.results().front().reason == ScanReason::ConflictingEvidence);
         assert(scheduler.results().front().retry_count == 1U);
     }
 
@@ -119,11 +151,15 @@ int main()
         RecordingPortScanTransport transport;
         PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{1}, 1U};
         config.retries = 1U;
+        config.retry_delay = std::chrono::milliseconds{1};
         PortScanScheduler scheduler(engine, transport, config);
         assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
         std::this_thread::sleep_for(std::chrono::milliseconds{2});
         assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         assert(scheduler.results().empty());
+        assert(transport.submissions().size() == 1U);
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         assert(transport.submissions().size() == 2U);
 
         const auto retry = transport.submissions().back();
@@ -150,6 +186,35 @@ int main()
         transport.deliver(wrong_source);
         assert(scheduler.pending_count() == 1U);
         assert(scheduler.results().empty());
+    }
+
+    // A definitive SYN RST is authoritative and must not be delayed by the
+    // timeout retry budget.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpSyn, std::chrono::milliseconds{100}, 1U};
+        config.retries = 1U;
+        config.retry_delay = std::chrono::milliseconds{50};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        const PortSubmission submission = transport.submissions().front();
+
+        skan::packet::TCP rst;
+        rst.set_source_port(submission.port.number);
+        rst.set_destination_port(submission.source_port);
+        rst.set_acknowledgment_number(submission.sequence_number + 1U);
+        rst.set_flags(skan::packet::TcpFlag::Rst | skan::packet::TcpFlag::Ack);
+        std::vector<std::uint8_t> bytes(rst.serialized_size());
+        assert(rst.serialize(bytes) == skan::core::StatusCode::Ok);
+        transport.deliver({submission.id, submission.target, PortResponseKind::Packet, 0,
+                           bytes, PortScanClock::now()});
+
+        assert(scheduler.complete());
+        assert(transport.submissions().size() == 1U);
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Closed);
+        assert(scheduler.results().front().reason == ScanReason::Rst);
     }
 
     {
@@ -195,6 +260,7 @@ int main()
         config.timing_profile.recovery_threshold = 1U;
         config.timing_profile.timeout_threshold = 1U;
         config.timing_profile.max_retries = 1U;
+        config.retry_delay = std::chrono::milliseconds{1};
         PortScanScheduler scheduler(engine, transport, config);
         assert(scheduler.timing_controller() != nullptr);
         assert(scheduler.submit(loopback_target(), ports_from(4000U, 3U)) == skan::core::StatusCode::Ok);
@@ -202,6 +268,13 @@ int main()
         const PortProbeId first_id = transport.submissions().front().id;
         transport.deliver(PortResponse{first_id, "127.0.0.1", PortResponseKind::Connected, 0, {}, PortScanClock::now()});
         std::size_t delivered = 1U;
+        while (delivered < transport.submissions().size()) {
+            const PortSubmission submission = transport.submissions()[delivered++];
+            transport.deliver(PortResponse{submission.id, "127.0.0.1", PortResponseKind::ConnectionRefused,
+                                          ECONNREFUSED, {}, PortScanClock::now()});
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         while (delivered < transport.submissions().size()) {
             const PortSubmission submission = transport.submissions()[delivered++];
             transport.deliver(PortResponse{submission.id, "127.0.0.1", PortResponseKind::ConnectionRefused,

@@ -106,7 +106,11 @@ ServiceScheduler::~ServiceScheduler()
         (void)engine_.cancel(entry.second.timer_id);
         (void)transport_.cancel(entry.first);
     }
+    for (const auto &entry : deferred_retries_) {
+        (void)engine_.cancel(entry.second.timer_id);
+    }
     pending_.clear();
+    deferred_retries_.clear();
     queue_.clear();
 }
 
@@ -120,6 +124,7 @@ core::StatusCode ServiceScheduler::validate_config() const noexcept
     }
     if (config_.max_outstanding == 0U || config_.timeout.count() <= 0 ||
         config_.max_response_bytes == 0U || config_.max_probes_per_port == 0U ||
+        config_.retry_delay.count() < 0 ||
         (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
         return core::StatusCode::InvalidArgument;
     }
@@ -262,15 +267,12 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
             (void)engine_.cancel(failed_probe.timer_id);
             (void)transport_.cancel(response.id);
             pending_.erase(iterator);
-            ++failed_probe.work.retry_count;
-            try {
-                queue_.push_front(std::move(failed_probe.work));
+            if (defer_retry(failed_probe.work)) {
                 if (timing_ != nullptr) {
-                    ++timing_->metrics().retry_count;
                     timing_->metrics().set_parallelism(pending_.size(), pending_.size());
                 }
-            } catch (const std::bad_alloc &) {
-                status_ = core::StatusCode::MemoryError;
+                pump();
+                return;
             }
             pump();
             return;
@@ -454,7 +456,7 @@ std::size_t ServiceScheduler::queued_count() const noexcept
 
 bool ServiceScheduler::complete() const noexcept
 {
-    return submitted_ && queue_.empty() && pending_.empty();
+    return submitted_ && queue_.empty() && pending_.empty() && deferred_retries_.empty();
 }
 
 core::StatusCode ServiceScheduler::status() const noexcept
@@ -574,6 +576,57 @@ void ServiceScheduler::start_or_retry(WorkItem work) noexcept
     }
 }
 
+bool ServiceScheduler::defer_retry(WorkItem work) noexcept
+{
+    if (next_retry_id_ == 0U) {
+        status_ = core::StatusCode::InternalError;
+        return false;
+    }
+    const RetryId retry_id = next_retry_id_++;
+    ++work.retry_count;
+    const io::TimerId timer_id = engine_.schedule(
+        config_.retry_delay,
+        [this, retry_id]() { on_retry_ready(retry_id); });
+    if (timer_id == 0U) {
+        status_ = core::StatusCode::InternalError;
+        return false;
+    }
+    try {
+        const auto inserted = deferred_retries_.emplace(
+            retry_id,
+            DeferredRetry{std::move(work), timer_id});
+        if (!inserted.second) {
+            (void)engine_.cancel(timer_id);
+            status_ = core::StatusCode::InternalError;
+            return false;
+        }
+    } catch (const std::bad_alloc &) {
+        (void)engine_.cancel(timer_id);
+        status_ = core::StatusCode::MemoryError;
+        return false;
+    }
+    if (timing_ != nullptr) {
+        ++timing_->metrics().retry_count;
+    }
+    return true;
+}
+
+void ServiceScheduler::on_retry_ready(RetryId id) noexcept
+{
+    const auto iterator = deferred_retries_.find(id);
+    if (iterator == deferred_retries_.end()) {
+        return;
+    }
+    WorkItem work = std::move(iterator->second.work);
+    deferred_retries_.erase(iterator);
+    try {
+        queue_.push_front(std::move(work));
+    } catch (const std::bad_alloc &) {
+        status_ = core::StatusCode::MemoryError;
+    }
+    pump();
+}
+
 void ServiceScheduler::complete_pending(
     ServiceProbeId id,
     DetectionState state,
@@ -623,17 +676,12 @@ void ServiceScheduler::on_timeout(ServiceProbeId id) noexcept
     const std::size_t max_retries =
         timing_ == nullptr ? config_.retries : timing_->profile().max_retries;
     if (pending.work.retry_count < max_retries) {
-        ++pending.work.retry_count;
-        try {
-            queue_.push_front(std::move(pending.work));
+        if (defer_retry(pending.work)) {
             if (timing_ != nullptr) {
-                ++timing_->metrics().retry_count;
                 timing_->metrics().set_parallelism(pending_.size(), pending_.size());
             }
             pump();
             return;
-        } catch (const std::bad_alloc &) {
-            status_ = core::StatusCode::MemoryError;
         }
     }
     if (pending.work.best_match.has_value() &&
@@ -727,7 +775,7 @@ void ServiceScheduler::append_result(
 
 void ServiceScheduler::stop_if_idle() noexcept
 {
-    if (submitted_ && queue_.empty() && pending_.empty()) {
+    if (submitted_ && queue_.empty() && pending_.empty() && deferred_retries_.empty()) {
         engine_.stop();
     }
 }

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "orchestrator/scan_stage.hpp"
@@ -123,12 +124,15 @@ int main()
         return transport;
     };
     retry_dependencies.after_port_submit =
-        [&retry_transport](skan::portscan::PortScanScheduler &) {
+        [&retry_transport](skan::portscan::PortScanScheduler &scheduler) {
         assert(retry_transport != nullptr);
         const auto first = retry_transport->submissions().front();
         retry_transport->deliver({first.id, first.target,
                                   skan::portscan::PortResponseKind::ConnectionRefused,
                                   ECONNREFUSED, {}, skan::portscan::PortScanClock::now()});
+        assert(retry_transport->submissions().size() == 1U);
+        std::this_thread::sleep_for(std::chrono::milliseconds{260});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         assert(retry_transport->submissions().size() == 2U);
         const auto confirmation = retry_transport->submissions().back();
         retry_transport->deliver({confirmation.id, confirmation.target,
