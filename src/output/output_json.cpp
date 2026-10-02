@@ -280,6 +280,19 @@ void write_service(JsonWriter &json, const detect::ServiceResult &service, std::
         json.key("tunnel", first, depth + 1U);
         json.string(service.tunnel);
     }
+    if (service.evidence.has_value()) {
+        const auto &e = *service.evidence;
+        json.key("evidence", first, depth + 1U);
+        json.begin_object();
+        bool first_evidence = true;
+        json.key("validator", first_evidence, depth + 2U); json.string(e.validator);
+        json.key("kind", first_evidence, depth + 2U); json.string(e.kind);
+        json.key("version_source", first_evidence, depth + 2U); json.string(e.version_source);
+        json.key("protocol_version", first_evidence, depth + 2U); json.string(e.protocol_version);
+        json.key("body_complete", first_evidence, depth + 2U); json.boolean(e.body_complete);
+        if (e.status_code) { json.key("status_code", first_evidence, depth + 2U); json.integer(*e.status_code); }
+        json.end_object(depth + 1U, !first_evidence);
+    }
     if (service.mqtt.has_value()) {
         json.key("mqtt", first, depth + 1U);
         json.begin_object();

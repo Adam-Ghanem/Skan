@@ -1,0 +1,9 @@
+Zookeeper version: 3.9.5-build, built on date
+Latency min/avg/max: 0/1/2
+Received: 10
+Sent: 9
+Connections: 1
+Outstanding: 0
+Zxid: 0x1
+Mode: follower
+Node count: 42

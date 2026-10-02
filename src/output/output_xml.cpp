@@ -197,6 +197,14 @@ void write_service(XmlWriter &xml, const detect::ServiceResult &service, std::si
     if (!service.tunnel.empty()) {
         xml.element(depth + 1U, "tunnel", service.tunnel);
     }
+    if (service.evidence.has_value()) {
+        const auto &e = *service.evidence;
+        std::string attributes = attribute("validator", e.validator) + attribute("kind", e.kind) +
+            attribute("version-source", e.version_source) + attribute("protocol-version", e.protocol_version) +
+            attribute("body-complete", e.body_complete ? "true" : "false");
+        if (e.status_code) attributes += attribute_number("status-code", *e.status_code);
+        xml.self_closing(depth + 1U, "evidence", attributes);
+    }
     if (service.mqtt.has_value()) {
         std::string mqtt_attributes = attribute("validator", "mqtt-3.1.1-connack-v1") +
             attribute("requested-protocol", "3.1.1") +

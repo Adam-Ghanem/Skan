@@ -59,6 +59,16 @@ struct MqttConnackEvidence final {
     std::uint8_t return_code{0U};
 };
 
+/** Observed evidence strength, not a calibrated probability or peer authenticity. */
+struct ProtocolEvidence final {
+    std::string validator;
+    std::string kind;
+    std::string version_source;
+    std::string protocol_version;
+    std::optional<std::uint16_t> status_code;
+    bool body_complete{false};
+};
+
 struct ServiceResult final {
     std::string target;
     DetectionPort port;
@@ -86,6 +96,7 @@ struct ServiceResult final {
     std::string certificate_not_after;
     std::vector<std::string> alpn;
     std::optional<MqttConnackEvidence> mqtt{};
+    std::optional<ProtocolEvidence> evidence{};
 };
 
 struct ServiceDetectionConfig final {

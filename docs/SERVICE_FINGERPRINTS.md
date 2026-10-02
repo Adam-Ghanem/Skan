@@ -27,6 +27,74 @@ Every transport response, including close and error notifications, must carry th
 
 Metadata templates may use regex captures in `service`, `product`, `version`, `extra`, `hostname`, and `tunnel`. A version must only be populated by evidence in the response; generic matches deliberately leave it empty.
 
+## Validated HTTP, search-root and ZooKeeper evidence
+
+The `http`, `elasticsearch`, `opensearch`, and `zookeeper` families additionally
+use bounded protocol validators. A database rule enables its family; for these
+families, its legacy regex cannot bypass the validator or manufacture an
+identity. Other families retain the existing rule behavior. Runtime databases
+and their canonical mirror are unchanged by this engine update.
+
+HTTP accepts complete CRLF-delimited HTTP/1.0 or HTTP/1.1 status and header
+blocks. Header names are case-insensitive. Only actual `Server` header fields
+can supply HTTP product/version; body text, trailers and informational-response
+headers cannot. Duplicate Server fields suppress that identity. A generic
+HTTP response has no product/version: the HTTP protocol version appears in
+`evidence.protocol_version`, not the product-version field.
+
+Bodies are framed by Content-Length, supported chunked coding, or orderly EOF.
+Conflicting lengths, malformed header fields, folded lines and simultaneous
+Transfer-Encoding/Content-Length are rejected. Identical repeated decimal
+Content-Length fields are accepted; comma-list lengths are deliberately
+unsupported. Chunk extensions and trailers are bounded and checked; trailers
+cannot redefine framing or representation metadata. Non-identity content
+encoding and unsupported transfer-coding chains do not yield parsed body
+identity. No decompression, HTTP/2, HTTP/3 or TLS application transport is added.
+
+Elasticsearch/OpenSearch require a correlated TCP `GET / HTTP/1.0` or
+`GET / HTTP/1.1`, final status 200, application/json content type and a complete
+unencoded body. The JSON parser validates the entire document, including
+unused values and UTF-8/Unicode escapes. It rejects duplicate decoded keys,
+trailing content, wrong field types, malformed numbers and excess nesting.
+Identity requires root string `name`, `cluster_name`, `tagline` and object
+`version` with string `number`. Elasticsearch requires its exact official
+tagline and no competing distribution marker; OpenSearch requires both its
+official tagline and `version.distribution=opensearch`. Version must contain
+three numeric components with an optional release/build suffix. Key order is
+irrelevant. Nested/string/header lookalikes, auth/error responses and malformed
+or truncated JSON preserve only independently valid HTTP/header evidence.
+
+ZooKeeper server identity requires an outstanding TCP `srvr` or `srvr\n`
+request and an orderly EOF after a newline-terminated status report. The first
+line must carry a valid explicit version; line-scoped mode, latency tuple,
+received/sent/connection/outstanding/node counters and hexadecimal zxid are
+required. Duplicate/invalid identity fields fail closed. `ruok` retains its
+exact `imok` contract, scoped to the actual request. Disabled command replies
+remain unknown. No write commands or authentication attempts are introduced.
+
+All responses remain capped at 8,192 bytes. HTTP header blocks are capped at
+4,096 bytes and 64 fields; chunks at 256 with 256-byte size/extension lines;
+JSON at 16 nested levels, 512 nodes, 128-byte keys and 2,048-byte strings;
+ZooKeeper at 64 lines and 1,024 bytes per line. Resource-limit rejection may
+reduce coverage; it must not produce a confident product guess.
+
+Validated results expose an additive `evidence` object in JSON, an `evidence`
+element in XML and `evidence_*` grepable fields. It records validator ID,
+kind (`protocol`, `header`, `structured`, or `legacy-rule`), version source,
+HTTP protocol/status when applicable, and body-completion state. The scheduler
+retains this metadata across fallback attempts. Streaming callers must pass
+`terminal=false` to `ServiceMatcher::match` until orderly EOF; offline callers
+default to a complete observation. Socket reset/timeout does not complete a
+close-delimited body. Header-only HTTP evidence is provisional soft evidence
+while an application body is arriving, so TCP segmentation cannot prematurely
+publish an HTTP-only result instead of a search product.
+
+Scores are deterministic heuristics: protocol 0.72, Server header 0.90,
+validated search-root/srvr structure 0.97. They are not measured probabilities.
+`Server` and application fields are peer assertions, not authenticated product
+claims. Broader API fingerprints remain legacy rules and retain their existing
+scores. See [validation and limits](SERVICE_V3_VALIDATION.md).
+
 ## MQTT framing and evidence
 
 MQTT candidates additionally require the installed clean-session MQTT 3.1.1

@@ -114,6 +114,7 @@ CPP_SOURCES := \
 		src/detect/service_types.cpp \
 		src/detect/service_db.cpp \
 		src/detect/service_matcher.cpp \
+	src/detect/protocol_parsers.cpp \
 		src/detect/tls_metadata.cpp \
 		src/detect/service_probe.cpp \
 		src/detect/service_scheduler.cpp \
@@ -179,7 +180,7 @@ PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/por
 	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/tcp_ack.o $(BUILD_DIR)/portscan/port_scheduler.o \
 		$(BUILD_DIR)/portscan/udp_scan.o
 DETECT_OBJECTS := $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/detect/service_db.o \
-	$(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_probe.o \
+	$(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_probe.o \
 		$(BUILD_DIR)/detect/service_scheduler.o $(BUILD_DIR)/detect/service_detector.o
 DB_OBJECTS := $(BUILD_DIR)/db/db_types.o $(BUILD_DIR)/db/os_db.o $(BUILD_DIR)/db/os_db_loader.o
 OSDETECT_OBJECTS := $(BUILD_DIR)/osdetect/os_probe_types.o $(BUILD_DIR)/osdetect/os_types.o \
@@ -224,6 +225,7 @@ TEST_SOURCES := \
 	tests/unit/detect/test_service_db.cpp \
 	tests/unit/detect/test_service_probe.cpp \
 	tests/unit/detect/test_service_matcher.cpp \
+	tests/unit/detect/test_service_v3.cpp \
 	tests/unit/detect/test_service_corpus.cpp \
 	tests/unit/detect/test_tls_metadata.cpp \
 	tests/unit/detect/test_service_scheduler.cpp \
@@ -313,6 +315,7 @@ TEST_BINARIES := \
 		$(BUILD_DIR)/test_service_db \
 		$(BUILD_DIR)/test_service_probe \
 		$(BUILD_DIR)/test_service_matcher \
+	$(BUILD_DIR)/test_service_v3 \
 		$(BUILD_DIR)/test_service_corpus \
 		$(BUILD_DIR)/test_tls_metadata \
 		$(BUILD_DIR)/test_service_scheduler \
@@ -531,13 +534,19 @@ $(BUILD_DIR)/test_service_db: $(BUILD_DIR)/tests/unit/detect/test_service_db.o $
 $(BUILD_DIR)/test_service_probe: $(BUILD_DIR)/tests/unit/detect/test_service_probe.o $(BUILD_DIR)/detect/service_probe.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_service_matcher: $(BUILD_DIR)/tests/unit/detect/test_service_matcher.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+$(BUILD_DIR)/test_service_v3: $(BUILD_DIR)/tests/unit/detect/test_service_v3.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/benchmark_mqtt: $(BUILD_DIR)/benchmarks/mqtt_accuracy.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+$(BUILD_DIR)/test_service_matcher: $(BUILD_DIR)/tests/unit/detect/test_service_matcher.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_service_corpus: $(BUILD_DIR)/tests/unit/detect/test_service_corpus.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR) tests/data/service-fingerprints-v1.tsv
+$(BUILD_DIR)/benchmark_service_v3: $(BUILD_DIR)/benchmarks/service_v3_accuracy.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/benchmark_mqtt: $(BUILD_DIR)/benchmarks/mqtt_accuracy.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
+$(BUILD_DIR)/test_service_corpus: $(BUILD_DIR)/tests/unit/detect/test_service_corpus.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR) tests/data/service-fingerprints-v1.tsv
 	$(CXX) $(LDFLAGS) $^ -o $@
 
 $(BUILD_DIR)/test_tls_metadata: $(BUILD_DIR)/tests/unit/detect/test_tls_metadata.o $(BUILD_DIR)/detect/tls_metadata.o | $(BUILD_DIR)
@@ -798,6 +807,7 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_service_db
 	./$(BUILD_DIR)/test_service_probe
 	./$(BUILD_DIR)/test_service_matcher
+	./$(BUILD_DIR)/test_service_v3
 	./$(BUILD_DIR)/test_service_corpus
 	./$(BUILD_DIR)/test_tls_metadata
 	./$(BUILD_DIR)/test_service_scheduler
@@ -862,3 +872,12 @@ clean:
 	find . -type f \( -name '*.gcda' -o -name '*.gcno' -o -name '*.gcov' \) -delete
 
 -include $(CPP_OBJECTS:.o=.d) $(C_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d) $(CORPUS_RUNTIME_TEST_OBJECT:.o=.d)
+
+.PHONY: test-service-v3-replay
+test-service-v3-replay: $(BUILD_DIR)/replay_service_v3
+	./$(BUILD_DIR)/replay_service_v3 tests/fuzz/seeds/service-v3/*
+
+$(BUILD_DIR)/replay_service_v3: tests/fuzz/replay_service_v3.cpp $(BUILD_DIR)/detect/protocol_parsers.o
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) $^ -o $@
+
+-include $(BUILD_DIR)/tests/unit/detect/test_service_v3.d $(BUILD_DIR)/benchmarks/service_v3_accuracy.d

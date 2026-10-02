@@ -1,0 +1,5 @@
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 94
+
+{"name":"n","cluster_name":"c","version":{"number":"8.13.4"},"tagline":"You Know, for Search"}

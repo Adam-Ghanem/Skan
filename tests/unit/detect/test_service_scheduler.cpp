@@ -41,11 +41,125 @@ std::vector<std::uint8_t> response_bytes(const std::string_view value)
     return {value.begin(), value.end()};
 }
 
+// Proves that header completion cannot finish detection before a root JSON body,
+// and that every TCP split (IPv4/IPv6) yields the same explicit version.
+void search_fragmentation_regressions()
+{
+    using namespace skan::detect;
+    skan::core::StatusCode status{};
+    const auto db = ServiceProbeDatabase::load_file("data/service-probes.db", status);
+    assert(status == skan::core::StatusCode::Ok);
+    const std::string body = R"({"name":"n","cluster_name":"c","version":{"number":"8.13.4"},"tagline":"You Know, for Search"})";
+    const std::string message = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
+        std::to_string(body.size()) + "\r\nServer: nginx/1.26.2\r\n\r\n" + body;
+    for (const char *target : {"127.0.0.1", "::1"}) {
+        for (std::size_t split = 1U; split < message.size(); ++split) {
+            skan::io::IOEngine engine;
+            RecordingServiceTransport transport;
+            ServiceScheduler scheduler(engine, transport, db,
+                ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 1024U, 1U});
+            assert(scheduler.submit({open_port(target, 9200U)}) == skan::core::StatusCode::Ok);
+            const auto submission = transport.submissions().front();
+            transport.deliver({submission.id, target, ServiceResponseKind::Data, 0,
+                response_bytes(std::string_view{message}.substr(0U, split)), false, DetectionClock::now()});
+            assert(!scheduler.complete());
+            transport.deliver({submission.id, target, ServiceResponseKind::Data, 0,
+                response_bytes(std::string_view{message}.substr(split)), false, DetectionClock::now()});
+            assert(scheduler.complete());
+            const auto &result = scheduler.results().front();
+            assert(result.service == "elasticsearch" && result.version == "8.13.4");
+            assert(result.evidence && result.evidence->body_complete);
+            assert(result.evidence->version_source == "version.number");
+        }
+    }
+    // Invalid cumulative framing must revoke the provisional HTTP identity,
+    // independently of the split or address family.
+    for (const std::string malformed : {
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx!\r\n0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nServer: nginx/1.2\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nContent-Length: 0\r\n\r\n"}) {
+        for (const char *target : {"127.0.0.1", "::1"}) {
+            for (std::size_t split = 0U; split < malformed.size(); ++split) {
+                skan::io::IOEngine engine;
+                RecordingServiceTransport transport;
+                ServiceScheduler scheduler(engine, transport, db,
+                    ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 1024U, 1U});
+                assert(scheduler.submit({open_port(target, 9200U)}) == skan::core::StatusCode::Ok);
+                const auto submission = transport.submissions().front();
+                transport.deliver({submission.id, target, ServiceResponseKind::Data, 0,
+                    response_bytes(std::string_view{malformed}.substr(0U, split)), false, DetectionClock::now()});
+                transport.deliver({submission.id, target, ServiceResponseKind::Data, 0,
+                    response_bytes(std::string_view{malformed}.substr(split)), false, DetectionClock::now()});
+                transport.deliver({submission.id, target, ServiceResponseKind::Closed, 0,
+                    {}, false, DetectionClock::now()});
+                assert(scheduler.complete());
+                assert(scheduler.results().front().state == DetectionState::Unknown);
+                assert(scheduler.results().front().service.empty());
+            }
+        }
+    }
+    // Rejection of the current probe must preserve a valid earlier probe.
+    {
+        const auto fallback_db = ServiceProbeDatabase::parse(
+            "Probe TCP First rarity=1 priority=100 ports=9200 fallback=Second\n"
+            "send \"GET / HTTP/1.0\\r\\n\\r\\n\"\n"
+            "softmatch type=prefix pattern=\"HTTP/\" service=http confidence=0.8\n"
+            "Probe TCP Second rarity=2 priority=90\n"
+            "send \"GET / HTTP/1.0\\r\\n\\r\\n\"\n"
+            "softmatch type=prefix pattern=\"HTTP/\" service=http confidence=0.8\n", status);
+        assert(status == skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(engine, transport, fallback_db,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 1024U, 2U});
+        assert(scheduler.submit({open_port("127.0.0.1", 9200U)}) == skan::core::StatusCode::Ok);
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, ServiceResponseKind::Data, 0,
+            response_bytes("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"), false, DetectionClock::now()});
+        transport.deliver({first.id, first.target, ServiceResponseKind::Closed, 0,
+            {}, false, DetectionClock::now()});
+        assert(transport.submissions().size() == 2U);
+        const auto second = transport.submissions().back();
+        transport.deliver({second.id, second.target, ServiceResponseKind::Data, 0,
+            response_bytes("HTTP/1.1 200 OK\r\nServer: nginx/1.2\r\nTransfer-Encoding: chunked\r\n\r\n"), false, DetectionClock::now()});
+        transport.deliver({second.id, second.target, ServiceResponseKind::Data, 0,
+            response_bytes("1\r\nx!\r\n0\r\n\r\n"), false, DetectionClock::now()});
+        transport.deliver({second.id, second.target, ServiceResponseKind::Closed, 0,
+            {}, false, DetectionClock::now()});
+        assert(scheduler.complete());
+        const auto &result = scheduler.results().front();
+        assert(result.service == "http" && result.product.empty() && result.version.empty());
+        assert(result.probe_name == "First" && result.evidence && result.evidence->body_complete);
+    }
+    // A close-delimited response needs EOF; malformed/truncated framed JSON
+    // retains HTTP evidence but must never produce a search product/version.
+    for (bool framed : {false, true}) {
+        skan::io::IOEngine engine;
+        RecordingServiceTransport transport;
+        ServiceScheduler scheduler(engine, transport, db,
+            ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 1024U, 1U});
+        assert(scheduler.submit({open_port("127.0.0.1", 9200U)}) == skan::core::StatusCode::Ok);
+        const auto submission = transport.submissions().front();
+        const std::string bytes = framed ? message.substr(0U, message.size() - 1U) :
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + body;
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+            response_bytes(bytes), false, DetectionClock::now()});
+        assert(!scheduler.complete());
+        transport.deliver({submission.id, submission.target, ServiceResponseKind::Closed, 0,
+            {}, false, DetectionClock::now()});
+        assert(scheduler.complete());
+        const auto &result = scheduler.results().front();
+        assert(result.service == (framed ? "http" : "elasticsearch"));
+        assert(result.version == (framed ? "1.26.2" : "8.13.4"));
+        assert(result.evidence && result.evidence->body_complete == !framed);
+    }
+}
+
 } // namespace
 
 int main()
 {
     using namespace skan::detect;
+    search_fragmentation_regressions();
 
     // Complete framing, not TCP segmentation or the port hint, determines
     // detection. The two-byte legacy prefix must never become a saved match.
@@ -287,10 +401,12 @@ int main()
         transport.deliver({http.id, http.target, ServiceResponseKind::Data, 0,
                            std::vector<std::uint8_t>(response.begin(), response.end()), false,
                            DetectionClock::now()});
+        transport.deliver({http.id, http.target, ServiceResponseKind::Closed, 0, {}, false, DetectionClock::now()});
         assert(scheduler.complete());
         assert(scheduler.results().front().state == DetectionState::Detected);
         assert(scheduler.results().front().service == "http");
-        assert(scheduler.results().front().version == "1.1");
+        assert(scheduler.results().front().version.empty());
+        assert(scheduler.results().front().evidence->protocol_version == "1.1");
     }
 
     {
@@ -390,11 +506,12 @@ int main()
         const std::vector<std::uint8_t> http_bytes(http_response.begin(), http_response.end());
         transport.deliver({http.id, http.target, ServiceResponseKind::Data, 0, http_bytes, false,
                            DetectionClock::now()});
+        transport.deliver({http.id, http.target, ServiceResponseKind::Closed, 0, {}, false, DetectionClock::now()});
         assert(scheduler.complete());
         assert(scheduler.results().size() == 1U);
         assert(scheduler.results().front().state == DetectionState::Detected);
         assert(scheduler.results().front().service == "http");
-        assert(scheduler.results().front().product == "Apache");
+        assert(scheduler.results().front().product == "Apache-httpd");
         assert(scheduler.results().front().version == "2.4.29");
     }
 

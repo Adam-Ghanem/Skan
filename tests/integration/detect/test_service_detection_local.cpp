@@ -155,7 +155,7 @@ int main()
             saw_ssh = result.service == "ssh" && result.product == "OpenSSH" && result.version == "9.6";
         }
         if (result.port.number == http_port) {
-            saw_http = result.service == "http" && result.product == "HTTP" && result.version == "1.1";
+            saw_http = result.service == "http" && result.product == "TestHTTP" && result.version == "1.2" && result.evidence && result.evidence->protocol_version == "1.1";
         }
     }
     assert(saw_ssh);
@@ -237,13 +237,13 @@ int main()
         assert(ipv6_ssh_child >= 0);
         if (ipv6_ssh_child == 0) {
             (void)::close(ipv6_http_listener);
-            serve_once(ipv6_ssh_listener, "SSH-2.0-OpenSSH_9.6\\r\\n");
+            serve_once(ipv6_ssh_listener, "SSH-2.0-OpenSSH_9.6\r\n");
         }
         const pid_t ipv6_http_child = ::fork();
         assert(ipv6_http_child >= 0);
         if (ipv6_http_child == 0) {
             (void)::close(ipv6_ssh_listener);
-            serve_once(ipv6_http_listener, "HTTP/1.1 200 OK\\r\\nServer: TestHTTP/1.2\\r\\n\\r\\n");
+            serve_once(ipv6_http_listener, "HTTP/1.1 200 OK\r\nServer: TestHTTP/1.2\r\n\r\n");
         }
         skan::detect::ServiceTcpTransport ipv6_transport(engine);
         skan::detect::ServiceDetector ipv6_detector(
@@ -261,7 +261,7 @@ int main()
                 ipv6_saw_ssh = result.service == "ssh" && result.product == "OpenSSH" && result.version == "9.6";
             }
             if (result.port.number == ipv6_http_port) {
-                ipv6_saw_http = result.service == "http" && result.product == "HTTP" && result.version == "1.1";
+                ipv6_saw_http = result.service == "http" && result.product == "TestHTTP" && result.version == "1.2" && result.evidence && result.evidence->protocol_version == "1.1";
             }
         }
         assert(ipv6_saw_ssh);

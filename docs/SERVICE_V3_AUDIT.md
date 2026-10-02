@@ -27,7 +27,7 @@ Audit baseline: `af4b3d1e2d11bfbf3291c0f3e876d064e8e6adbf` (main,
 | Priority | Evidence | Next action |
 | --- | --- | --- |
 | P0 | MQTT rules accepted a two-byte prefix and reserved flag bits; a fixture explicitly expected malformed `20 02 0a 00` to match at 0.99 | Request-scoped protocol framing and negative regression tests (this slice) |
-| P0 | Many HTTP/API and binary fingerprints still rely on regex/prefix rules; two Elasticsearch rules cover field order, not JSON structure | Incremental protocol validators; structured HTTP/JSON scope and collisions next |
+| P0 | Many HTTP/API and binary fingerprints still rely on regex/prefix rules; two Elasticsearch rules cover field order, not JSON structure | HTTP/search-root and srvr validators added in the next slice; remaining API/binary families still need validation |
 | P0 | Rule confidence is authored, not an empirically calibrated probability; corpus fixtures are synthetic | Labeled captures, independent verification and per-protocol calibration |
 | P0 | `OSMatcher` uses the first TCP observation for multiple fields, rather than matching every field against its intended probe | Probe-scoped OS evidence before expanding OS labels |
 | P1 | TLS inspection is a raw handshake parser, not a completed TLS 1.3 session | Bounded TLS session transport; explicit unavailable encrypted metadata |
@@ -90,3 +90,18 @@ measurements. Positive, collision and malformed fixtures derive independently
 from [OASIS MQTT 3.1.1 sections 3.1–3.2](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html).
 No Nmap fingerprint content is used. This does not complete Service V3, prove
 real-world false-positive rates, or satisfy the full product roadmap.
+
+## Next slice: HTTP, search-root JSON and ZooKeeper srvr
+
+The implementation based on published MQTT commit `6d73e880` now adds HTTP
+framing, structured Elasticsearch/OpenSearch root identity and complete
+request-scoped ZooKeeper srvr identity. It preserves the existing reactor,
+connected transport attribution, probe/fallback budgets and corpus authority.
+The bounded parsing/evidence contract is in [Service fingerprinting](SERVICE_FINGERPRINTS.md)
+and the observed checks are in [Service V3 validation](SERVICE_V3_VALIDATION.md).
+
+This resolves the verified body/header collision and JSON field-order gaps for
+these selected families. It does not provide a general structured validator for
+every API family, calibrate confidence, establish captured-service accuracy or
+finish the broader Service V3 roadmap. TLS sessions, OS matching and corpus
+authority migration remain separate work.

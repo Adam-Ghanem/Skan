@@ -6,3 +6,4 @@ tests/data/output/*.golden text eol=lf
 tests/data/service-fingerprints*.tsv text eol=lf
 corpus/canonical/*.jsonl text eol=lf
 corpus/canonical/*.json text eol=lf
+tests/fuzz/seeds/service-v3/*.http -text -diff

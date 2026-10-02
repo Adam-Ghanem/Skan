@@ -6,6 +6,7 @@
 #include "db/os_db.hpp"
 #include "detect/service_db.hpp"
 #include "detect/service_matcher.hpp"
+#include "detect/protocol_parsers.hpp"
 #include "detect/tls_metadata.hpp"
 #include "net/packet_receiver.hpp"
 #include "osdetect/os_matcher.hpp"
@@ -53,6 +54,29 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
         (void)service_matcher.match(service_database.probes().front(), text);
     }
     (void)skan::detect::parse_tls_metadata(bytes);
+    if (size <= 8192U) {
+        (void)skan::detect::parse_http_response(text, false);
+        const auto http = skan::detect::parse_http_response(text, true);
+        (void)skan::detect::parse_search_identity(http.body);
+        (void)skan::detect::parse_search_identity(text);
+        (void)skan::detect::parse_zookeeper_srvr(text, true);
+    }
+    static const auto v3_database = [] {
+        skan::core::StatusCode v3_status{};
+        return skan::detect::ServiceProbeDatabase::parse(
+            "Probe TCP HTTPGet rarity=1\n"
+            "send \"GET / HTTP/1.1\\r\\n\\r\\n\"\n"
+            "match type=prefix pattern=\"HTTP/\" service=http confidence=0.8\n"
+            "match type=prefix pattern=\"HTTP/\" service=elasticsearch confidence=0.8\n"
+            "match type=prefix pattern=\"HTTP/\" service=opensearch confidence=0.8\n"
+            "Probe TCP ZooKeeperServer rarity=1\n"
+            "send \"srvr\\n\"\n"
+            "match type=prefix pattern=\"Zookeeper\" service=zookeeper confidence=0.8\n", v3_status);
+    }();
+    for (const auto &probe : v3_database.probes()) {
+        (void)skan::detect::ServiceMatcher(v3_database).match(probe, text, false);
+        (void)skan::detect::ServiceMatcher(v3_database).match(probe, text, true);
+    }
     // Reach binary response validation with a valid request/database. Parsing
     // the fuzz bytes as both a database and a response almost never reaches it.
     static const auto mqtt_database = [] {

@@ -37,8 +37,9 @@ int main()
         assert(detector.complete());
         assert(detector.results().size() == 1U);
         assert(detector.results().front().port.number == 80U);
-        assert(detector.results().front().service == "http");
-        assert(detector.results().front().state == DetectionState::Detected);
+        // EOF cannot validate an unfinished status line or missing headers.
+        assert(detector.results().front().service.empty());
+        assert(detector.results().front().state == DetectionState::Unknown);
     }
 
     // A valid TLS soft match must survive later transient failures from fallback

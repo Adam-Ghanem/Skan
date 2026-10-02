@@ -5,6 +5,8 @@
 #include <regex>
 #include <span>
 
+#include "detect/protocol_parsers.hpp"
+
 namespace skan::detect {
 namespace {
 
@@ -157,6 +159,54 @@ bool rule_matches(
     }
 }
 
+ServiceMatchResult http_identity(const HttpResponse &http)
+{
+    ServiceMatchResult m;
+    if (http.state == HttpParseState::Incomplete || http.state == HttpParseState::Malformed) return m;
+    m.matched = true;
+    m.service = "http";
+    m.strength = ServiceMatchStrength::Soft;
+    m.confidence = 0.72;
+    m.priority = 3U;
+    m.extra = "HTTP/" + std::string{http.protocol_version};
+    m.evidence = ProtocolEvidence{"http-1x-v1", "protocol", "", std::string{http.protocol_version},
+        http.status_code, http.state == HttpParseState::Complete};
+    if (!http.ambiguous_server && !http.server.empty()) {
+        const auto slash = http.server.find('/');
+        auto name = http.server.substr(0U, slash);
+        auto version = slash == std::string_view::npos ? std::string_view{} : http.server.substr(slash + 1U);
+        version = version.substr(0U, version.find(' '));
+        // Jetty's installed Server form uses parentheses instead of a slash.
+        if (http.server.starts_with("Jetty(") && http.server.ends_with(')')) {
+            name = "Jetty";
+            version = http.server.substr(6U, http.server.size() - 7U);
+        }
+        const auto safe = [](std::string_view value) {
+            if (value.empty() || value.size() > 128U) return false;
+            for (char c : value) if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' || c == '+')) return false;
+            return true;
+        };
+        // Server is a peer-supplied header, never body text or an authenticated identity.
+        if (safe(name) && (version.empty() || safe(version))) {
+            m.product = name;
+            if (name == "Apache") m.product = "Apache-httpd";
+            else if (name == "Apache-Coyote") m.product = "Apache-Tomcat";
+            else if (name == "openresty") m.product = "OpenResty";
+            else if (name == "cloudflare") m.product = "Cloudflare";
+            else if (name == "uvicorn") m.product = "Uvicorn";
+            else if (name == "gunicorn") m.product = "Gunicorn";
+            m.version = version;
+            if (!m.version.empty() && (m.version.front() < '0' || m.version.front() > '9')) m.version.clear();
+            m.confidence = 0.90;
+            m.priority = 4U;
+            m.evidence->kind = "header";
+            if (!m.version.empty()) m.evidence->version_source = "Server";
+        }
+    }
+    return m;
+}
+
 } // namespace
 
 bool service_match_is_publishable(const ServiceMatchResult &match) noexcept
@@ -193,6 +243,9 @@ bool service_match_is_better(
     if (candidate.specificity != incumbent.specificity) {
         return candidate.specificity > incumbent.specificity;
     }
+    if (candidate.evidence && incumbent.evidence && candidate.evidence->body_complete != incumbent.evidence->body_complete) {
+        return candidate.evidence->body_complete;
+    }
     return false;
 }
 
@@ -202,18 +255,76 @@ ServiceMatcher::ServiceMatcher(const ServiceProbeDatabase &database) noexcept : 
 
 ServiceMatchResult ServiceMatcher::match(
     const ServiceProbeDefinition &probe,
-    std::string_view response) const
+    std::string_view response,
+    bool terminal) const
 {
     ServiceMatchResult best;
     if (database_.status() != core::StatusCode::Ok || response.empty() ||
         response.size() > kMaximumMatchResponseBytes) {
         return best;
     }
+    const bool looks_http = response.starts_with("HTTP/");
+    HttpResponse http;
+    std::string normalized_http;
+    std::optional<SearchIdentity> search;
+    if (looks_http) {
+        http = parse_http_response(response, terminal);
+        if (http.state == HttpParseState::Malformed || http.state == HttpParseState::Incomplete) return best;
+        normalized_http.assign(http.headers);
+        normalized_http += http.body;
+        const auto request_end = probe.payload.find("\r\n");
+        const auto request = std::string_view{probe.payload}.substr(0U, request_end);
+        if (probe.protocol == TransportProtocol::Tcp &&
+            (request == "GET / HTTP/1.0" || request == "GET / HTTP/1.1") &&
+            http.state == HttpParseState::Complete && http.status_code == 200U && http.json_content && http.identity_encoding) {
+            search = parse_search_identity(http.body);
+        }
+    }
     std::string owned_response;
     for (std::size_t index = 0U; index < probe.rules.size(); ++index) {
         const ServiceMatchRule &rule = probe.rules[index];
+        if (!looks_http && rule.service == "http") continue;
+        if (looks_http && rule.service == "http") {
+            auto candidate = http_identity(http);
+            candidate.rule_index = index;
+            if (service_match_is_better(candidate, best)) best = std::move(candidate);
+            continue;
+        }
+        if (rule.service == "elasticsearch" || rule.service == "opensearch") {
+            if (!search || search->service != rule.service) continue;
+            ServiceMatchResult candidate;
+            candidate.matched = true;
+            candidate.service = search->service;
+            candidate.product = search->product;
+            candidate.version = search->version;
+            candidate.confidence = 0.97;
+            candidate.priority = 6U;
+            candidate.rule_index = index;
+            candidate.evidence = ProtocolEvidence{"search-root-json-v1", "structured", "version.number",
+                std::string{http.protocol_version}, http.status_code, true};
+            if (service_match_is_better(candidate, best)) best = std::move(candidate);
+            continue;
+        }
+        if (rule.service == "zookeeper" && (probe.payload == "srvr" || probe.payload == "srvr\n")) {
+            const auto identity = probe.protocol == TransportProtocol::Tcp ? parse_zookeeper_srvr(response, terminal) : std::nullopt;
+            if (!identity) continue;
+            ServiceMatchResult candidate;
+            candidate.matched = true;
+            candidate.service = "zookeeper";
+            candidate.product = "Apache-ZooKeeper";
+            candidate.version = identity->version;
+            candidate.extra = "mode " + identity->mode;
+            candidate.confidence = 0.97;
+            candidate.priority = 6U;
+            candidate.rule_index = index;
+            candidate.evidence = ProtocolEvidence{"zookeeper-srvr-v1", "structured", "Zookeeper version", "", std::nullopt, true};
+            if (service_match_is_better(candidate, best)) best = std::move(candidate);
+            continue;
+        }
+        if (rule.service == "zookeeper" && (probe.protocol != TransportProtocol::Tcp ||
+            !(probe.payload == "ruok" || probe.payload == "ruok\n") || response != "imok")) continue;
         std::match_results<std::string::const_iterator> matches;
-        if (!rule_matches(rule, response, matches, owned_response)) {
+        if (!rule_matches(rule, looks_http ? std::string_view{normalized_http} : response, matches, owned_response)) {
             continue;
         }
         ServiceMatchResult candidate;
@@ -229,6 +340,11 @@ ServiceMatchResult ServiceMatcher::match(
         candidate.priority = rule_priority(rule);
         candidate.specificity = rule.specificity;
         candidate.rule_index = index;
+        if (looks_http) {
+            candidate.evidence = ProtocolEvidence{"http-1x-v1", "legacy-rule", "corpus-rule",
+                std::string{http.protocol_version}, http.status_code, http.state == HttpParseState::Complete};
+            if (http.state != HttpParseState::Complete) candidate.strength = ServiceMatchStrength::Soft;
+        }
         if (candidate.service == "mqtt") {
             candidate.mqtt = validate_mqtt_connack(probe, response);
             if (!candidate.mqtt.has_value()) {

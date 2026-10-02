@@ -77,11 +77,12 @@ int main()
     transport.deliver({http.id, http.target, ServiceResponseKind::Data, 0, http_bytes, false,
                        DetectionClock::now()});
 
+    transport.deliver({http.id, http.target, ServiceResponseKind::Closed, 0, {}, false, DetectionClock::now()});
     assert(scheduler.complete());
     assert(scheduler.results().size() == 1U);
     assert(scheduler.results().front().state == DetectionState::Detected);
     assert(scheduler.results().front().service == "http");
-    assert(scheduler.results().front().product == "Apache");
+    assert(scheduler.results().front().product == "Apache-httpd");
     assert(scheduler.results().front().version == "2.4.29");
     return 0;
 }

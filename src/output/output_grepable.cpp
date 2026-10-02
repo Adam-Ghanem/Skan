@@ -103,6 +103,15 @@ OutputStatus GrepableOutputWriter::write(
                 if (!service->tunnel.empty()) {
                     output << " tunnel=\"" << detail::grep_escape(service->tunnel) << '\"';
                 }
+                if (service->evidence.has_value()) {
+                    const auto &e = *service->evidence;
+                    output << " evidence_validator=\"" << detail::grep_escape(e.validator) << '"'
+                           << " evidence_kind=\"" << detail::grep_escape(e.kind) << '"'
+                           << " evidence_version_source=\"" << detail::grep_escape(e.version_source) << '"'
+                           << " evidence_protocol_version=\"" << detail::grep_escape(e.protocol_version) << '"'
+                           << " evidence_body_complete=" << (e.body_complete ? "true" : "false");
+                    if (e.status_code) output << " evidence_status_code=" << *e.status_code;
+                }
                 if (service->mqtt.has_value()) {
                     output << " mqtt_validator=\"mqtt-3.1.1-connack-v1\""
                            << " mqtt_requested_protocol=\"3.1.1\""

@@ -144,6 +144,27 @@ void assert_machine_os_detection_metadata_parity()
 
 int main()
 {
+    {
+        auto report = skan::output::test::make_report();
+        auto &service = report.hosts.front().services.front();
+        service.service = "elasticsearch";
+        service.product = "Elasticsearch";
+        service.version = "8.13.4";
+        service.evidence = skan::detect::ProtocolEvidence{"search-root-json-v1", "structured", "version.number", "1.1", 200U, true};
+        using namespace skan::output;
+        for (const auto format : {OutputFormat::Json, OutputFormat::Xml, OutputFormat::Grepable}) {
+            std::ostringstream stream;
+            assert(OutputManager::write(format, report, stream) == OutputStatus::Ok);
+            assert(stream.str().find("search-root-json-v1") != std::string::npos);
+            assert(stream.str().find("version.number") != std::string::npos);
+            assert(stream.str().find("structured") != std::string::npos);
+        }
+        service.evidence->status_code = 99U;
+        assert(validate_report(report) == OutputStatus::InvalidReport);
+        service.evidence->status_code = 200U;
+        service.evidence->body_complete = false;
+        assert(validate_report(report) == OutputStatus::InvalidReport);
+    }
     for (std::uint8_t code : {std::uint8_t{0U}, std::uint8_t{1U}, std::uint8_t{5U}}) {
         auto mqtt_report = skan::output::test::make_report();
         auto &service = mqtt_report.hosts.front().services.front();

@@ -1,0 +1,4 @@
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"tagline":"The OpenSearch Project: https://opensearch.org/","name":"n","cluster_name":"c","version":{"number":"2.16.0","distribution":"opensearch"}}

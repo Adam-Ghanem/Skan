@@ -273,7 +273,7 @@ int main(int argc, char **argv)
         "\"tagline\":\"You Know, for Search\"}");
     if (!elasticsearch_match.matched || elasticsearch_match.service != "elasticsearch" ||
         elasticsearch_match.product != "Elasticsearch" ||
-        elasticsearch_match.version != "8.13.4" || elasticsearch_match.confidence < 0.99) {
+        elasticsearch_match.version != "8.13.4" || elasticsearch_match.confidence < 0.97) {
         return fail("Elasticsearch version-before-tagline matcher mismatch");
     }
     const auto elasticsearch_collision = service_matcher.match(
@@ -281,8 +281,9 @@ int main(int argc, char **argv)
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
         "{\"name\":\"search-proxy\",\"version\":{\"number\":\"8.12.2\"}}");
     if (!elasticsearch_collision.matched || elasticsearch_collision.service != "http" ||
-        elasticsearch_collision.product != "HTTP" || elasticsearch_collision.version != "1.1" ||
-        elasticsearch_collision.confidence < 0.88) {
+        !elasticsearch_collision.product.empty() || !elasticsearch_collision.version.empty() ||
+        !elasticsearch_collision.evidence || elasticsearch_collision.evidence->protocol_version != "1.1" ||
+        elasticsearch_collision.confidence < 0.72) {
         return fail("Elasticsearch collision was not contained by generic HTTP");
     }
 
