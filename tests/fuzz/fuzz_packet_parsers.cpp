@@ -53,6 +53,18 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
         (void)service_matcher.match(service_database.probes().front(), text);
     }
     (void)skan::detect::parse_tls_metadata(bytes);
+    // Reach binary response validation with a valid request/database. Parsing
+    // the fuzz bytes as both a database and a response almost never reaches it.
+    static const auto mqtt_database = [] {
+        skan::core::StatusCode mqtt_status = skan::core::StatusCode::Ok;
+        return skan::detect::ServiceProbeDatabase::parse(
+            "Probe TCP MQTTConnect rarity=1\n"
+            "send \"\\x10\\x10\\x00\\x04MQTT\\x04\\x02\\x00\\x0a\\x00\\x04skan\"\n"
+            "match type=prefix pattern=\"\\x20\\x02\" service=mqtt confidence=0.99\n", mqtt_status);
+    }();
+    if (!mqtt_database.probes().empty()) {
+        (void)skan::detect::ServiceMatcher(mqtt_database).match(mqtt_database.probes().front(), text);
+    }
     (void)skan::output::detail::json_escape(text);
     (void)skan::output::detail::xml_escape(text);
     (void)skan::output::detail::grep_escape(text);

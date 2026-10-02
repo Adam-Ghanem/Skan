@@ -280,6 +280,26 @@ void write_service(JsonWriter &json, const detect::ServiceResult &service, std::
         json.key("tunnel", first, depth + 1U);
         json.string(service.tunnel);
     }
+    if (service.mqtt.has_value()) {
+        json.key("mqtt", first, depth + 1U);
+        json.begin_object();
+        bool first_mqtt = true;
+        json.key("validator", first_mqtt, depth + 2U);
+        json.string("mqtt-3.1.1-connack-v1");
+        json.key("requested_protocol", first_mqtt, depth + 2U);
+        json.string("3.1.1");
+        json.key("return_code", first_mqtt, depth + 2U);
+        json.integer(service.mqtt->return_code);
+        json.key("session_present", first_mqtt, depth + 2U);
+        json.boolean(false);
+        json.key("frame_bytes", first_mqtt, depth + 2U);
+        json.integer(4U);
+        if (service.mqtt->return_code == 0U) {
+            json.key("accepted_protocol", first_mqtt, depth + 2U);
+            json.string("3.1.1");
+        }
+        json.end_object(depth + 1U, !first_mqtt);
+    }
     if (service.tls_detected) {
         json.key("tls", first, depth + 1U);
         json.begin_object();

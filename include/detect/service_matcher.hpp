@@ -24,6 +24,7 @@ struct ServiceMatchResult final {
     std::size_t priority{0U};
     std::size_t specificity{0U};
     std::size_t rule_index{0U};
+    std::optional<MqttConnackEvidence> mqtt{};
 };
 
 /**

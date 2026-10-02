@@ -3,9 +3,80 @@
 
 #include "detect/service_matcher.hpp"
 
+namespace {
+
+void mqtt_framing_regressions()
+{
+    using namespace skan::detect;
+    skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+    const auto database = ServiceProbeDatabase::load_file("data/service-probes.db", status);
+    assert(status == skan::core::StatusCode::Ok);
+    const ServiceProbeDefinition *mqtt = nullptr;
+    for (const auto &probe : database.probes()) {
+        if (probe.name == "MQTTConnect") mqtt = &probe;
+    }
+    assert(mqtt != nullptr);
+    const ServiceMatcher matcher(database);
+    const std::string accepted{"\x20\x02\x00\x00", 4U};
+    for (std::size_t length = 0U; length < accepted.size(); ++length) {
+        assert(!matcher.match(*mqtt, std::string_view{accepted}.substr(0U, length)).matched);
+    }
+    // Exhaust the two variable bytes: clean-session CONNECT forbids Session
+    // Present, all reserved flag bits, and return codes above 5.
+    for (unsigned int flags = 0U; flags <= 255U; ++flags) {
+        for (unsigned int code = 0U; code <= 255U; ++code) {
+            std::string response = accepted;
+            response[2] = static_cast<char>(flags);
+            response[3] = static_cast<char>(code);
+            const auto result = matcher.match(*mqtt, response);
+            assert(result.matched == (flags == 0U && code <= 5U));
+            if (result.matched) {
+                assert(result.service == "mqtt");
+                assert(result.product.empty());
+                assert(result.version.empty());
+                assert(result.mqtt.has_value());
+                assert(result.mqtt->return_code == code);
+            }
+        }
+    }
+    for (std::size_t index : {0U, 1U}) {
+        for (unsigned int byte = 0U; byte <= 255U; ++byte) {
+            std::string response = accepted;
+            response[index] = static_cast<char>(byte);
+            const bool valid = byte == (index == 0U ? 0x20U : 0x02U);
+            assert(matcher.match(*mqtt, response).matched == valid);
+        }
+    }
+    auto unrelated = *mqtt;
+    unrelated.payload = "GET / HTTP/1.0\r\n\r\n";
+    assert(!matcher.match(unrelated, accepted).matched);
+    unrelated = *mqtt;
+    unrelated.protocol = TransportProtocol::Udp;
+    assert(!matcher.match(unrelated, accepted).matched);
+    auto renamed = *mqtt;
+    renamed.name = "CustomNegotiation";
+    renamed.port_hints.clear();
+    renamed.rules.resize(1U);
+    renamed.rules.front().type = ServiceMatchType::Prefix;
+    renamed.rules.front().pattern = " ";
+    renamed.rules.front().product = "UnsupportedBroker";
+    renamed.rules.front().version = "999";
+    const auto custom = matcher.match(renamed, accepted);
+    assert(custom.matched && custom.mqtt.has_value());
+    assert(custom.product.empty() && custom.version.empty());
+    assert(!matcher.match(renamed, std::string_view{accepted}.substr(0U, 2U)).matched);
+    // TCP coalescing must not invalidate a complete first CONNACK frame.
+    assert(matcher.match(*mqtt, accepted + std::string{"\xd0\x00", 2U}).matched);
+    assert(matcher.match(*mqtt, accepted + std::string(8188U, 'x')).matched);
+    assert(!matcher.match(*mqtt, accepted + std::string(8192U, 'x')).matched);
+}
+
+} // namespace
+
 int main()
 {
     using namespace skan::detect;
+    mqtt_framing_regressions();
     const std::string text =
         "Probe TCP Match rarity=1\n"
         "send \"\\r\\n\"\n"
@@ -47,16 +118,16 @@ int main()
     const std::string anchored_text =
         "Probe TCP Anchored rarity=1\n"
         "send \"x\"\n"
-        "match type=regex pattern=\"^\\x20\\x02..\" service=mqtt product=MQTT version=3.1.1 confidence=0.99\n"
-        "match type=prefix pattern=\"\\x20\\x02\" service=mqtt product=MQTT confidence=0.98\n";
+        "match type=regex pattern=\"^\\x20\\x02..\" service=example product=Example version=1 confidence=0.99\n"
+        "match type=prefix pattern=\"\\x20\\x02\" service=example product=Example confidence=0.98\n";
     skan::core::StatusCode anchored_status = skan::core::StatusCode::InternalError;
     const ServiceProbeDatabase anchored_database = ServiceProbeDatabase::parse(anchored_text, anchored_status);
     assert(anchored_status == skan::core::StatusCode::Ok);
     const ServiceMatchResult anchored = ServiceMatcher(anchored_database).match(
         anchored_database.probes().front(), std::string{"\x20\x02\x00\x00", 4U});
     assert(anchored.matched);
-    assert(anchored.service == "mqtt");
-    assert(anchored.version == "3.1.1");
+    assert(anchored.service == "example");
+    assert(anchored.version == "1");
     assert(anchored.confidence == 0.99);
     assert(anchored.priority == 4U);
 

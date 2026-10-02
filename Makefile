@@ -534,6 +534,9 @@ $(BUILD_DIR)/test_service_probe: $(BUILD_DIR)/tests/unit/detect/test_service_pro
 $(BUILD_DIR)/test_service_matcher: $(BUILD_DIR)/tests/unit/detect/test_service_matcher.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
+$(BUILD_DIR)/benchmark_mqtt: $(BUILD_DIR)/benchmarks/mqtt_accuracy.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@
+
 $(BUILD_DIR)/test_service_corpus: $(BUILD_DIR)/tests/unit/detect/test_service_corpus.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR) tests/data/service-fingerprints-v1.tsv
 	$(CXX) $(LDFLAGS) $^ -o $@
 

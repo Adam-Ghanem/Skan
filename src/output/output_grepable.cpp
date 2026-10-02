@@ -103,6 +103,13 @@ OutputStatus GrepableOutputWriter::write(
                 if (!service->tunnel.empty()) {
                     output << " tunnel=\"" << detail::grep_escape(service->tunnel) << '\"';
                 }
+                if (service->mqtt.has_value()) {
+                    output << " mqtt_validator=\"mqtt-3.1.1-connack-v1\""
+                           << " mqtt_requested_protocol=\"3.1.1\""
+                           << " mqtt_return_code=" << static_cast<unsigned int>(service->mqtt->return_code)
+                           << " mqtt_session_present=false mqtt_frame_bytes=4";
+                    if (service->mqtt->return_code == 0U) output << " mqtt_accepted_protocol=\"3.1.1\"";
+                }
                 if (service->tls_detected) {
                     output << " tls=true";
                     if (!service->tls_version.empty())

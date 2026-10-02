@@ -11,6 +11,31 @@ namespace {
 constexpr std::size_t kMaximumMatchResponseBytes = 8192U;
 constexpr double kMinimumPublishedSoftMatchConfidence = 0.60;
 
+std::optional<MqttConnackEvidence> validate_mqtt_connack(
+    const ServiceProbeDefinition &probe, std::string_view response) noexcept
+{
+    // Deliberately scoped to the installed, credential-free clean-session
+    // CONNECT. A probe name, port hint, or unsolicited CONNACK is not evidence.
+    static constexpr char request[] = "\x10\x10\x00\x04MQTT\x04\x02\x00\x0a\x00\x04skan";
+    if (probe.protocol != TransportProtocol::Tcp ||
+        probe.payload != std::string_view{request, sizeof(request) - 1U} ||
+        response.size() < 4U) {
+        return std::nullopt;
+    }
+    const auto byte = [&](std::size_t index) {
+        return static_cast<unsigned char>(response[index]);
+    };
+    // OASIS MQTT 3.1.1 sections 3.2.1/3.2.2: exact fixed header and
+    // remaining length; clean-session request requires Session Present = 0;
+    // all other acknowledgement flag bits and return codes 6..255 are reserved.
+    if (byte(0U) != 0x20U || byte(1U) != 0x02U || byte(2U) != 0U || byte(3U) > 5U) {
+        return std::nullopt;
+    }
+    // Validate the first complete frame only. Coalesced later packets cannot
+    // change its evidence; partial first frames never produce a match.
+    return MqttConnackEvidence{static_cast<std::uint8_t>(byte(3U))};
+}
+
 std::string_view first_ssh_identification_line(std::string_view response) noexcept
 {
     std::size_t line_start = 0U;
@@ -204,6 +229,16 @@ ServiceMatchResult ServiceMatcher::match(
         candidate.priority = rule_priority(rule);
         candidate.specificity = rule.specificity;
         candidate.rule_index = index;
+        if (candidate.service == "mqtt") {
+            candidate.mqtt = validate_mqtt_connack(probe, response);
+            if (!candidate.mqtt.has_value()) {
+                continue;
+            }
+            // CONNACK identifies a protocol, not a broker implementation or
+            // product release. Keep requested/accepted protocol in evidence.
+            candidate.product.clear();
+            candidate.version.clear();
+        }
         if (service_match_is_better(candidate, best)) {
             if (candidate.tunnel == "tls" || candidate.service == "tls" || candidate.service == "https") {
                 const auto *data = reinterpret_cast<const std::uint8_t *>(response.data());

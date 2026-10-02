@@ -27,6 +27,17 @@ Every transport response, including close and error notifications, must carry th
 
 Metadata templates may use regex captures in `service`, `product`, `version`, `extra`, `hostname`, and `tunnel`. A version must only be populated by evidence in the response; generic matches deliberately leave it empty.
 
+## MQTT framing and evidence
+
+MQTT candidates additionally require the installed clean-session MQTT 3.1.1
+CONNECT request and a complete valid CONNACK. Prefix-only, truncated,
+reserved-bit and invalid-return-code responses do not identify MQTT.
+Other MQTT request profiles are currently unsupported by this validator.
+CONNACK identifies no broker product/version, so those fields remain absent;
+the requested protocol and, on successful acceptance only, accepted protocol
+are exposed separately under `mqtt` in JSON, an `<mqtt>` element in XML, and
+`mqtt_*` fields in grepable output. See [the scoped V3 audit and contract](SERVICE_V3_AUDIT.md).
+
 ## TLS metadata
 
 The TLS probe sends a bounded TLS ClientHello. The detector recognizes TLS records and, when the server exposes unencrypted TLS 1.2 handshake data, extracts the negotiated version, ALPN, leaf certificate subject, issuer, DNS SANs, and raw ASN.1 validity timestamps. TLS 1.3 encrypts certificates after ServerHello, so certificate fields can legitimately be absent. This metadata is observational and does not represent certificate trust verification.

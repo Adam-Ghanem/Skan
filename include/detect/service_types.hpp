@@ -51,6 +51,14 @@ enum class DetectionMethod {
     Unknown
 };
 
+/** Validated first CONNACK for Skan's MQTT 3.1.1 clean-session CONNECT.
+ * No broker product/version is exposed by this packet. Return code zero
+ * accepts the requested protocol; a refusal is not a negotiated version.
+ */
+struct MqttConnackEvidence final {
+    std::uint8_t return_code{0U};
+};
+
 struct ServiceResult final {
     std::string target;
     DetectionPort port;
@@ -77,6 +85,7 @@ struct ServiceResult final {
     std::string certificate_not_before;
     std::string certificate_not_after;
     std::vector<std::string> alpn;
+    std::optional<MqttConnackEvidence> mqtt{};
 };
 
 struct ServiceDetectionConfig final {

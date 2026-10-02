@@ -765,6 +765,7 @@ void ServiceScheduler::append_result(
             result.certificate_not_after = match->tls.certificate_not_after;
             result.alpn = match->tls.alpn;
             result.confidence = match->confidence;
+            result.mqtt = match->mqtt;
         }
         results_.push_back(std::move(result));
         results_sorted_ = false;

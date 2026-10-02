@@ -152,6 +152,10 @@ OutputStatus validate_report(const ScanReport &report) noexcept
             if (service.port.number == 0U || service.target.empty() || !valid_confidence(service.confidence)) {
                 return OutputStatus::InvalidReport;
             }
+            if (service.mqtt.has_value() &&
+                (service.mqtt->return_code > 5U || service.service != "mqtt")) {
+                return OutputStatus::InvalidReport;
+            }
             if (service.rtt_ms.has_value() && !valid_nonnegative(*service.rtt_ms)) {
                 return OutputStatus::InvalidReport;
             }

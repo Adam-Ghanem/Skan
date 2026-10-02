@@ -47,6 +47,43 @@ int main()
 {
     using namespace skan::detect;
 
+    // Complete framing, not TCP segmentation or the port hint, determines
+    // detection. The two-byte legacy prefix must never become a saved match.
+    for (const char *target : {"127.0.0.1", "::1"}) {
+        for (std::size_t split = 1U; split < 4U; ++split) {
+            for (bool truncated : {false, true}) {
+                skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+                const auto database = ServiceProbeDatabase::load_file("data/service-probes.db", status);
+                assert(status == skan::core::StatusCode::Ok);
+                skan::io::IOEngine engine;
+                RecordingServiceTransport transport;
+                ServiceScheduler scheduler(engine, transport, database,
+                    ServiceDetectionConfig{1U, std::chrono::milliseconds{100}, 32U, 1U});
+                assert(scheduler.submit({open_port(target, 1883U)}) == skan::core::StatusCode::Ok);
+                const auto submission = transport.submissions().front();
+                assert(submission.probe_name == "MQTTConnect");
+                const std::string response{"\x20\x02\x00\x00", 4U};
+                transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                    response_bytes(std::string_view{response}.substr(0U, split)), false, DetectionClock::now()});
+                assert(!scheduler.complete());
+                if (!truncated) {
+                    transport.deliver({submission.id, submission.target, ServiceResponseKind::Data, 0,
+                        response_bytes(std::string_view{response}.substr(split)), false, DetectionClock::now()});
+                }
+                transport.deliver({submission.id, submission.target, ServiceResponseKind::Closed, 0,
+                    {}, false, DetectionClock::now()});
+                assert(scheduler.complete());
+                const auto &result = scheduler.results().front();
+                assert(result.state == (truncated ? DetectionState::Unknown : DetectionState::Detected));
+                assert(result.service == (truncated ? "" : "mqtt"));
+                assert(result.product.empty());
+                assert(result.version.empty());
+                assert(result.mqtt.has_value() == !truncated);
+                if (result.mqtt) assert(result.mqtt->return_code == 0U);
+            }
+        }
+    }
+
     {
         skan::core::StatusCode status = skan::core::StatusCode::InternalError;
         const ServiceProbeDatabase database = ServiceProbeDatabase::parse(
