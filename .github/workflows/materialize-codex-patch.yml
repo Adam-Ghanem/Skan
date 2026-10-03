@@ -130,4 +130,8 @@ jobs:
           echo "verified tree: $tree"
 
       - name: Push materialized commit
-        run: git push origin HEAD:refs/heads/codex-materialized
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          git push origin HEAD:refs/heads/codex-materialized

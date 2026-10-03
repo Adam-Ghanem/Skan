@@ -5,6 +5,39 @@
 
 namespace {
 
+void templated_protocol_regressions()
+{
+    using namespace skan::detect;
+    skan::core::StatusCode status = skan::core::StatusCode::InternalError;
+    const auto database = ServiceProbeDatabase::parse(
+        "Probe TCP Template rarity=1\n"
+        "send \"unrelated\"\n"
+        "match type=regex pattern=\"(http|elasticsearch|opensearch|zookeeper)\" service=\"$1\" product=Fake version=9.9.9 confidence=0.99\n",
+        status);
+    assert(status == skan::core::StatusCode::Ok);
+    const ServiceMatcher matcher(database);
+    const auto &probe = database.probes().front();
+    for (const char *response : {"http", "elasticsearch", "opensearch", "zookeeper"}) {
+        assert(!matcher.match(probe, response).matched);
+    }
+    auto root_probe = probe;
+    root_probe.payload = "GET / HTTP/1.1\r\n\r\n";
+    const auto body_label = matcher.match(root_probe,
+        "HTTP/1.1 200 OK\r\n\r\nhttp Server: nginx/9.9.9\r\n");
+    assert(body_label.matched && body_label.service == "http");
+    assert(body_label.product.empty() && body_label.version.empty());
+    const auto header_label = matcher.match(root_probe,
+        "HTTP/1.1 200 OK\r\nX-Service: http\r\nServer: nginx/1.26.2\r\n\r\n");
+    assert(header_label.service == "http" && header_label.product == "nginx");
+    assert(header_label.version == "1.26.2");
+    assert(!matcher.match(root_probe,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+        "{\"service\":\"elasticsearch\"}").matched);
+    assert(!matcher.match(root_probe,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+        "{\"service\":\"opensearch\"}").matched);
+}
+
 void mqtt_framing_regressions()
 {
     using namespace skan::detect;
@@ -75,6 +108,7 @@ void mqtt_framing_regressions()
 
 int main()
 {
+    templated_protocol_regressions();
     using namespace skan::detect;
     mqtt_framing_regressions();
     const std::string text =

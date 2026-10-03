@@ -38,7 +38,11 @@ and their canonical mirror are unchanged by this engine update.
 HTTP accepts complete CRLF-delimited HTTP/1.0 or HTTP/1.1 status and header
 blocks. Header names are case-insensitive. Only actual `Server` header fields
 can supply HTTP product/version; body text, trailers and informational-response
-headers cannot. Duplicate Server fields suppress that identity. A generic
+headers cannot. Duplicate Server fields suppress that identity. Product hints
+previously inferred from `X-Powered-By` or body text (including Express hints)
+are deliberately omitted until they have a dedicated validator. These protocol
+checks also apply when a regex capture expands the service name, such as
+`service="$1"`. A generic
 HTTP response has no product/version: the HTTP protocol version appears in
 `evidence.protocol_version`, not the product-version field.
 

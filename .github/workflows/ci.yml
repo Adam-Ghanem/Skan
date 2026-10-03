@@ -146,7 +146,7 @@ jobs:
 
       - name: Validate workflow policy
         run: |
-          python3 -m unittest tests/security/test_workflow_policy.py
+          python3 -m unittest tests/security/test_workflow_policy.py tests/security/test_materialize_push.py
           python3 scripts/validate_workflow_policy.py .github/workflows/*.yml
 
       - name: Validate intelligence corpus contracts

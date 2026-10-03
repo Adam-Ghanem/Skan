@@ -283,15 +283,22 @@ ServiceMatchResult ServiceMatcher::match(
     std::string owned_response;
     for (std::size_t index = 0U; index < probe.rules.size(); ++index) {
         const ServiceMatchRule &rule = probe.rules[index];
-        if (!looks_http && rule.service == "http") continue;
-        if (looks_http && rule.service == "http") {
+        std::match_results<std::string::const_iterator> matches;
+        std::string service = rule.service;
+        const bool templated_service = rule.type == ServiceMatchType::Regex && service.find('$') != std::string::npos;
+        if (templated_service) {
+            if (!rule_matches(rule, looks_http ? std::string_view{normalized_http} : response, matches, owned_response)) continue;
+            service = expand_template(service, &matches);
+        }
+        if (!looks_http && service == "http") continue;
+        if (looks_http && service == "http") {
             auto candidate = http_identity(http);
             candidate.rule_index = index;
             if (service_match_is_better(candidate, best)) best = std::move(candidate);
             continue;
         }
-        if (rule.service == "elasticsearch" || rule.service == "opensearch") {
-            if (!search || search->service != rule.service) continue;
+        if (service == "elasticsearch" || service == "opensearch") {
+            if (!search || search->service != service) continue;
             ServiceMatchResult candidate;
             candidate.matched = true;
             candidate.service = search->service;
@@ -305,7 +312,7 @@ ServiceMatchResult ServiceMatcher::match(
             if (service_match_is_better(candidate, best)) best = std::move(candidate);
             continue;
         }
-        if (rule.service == "zookeeper" && (probe.payload == "srvr" || probe.payload == "srvr\n")) {
+        if (service == "zookeeper" && (probe.payload == "srvr" || probe.payload == "srvr\n")) {
             const auto identity = probe.protocol == TransportProtocol::Tcp ? parse_zookeeper_srvr(response, terminal) : std::nullopt;
             if (!identity) continue;
             ServiceMatchResult candidate;
@@ -321,15 +328,14 @@ ServiceMatchResult ServiceMatcher::match(
             if (service_match_is_better(candidate, best)) best = std::move(candidate);
             continue;
         }
-        if (rule.service == "zookeeper" && (probe.protocol != TransportProtocol::Tcp ||
+        if (service == "zookeeper" && (probe.protocol != TransportProtocol::Tcp ||
             !(probe.payload == "ruok" || probe.payload == "ruok\n") || response != "imok")) continue;
-        std::match_results<std::string::const_iterator> matches;
-        if (!rule_matches(rule, looks_http ? std::string_view{normalized_http} : response, matches, owned_response)) {
+        if (!templated_service && !rule_matches(rule, looks_http ? std::string_view{normalized_http} : response, matches, owned_response)) {
             continue;
         }
         ServiceMatchResult candidate;
         candidate.matched = true;
-        candidate.service = expand_template(rule.service, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
+        candidate.service = std::move(service);
         candidate.product = expand_template(rule.product, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
         candidate.version = expand_template(rule.version, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
         candidate.extra = expand_template(rule.extra, rule.type == ServiceMatchType::Regex ? &matches : nullptr);
