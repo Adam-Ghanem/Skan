@@ -136,5 +136,30 @@ int main()
     assert(uncertain_summary.hosts_up == 0U);
     assert(uncertain_summary.hosts_unknown == 1U);
     assert(uncertain_summary.filtered_ports == 1U);
+    skan::osdetect::OSMatchResult broad;
+    broad.fingerprint_name = "Broad";
+    broad.fingerprint_id = "broad";
+    broad.confidence = 1.0;
+    broad.category = skan::db::MatchCategory::StrongMatch;
+    broad.specificity = 2U;
+    auto specific = broad;
+    specific.fingerprint_name = "Specific";
+    specific.fingerprint_id = "specific";
+    specific.confidence = 0.92;
+    specific.specificity = 9U;
+    const std::vector<skan::orchestrator::OSReportEvidence> ranked_evidence{
+        {"192.0.2.1", {broad, specific}, std::nullopt}};
+    const auto ranked_report = skan::orchestrator::ScanReportBuilder::build(
+        config, target, discovery_results, port_results, {}, ranked_evidence, std::nullopt,
+        std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), {}, {});
+    assert(ranked_report.hosts.front().os_matches.front().fingerprint_id == "specific");
+    const auto ordered = skan::output::detail::ordered_os_matches(ranked_report.hosts.front());
+    assert(ordered.front()->fingerprint_id == "specific");
+    std::ostringstream ranked_json;
+    assert(json_writer.write(ranked_report, ranked_json, skan::output::OutputContext{}) ==
+           skan::output::OutputStatus::Ok);
+    assert(ranked_json.str().find("Specific") != std::string::npos);
+    assert(ranked_json.str().find("Broad") != std::string::npos);
+    assert(ranked_json.str().find("Specific") < ranked_json.str().find("Broad"));
     return 0;
 }

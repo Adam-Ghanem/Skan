@@ -52,10 +52,7 @@ bool service_less(const detect::ServiceResult &left, const detect::ServiceResult
 
 bool os_less(const osdetect::OSMatchResult &left, const osdetect::OSMatchResult &right) noexcept
 {
-    if (left.confidence != right.confidence) {
-        return left.confidence > right.confidence;
-    }
-    return left.fingerprint_name < right.fingerprint_name;
+    return osdetect::os_match_is_better(left, right);
 }
 
 bool host_less(const HostResult &left, const HostResult &right) noexcept

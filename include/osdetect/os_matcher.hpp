@@ -54,6 +54,21 @@ struct OSMatchResult final {
     std::uint16_t specificity{0U};
 };
 
+// Preserve the selected fingerprint's ranking throughout reports and outputs.
+inline bool os_match_is_better(const OSMatchResult &left, const OSMatchResult &right) noexcept
+{
+    const bool left_strong = left.category == db::MatchCategory::StrongMatch;
+    const bool right_strong = right.category == db::MatchCategory::StrongMatch;
+    if (left_strong != right_strong) return left_strong;
+    if (left_strong && left.specificity != right.specificity) {
+        return left.specificity > right.specificity;
+    }
+    if (left.confidence != right.confidence) return left.confidence > right.confidence;
+    if (left.specificity != right.specificity) return left.specificity > right.specificity;
+    if (left.fingerprint_name != right.fingerprint_name) return left.fingerprint_name < right.fingerprint_name;
+    return left.fingerprint_id < right.fingerprint_id;
+}
+
 struct OSDetectionResult final {
     std::string target;
     OSDetectionState state{OSDetectionState::NotRun};

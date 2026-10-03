@@ -171,6 +171,7 @@ sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 
 See [Nmap compatibility](docs/NMAP_COMPATIBILITY.md) for exact boundaries.
 See [Service fingerprinting](docs/SERVICE_FINGERPRINTS.md) for the clean-room probe format and corpus limits.
+See [OS evidence confidence](docs/OS_EVIDENCE_CONFIDENCE.md) for scoring, missing observations, and classification limits.
 See [Intelligence Database v2](docs/INTELLIGENCE_DATABASE.md) for governed
 source, canonical-record, and migration-gate contracts.
 

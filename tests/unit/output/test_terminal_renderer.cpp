@@ -152,5 +152,44 @@ int main()
     std::reverse(reordered.hosts.front().services.begin(), reordered.hosts.front().services.end());
     assert(render(wide, std::move(reordered)) == wide_output);
 
+    auto unknown_os = report_fixture();
+    skan::osdetect::OSMatchResult rejected;
+    rejected.fingerprint_name = "RejectedFingerprint";
+    rejected.fingerprint_id = "rejected";
+    rejected.confidence = 0.25;
+    rejected.category = skan::db::MatchCategory::NoMatch;
+    unknown_os.hosts.front().os_matches = {rejected};
+    unknown_os.hosts.front().os_detection = skan::osdetect::OSDetectionResult{};
+    const auto unknown_text = render(plain, unknown_os);
+    assert(unknown_text.find("RejectedFingerprint") == std::string::npos);
+    assert(unknown_text.find("OS: unknown") != std::string::npos);
+
+    auto classified_os = report_fixture();
+    auto broad = rejected;
+    broad.fingerprint_name = "BroadFingerprint";
+    broad.fingerprint_id = "broad";
+    broad.confidence = 1.0;
+    broad.category = skan::db::MatchCategory::StrongMatch;
+    broad.specificity = 2U;
+    auto specific = broad;
+    specific.fingerprint_name = "SpecificFingerprint";
+    specific.fingerprint_id = "specific";
+    specific.confidence = 0.92;
+    specific.specificity = 9U;
+    classified_os.hosts.front().os_matches = {broad, specific};
+    skan::osdetect::OSDetectionResult detection;
+    detection.family = "SpecificFamily";
+    detection.confidence = specific.confidence;
+    detection.category = specific.category;
+    detection.fingerprint_id = specific.fingerprint_id;
+    classified_os.hosts.front().os_detection = detection;
+    const auto classified_text = render(plain, classified_os);
+    assert(classified_text.find("OS: SpecificFamily / SpecificFingerprint / 92%") != std::string::npos);
+    assert(classified_text.find("BroadFingerprint") == std::string::npos);
+    classified_os.hosts.front().os_detection->fingerprint_id = broad.fingerprint_id;
+    classified_os.hosts.front().os_detection->confidence = broad.confidence;
+    const auto selected_text = render(plain, classified_os);
+    assert(selected_text.find("OS: SpecificFamily / BroadFingerprint / 100%") != std::string::npos);
+    assert(selected_text.find("SpecificFingerprint") == std::string::npos);
     return 0;
 }

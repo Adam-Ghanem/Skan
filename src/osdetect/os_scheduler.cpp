@@ -479,7 +479,7 @@ void OSScheduler::emit_result(OSDetectionState state, OSDetectionError error) no
         if (observed_.has_value()) {
             result.observed = *observed_;
             result.matches = matcher_.match(result.observed, config_.max_results);
-            if (!result.matches.empty() && result.matches.front().confidence > 0.0) {
+            if (!result.matches.empty() && result.matches.front().category != db::MatchCategory::NoMatch) {
                 const OSMatchResult &top = result.matches.front();
                 result.vendor = top.vendor;
                 result.family = top.family;
