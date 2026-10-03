@@ -552,13 +552,21 @@ void render_os(const HostResult &host, std::ostream &output, const TerminalLayou
     if (!detection.generation.empty()) {
         label += " " + detection.generation;
     }
-    if (!host.os_matches.empty()) {
+    const bool classified = detection.category.has_value() && *detection.category != db::MatchCategory::NoMatch;
+    if (classified && !host.os_matches.empty()) {
         const auto matches = detail::ordered_os_matches(host);
-        if (!matches.front()->fingerprint_name.empty()) {
-            label += " / " + matches.front()->fingerprint_name;
+        const auto selected = std::find_if(matches.begin(), matches.end(), [&detection](const auto *match) {
+            return match->fingerprint_id == detection.fingerprint_id;
+        });
+        if (selected != matches.end() && !(*selected)->fingerprint_name.empty()) {
+            label += " / " + (*selected)->fingerprint_name;
         }
     }
-    label += " / " + std::to_string(static_cast<int>(std::lround(detection.confidence * 100.0))) + "%";
+    if (classified) {
+        label += " / " + std::to_string(static_cast<int>(std::lround(detection.confidence * 100.0))) + "%";
+    } else {
+        label = "unknown";
+    }
     if (layout.mode == TerminalLayoutMode::Plain) {
         const std::string line = "OS: " + ascii_safe(label);
         output << (layout.columns < 64U ? fit(line, layout.columns) : line) << '\n';

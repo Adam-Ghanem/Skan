@@ -156,18 +156,7 @@ output::ScanReport ScanReportBuilder::build(
         std::sort(host.services.begin(), host.services.end(), [](const detect::ServiceResult &left, const detect::ServiceResult &right) {
             return left.port.number < right.port.number;
         });
-        std::sort(host.os_matches.begin(), host.os_matches.end(), [](const osdetect::OSMatchResult &left, const osdetect::OSMatchResult &right) {
-            if (left.confidence != right.confidence) {
-                return left.confidence > right.confidence;
-            }
-            if (left.specificity != right.specificity) {
-                return left.specificity > right.specificity;
-            }
-            if (left.fingerprint_name != right.fingerprint_name) {
-                return left.fingerprint_name < right.fingerprint_name;
-            }
-            return left.fingerprint_id < right.fingerprint_id;
-        });
+        std::sort(host.os_matches.begin(), host.os_matches.end(), osdetect::os_match_is_better);
     }
     return report;
 }

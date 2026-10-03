@@ -261,16 +261,16 @@ std::vector<OSMatchResult> OSMatcher::match(
             result.family = fingerprint.family;
             result.generation = fingerprint.generation;
             result.device_type = fingerprint.device_type;
-            double available_weight = 0.0;
+            double configured_weight = 0.0;
             double matched_weight = 0.0;
             for (const db::FingerprintSignature &signature : fingerprint.signatures) {
+                configured_weight += weight_for(signature.field);
                 const Evidence evidence = compare(signature, observed);
                 const std::string field_name = db::fingerprint_field_name(signature.field);
                 if (!evidence.available) {
                     result.unavailable_fields.push_back(field_name);
                     continue;
                 }
-                available_weight += weight_for(signature.field);
                 if (evidence.matches) {
                     matched_weight += weight_for(signature.field);
                     result.matched_fields.push_back(field_name);
@@ -278,7 +278,9 @@ std::vector<OSMatchResult> OSMatcher::match(
                     result.mismatched_fields.push_back(field_name);
                 }
             }
-            result.confidence = available_weight == 0.0 ? 0.0 : matched_weight / available_weight;
+            // Missing evidence limits support instead of shrinking the
+            // denominator and making sparse observations look conclusive.
+            result.confidence = configured_weight == 0.0 ? 0.0 : matched_weight / configured_weight;
             if (result.confidence < kNoMatchThreshold) {
                 result.category = db::MatchCategory::NoMatch;
             } else if (result.confidence < kLowConfidenceThreshold) {
@@ -290,18 +292,7 @@ std::vector<OSMatchResult> OSMatcher::match(
             }
             results.push_back(std::move(result));
         }
-        std::sort(results.begin(), results.end(), [](const OSMatchResult &left, const OSMatchResult &right) {
-            if (left.confidence != right.confidence) {
-                return left.confidence > right.confidence;
-            }
-            if (left.specificity != right.specificity) {
-                return left.specificity > right.specificity;
-            }
-            if (left.fingerprint_name != right.fingerprint_name) {
-                return left.fingerprint_name < right.fingerprint_name;
-            }
-            return left.fingerprint_id < right.fingerprint_id;
-        });
+        std::sort(results.begin(), results.end(), os_match_is_better);
         if (results.size() > max_results) {
             results.resize(max_results);
         }

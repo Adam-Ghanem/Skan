@@ -119,7 +119,34 @@ int main()
     assert(scheduler.result()->responses_received == 24U);
     assert(scheduler.result()->probes_unsupported == 0U);
     assert(scheduler.result()->matches.front().fingerprint_name == "LinuxModern64240");
-    assert(scheduler.result()->confidence == 1.0);
+    assert(scheduler.result()->confidence >= osdetect::kPossibleMatchThreshold);
+    assert(scheduler.result()->confidence < 1.0);
+
+    // A positive score below the classification threshold stays diagnostic;
+    // it must not become the host's reported OS identity.
+    core::StatusCode weak_status = core::StatusCode::InternalError;
+    const auto weak_database = db::OSFingerprintDatabase::parse(
+        "Fingerprint Weak\nID=weak\nADDRESS_FAMILY=IPv4\n"
+        "Class UnsupportedVendor | UnsupportedFamily | UnsupportedGeneration | UnsupportedDevice\n"
+        "TTL=64\nWINDOW=1\nMSS=1\nSACK=N\nTIMESTAMP=N\nRESPONSE_PRESENCE=YES\n",
+        weak_status, core::AddressFamily::IPv4);
+    assert(weak_status == core::StatusCode::Ok);
+    io::IOEngine weak_engine;
+    osdetect::RecordingOSProbeTransport weak_transport;
+    osdetect::OSScheduler weak_scheduler(weak_engine, weak_transport, weak_database, config);
+    assert(weak_scheduler.submit(target, ports) == core::StatusCode::Ok);
+    deliver_all_matching(weak_scheduler, weak_transport);
+    assert(weak_scheduler.result().has_value());
+    const auto &weak_result = *weak_scheduler.result();
+    assert(weak_result.state == osdetect::OSDetectionState::Complete);
+    assert(!weak_result.matches.empty());
+    assert(weak_result.matches.front().confidence > 0.0);
+    assert(weak_result.matches.front().category == db::MatchCategory::NoMatch);
+    assert(!weak_result.observed.tcp_observations.empty());
+    assert(weak_result.vendor.empty() && weak_result.family.empty());
+    assert(weak_result.generation.empty() && weak_result.device_type.empty());
+    assert(weak_result.fingerprint_id.empty());
+    assert(weak_result.confidence == 0.0 && !weak_result.category.has_value());
 
     io::IOEngine timeout_engine;
     osdetect::RecordingOSProbeTransport timeout_transport;
