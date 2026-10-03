@@ -21,6 +21,9 @@ int main()
            first.str().find("Port: target=\"192.0.2.20\" number=80"));
     assert(first.str().find("Service:") != std::string::npos);
     assert(first.str().find("hostname=\"www.example.test\" tunnel=\"tls\" tls=true tls_version=\"TLS 1.3\"") != std::string::npos);
+    assert(first.str().find("certificate_subject=\"CN=www.example.test\"") != std::string::npos);
+    assert(first.str().find("certificate_san=\"example.test\"") != std::string::npos);
+    assert(first.str().find("alpn=\"h2\" alpn=\"http/1.1\"") != std::string::npos);
     assert(first.str().find("OS: address=\"192.0.2.20\"") != std::string::npos);
     assert(first.str().find("OSStatus: address=\"192.0.2.20\" family=ipv4 state=complete error=none confidence=0.91 probes=12 responses=7 timeouts=5 tcp_evidence=0") !=
            std::string::npos);

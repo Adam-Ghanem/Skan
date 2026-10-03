@@ -888,7 +888,7 @@ test-service-v3-replay: $(BUILD_DIR)/replay_service_v3
 $(BUILD_DIR)/replay_service_v3: tests/fuzz/replay_service_v3.cpp $(BUILD_DIR)/detect/protocol_parsers.o
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
-$(BUILD_DIR)/test_service_tls_local: $(BUILD_DIR)/tests/integration/detect/test_service_tls_local.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+$(BUILD_DIR)/test_service_tls_local: $(BUILD_DIR)/tests/integration/detect/test_service_tls_local.o $(OUTPUT_TEST_OBJECTS) $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_tls_scheduler: $(BUILD_DIR)/tests/unit/detect/test_service_tls_scheduler.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)

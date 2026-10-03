@@ -3,6 +3,9 @@
 #include <csignal>
 #include <fstream>
 #include <iostream>
+#include <fcntl.h>
+#include <poll.h>
+#include <sstream>
 #include <utility>
 #include <string>
 #include <sys/socket.h>
@@ -15,6 +18,10 @@
 #include <openssl/x509v3.h>
 
 #include "detect/service_detector.hpp"
+#include "detect/tls_session.hpp"
+#include "output/output_json.hpp"
+#include "output/output_xml.hpp"
+#include "output/output_grepable.hpp"
 
 namespace {
 
@@ -25,10 +32,14 @@ struct Fixture final {
     std::size_t response_limit{8192U};
     std::size_t split{0U};
     bool abrupt_eof{false};
+    std::string server_name;
+    bool plaintext{false};
+    bool stall{false};
+    bool selected_alpn{true};
     std::string message{"HTTP/1.1 200 OK\r\nServer: nginx/1.26.2\r\nContent-Length: 26\r\n\r\nServer: BodyProduct/8.8.8\n"};
 };
 
-SSL_CTX *server_context(int version)
+SSL_CTX *server_context(int version, bool selected_alpn = true)
 {
     SSL_CTX *context = SSL_CTX_new(TLS_server_method());
     assert(context != nullptr);
@@ -61,7 +72,7 @@ SSL_CTX *server_context(int version)
     assert(SSL_CTX_use_PrivateKey(context, key) == 1);
     X509_free(certificate);
     EVP_PKEY_free(key);
-    SSL_CTX_set_alpn_select_cb(context, [](SSL *, const unsigned char **out, unsigned char *length,
+    if (selected_alpn) SSL_CTX_set_alpn_select_cb(context, [](SSL *, const unsigned char **out, unsigned char *length,
         const unsigned char *offered, unsigned int offered_length, void *) {
         static constexpr unsigned char supported[] = "\x08http/1.1";
         unsigned char *selected = nullptr;
@@ -105,7 +116,7 @@ int listener(std::uint16_t &port, int family)
     return descriptor;
 }
 
-skan::detect::ServiceProbeDatabase database(std::uint16_t port)
+skan::detect::ServiceProbeDatabase database(std::uint16_t port, std::uint16_t second_port = 0U)
 {
     std::ifstream input("data/service-probes.db");
     assert(input.is_open());
@@ -113,7 +124,8 @@ skan::detect::ServiceProbeDatabase database(std::uint16_t port)
     const auto probe = text.find("Probe TCP TLSClientHello");
     assert(probe != std::string::npos);
     const auto hints = text.find("ports=", probe);
-    text.insert(hints + 6U, std::to_string(port) + ',');
+    text.insert(hints + 6U, std::to_string(port) + ',' +
+        (second_port == 0U ? "" : std::to_string(second_port) + ','));
     // Session activation must depend on request/rule semantics, not probe name.
     text.replace(probe, std::string("Probe TCP TLSClientHello").size(), "Probe TCP RenamedHandshake");
     skan::core::StatusCode status{};
@@ -127,7 +139,18 @@ void serve(int descriptor, const Fixture &fixture)
     ::alarm(6U);
     // Test fixture only: OpenSSL's stock server socket BIO can otherwise SIGPIPE.
     std::signal(SIGPIPE, SIG_IGN);
-    SSL_CTX *context = server_context(fixture.version);
+    if (fixture.plaintext || fixture.stall) {
+        const int client = ::accept4(descriptor, nullptr, nullptr, SOCK_CLOEXEC);
+        assert(client >= 0);
+        char hello[4096];
+        assert(::recv(client, hello, sizeof(hello), 0) > 0);
+        if (fixture.stall) (void)::usleep(200000U);
+        else assert(::send(client, fixture.message.data(), fixture.message.size(), MSG_NOSIGNAL) > 0);
+        (void)::close(client);
+        (void)::close(descriptor);
+        ::_exit(0);
+    }
+    SSL_CTX *context = server_context(fixture.version, fixture.selected_alpn);
     bool application_seen = false;
     bool established = false;
     for (std::size_t attempt = 0U; attempt < fixture.probes; ++attempt) {
@@ -139,12 +162,21 @@ void serve(int descriptor, const Fixture &fixture)
         SSL *session = SSL_new(context);
         assert(session != nullptr && SSL_set_fd(session, client) == 1);
         const bool current = SSL_accept(session) == 1;
+        if (current) {
+            const char *name = SSL_get_servername(session, TLSEXT_NAMETYPE_host_name);
+            if (fixture.server_name.empty()) assert(name == nullptr);
+            else assert(name != nullptr && fixture.server_name == name);
+        }
         established = established || current;
         if (current && attempt == 1U) {
             char request[1024];
             const int count = SSL_read(session, request, sizeof(request));
             application_seen = count > 0 && std::string_view{request, static_cast<std::size_t>(count)}.starts_with("GET / HTTP/1.0\r\n");
             if (application_seen) {
+                if (!fixture.server_name.empty()) {
+                    assert((std::string_view{request, static_cast<std::size_t>(count)}.find(
+                        "\r\nHost: " + fixture.server_name + "\r\n") != std::string_view::npos));
+                }
                 const auto send = [session](std::string_view bytes) {
                     assert(SSL_write(session, bytes.data(), static_cast<int>(bytes.size())) == static_cast<int>(bytes.size()));
                 };
@@ -182,9 +214,10 @@ skan::detect::ServiceResult scan(const Fixture &fixture)
     detect::ServiceTransportRouter transport(engine);
     detect::ServiceDetectionConfig configuration;
     configuration.max_outstanding = 1U;
-    configuration.timeout = std::chrono::milliseconds{1000};
+    configuration.timeout = std::chrono::milliseconds{fixture.stall ? 60 : 1000};
     configuration.max_probes_per_port = fixture.probes;
     configuration.max_response_bytes = fixture.response_limit;
+    configuration.tls_server_name = fixture.server_name;
     detect::ServiceDetector detector(engine, transport, configuration, database(port));
     portscan::PortResult open;
     open.target = fixture.family == AF_INET6 ? "::1" : "127.0.0.1";
@@ -265,10 +298,241 @@ void buffered_records_are_drained_and_abrupt_eof_is_not_http_completion()
     assert(abrupt.product.empty() && abrupt.version.empty());
 }
 
+
+void handshake_failure_deadline_and_plaintext_cap_are_bounded()
+{
+    using namespace skan::detect;
+    Fixture fixture;
+    fixture.probes = 1U;
+    fixture.plaintext = true;
+    auto result = scan(fixture);
+    assert(result.error == DetectionError::TlsFailure && !result.tls_detected && result.service.empty());
+    fixture.plaintext = false;
+    fixture.stall = true;
+    result = scan(fixture);
+    assert(result.state == DetectionState::Timeout && !result.tls_detected && result.service.empty());
+    fixture.stall = false;
+    fixture.probes = 2U;
+    fixture.response_limit = 32U;
+    result = scan(fixture);
+    assert(result.state == DetectionState::ResponseTooLarge && result.service == "tls" && result.tls_detected);
+    assert(result.product.empty() && result.version.empty());
+    fixture.response_limit = 8192U;
+    fixture.selected_alpn = false;
+    result = scan(fixture);
+    assert(result.service == "https" && result.alpn.empty());
+}
+
+void concurrent_targets_keep_their_own_tls_and_application_evidence()
+{
+    using namespace skan;
+    std::uint16_t ports[2]{};
+    int descriptors[2]{};
+    pid_t children[2]{};
+    std::vector<portscan::PortResult> endpoints;
+    for (std::size_t i = 0U; i < 2U; ++i) {
+        descriptors[i] = listener(ports[i], AF_INET);
+        children[i] = ::fork();
+        assert(children[i] >= 0);
+        if (children[i] == 0) {
+            Fixture fixture;
+            fixture.version = i == 0U ? TLS1_2_VERSION : TLS1_3_VERSION;
+            fixture.message = "HTTP/1.1 200 OK\r\nServer: nginx/" +
+                std::string{i == 0U ? "1.26.2" : "1.25.9"} + "\r\nContent-Length: 0\r\n\r\n";
+            serve(descriptors[i], fixture);
+        }
+        (void)::close(descriptors[i]);
+        portscan::PortResult open;
+        open.target = "127.0.0.1";
+        open.port = {ports[i], portscan::Protocol::Tcp};
+        open.state = portscan::PortState::Open;
+        endpoints.push_back(open);
+    }
+    io::IOEngine engine;
+    detect::ServiceTransportRouter transport(engine);
+    detect::ServiceDetectionConfig configuration;
+    configuration.max_outstanding = 2U;
+    configuration.max_probes_per_port = 2U;
+    detect::ServiceDetector detector(engine, transport, configuration, database(ports[0], ports[1]));
+    assert(detector.submit(endpoints) == core::StatusCode::Ok);
+    assert(detector.pending_count() == 2U);
+    assert(detector.run() == core::StatusCode::Ok && detector.complete());
+    assert(detector.results().size() == 2U);
+    for (const auto &result : detector.results()) {
+        const bool first = result.port.number == ports[0];
+        assert(result.service == "https" && result.product == "nginx");
+        assert(result.version == (first ? "1.26.2" : "1.25.9"));
+        assert(result.tls_version == (first ? "TLS 1.2" : "TLS 1.3"));
+    }
+    for (pid_t child : children) {
+        int status = 0;
+        assert(::waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
+}
+
+void callbacks_can_cancel_and_start_another_tls_connection()
+{
+    using namespace skan;
+    std::uint16_t port = 0U;
+    const int descriptor = listener(port, AF_INET);
+    const pid_t child = ::fork();
+    assert(child >= 0);
+    if (child == 0) serve(descriptor, Fixture{});
+    (void)::close(descriptor);
+    io::IOEngine engine;
+    detect::ServiceTcpTransport transport(engine);
+    detect::ServiceSubmission hello;
+    hello.id = 1U;
+    hello.target = "127.0.0.1";
+    hello.port = {port, portscan::Protocol::Tcp};
+    hello.tls_session = true;
+    hello.tls_handshake_only = true;
+    bool first_cancelled = false;
+    bool second_cancelled = false;
+    std::size_t second_handshakes = 0U;
+    assert(transport.submit(hello, [&](const detect::ServiceResponse &response) {
+        assert(!first_cancelled && response.kind == detect::ServiceResponseKind::TlsEstablished);
+        assert(transport.cancel(1U) == core::StatusCode::Ok);
+        first_cancelled = true;
+        auto application = hello;
+        application.id = 2U;
+        application.tls_handshake_only = false;
+        application.payload = "GET / HTTP/1.0\r\nHost: localhost\r\n\r\n";
+        assert(transport.submit(application, [&](const detect::ServiceResponse &next) {
+            assert(!second_cancelled);
+            if (next.kind == detect::ServiceResponseKind::TlsEstablished) ++second_handshakes;
+            else {
+                assert(next.kind == detect::ServiceResponseKind::Data && !next.bytes.empty());
+                assert(transport.cancel(2U) == core::StatusCode::Ok);
+                second_cancelled = true;
+            }
+        }) == core::StatusCode::Ok);
+    }) == core::StatusCode::Ok);
+    for (std::size_t turns = 0U; !second_cancelled && turns < 300U; ++turns) {
+        assert(engine.run_once(10) == core::StatusCode::Ok);
+    }
+    assert(first_cancelled && second_cancelled && second_handshakes == 1U);
+    assert(transport.cancel(1U) == core::StatusCode::Ok && transport.cancel(2U) == core::StatusCode::Ok);
+    for (int turns = 0; turns < 3; ++turns) assert(engine.run_once(0) == core::StatusCode::Ok);
+    int status = 0;
+    assert(::waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+void tls_write_retries_preserve_the_buffer_and_borrowed_descriptor()
+{
+    using namespace skan::detect;
+    int pair[2]{};
+    assert(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair) == 0);
+    const int small_buffer = 1024;
+    assert(::setsockopt(pair[0], SOL_SOCKET, SO_SNDBUF, &small_buffer, sizeof(small_buffer)) == 0);
+    const std::string payload(512U << 10U, 'x');
+    const pid_t child = ::fork();
+    assert(child >= 0);
+    if (child == 0) {
+        ::alarm(6U);
+        std::signal(SIGPIPE, SIG_IGN);
+        (void)::close(pair[0]);
+        SSL_CTX *context = server_context(TLS1_3_VERSION);
+        SSL *session = SSL_new(context);
+        assert(session != nullptr && SSL_set_fd(session, pair[1]) == 1 && SSL_accept(session) == 1);
+        (void)::usleep(100000U);
+        std::size_t received = 0U;
+        char buffer[4096];
+        while (received < payload.size()) {
+            const int count = SSL_read(session, buffer, sizeof(buffer));
+            assert(count > 0);
+            assert(std::string_view(buffer, static_cast<std::size_t>(count)).find_first_not_of('x') == std::string_view::npos);
+            received += static_cast<std::size_t>(count);
+        }
+        assert(received == payload.size() && SSL_write(session, "ok", 2) == 2);
+        (void)SSL_shutdown(session);
+        SSL_free(session);
+        SSL_CTX_free(context);
+        (void)::close(pair[1]);
+        ::_exit(0);
+    }
+    (void)::close(pair[1]);
+    assert(skan::io::IOEngine::set_nonblocking(pair[0]) == skan::core::StatusCode::Ok);
+    const auto wait = [&](TlsIoState state) {
+        assert(state == TlsIoState::WantRead || state == TlsIoState::WantWrite);
+        pollfd ready{pair[0], static_cast<short>(state == TlsIoState::WantRead ? POLLIN : POLLOUT), 0};
+        assert(::poll(&ready, 1U, 1000) > 0);
+    };
+    bool backpressure = false;
+    {
+        TlsSession session(pair[0]);
+        assert(session.valid());
+        for (;;) {
+            const auto result = session.handshake();
+            if (result.state == TlsIoState::Ready) break;
+            wait(result.state);
+        }
+        std::size_t sent = 0U;
+        while (sent < payload.size()) {
+            const auto result = session.write({reinterpret_cast<const std::uint8_t *>(payload.data()) + sent, payload.size() - sent});
+            if (result.state == TlsIoState::Ready) sent += result.bytes;
+            else { backpressure = backpressure || result.state == TlsIoState::WantWrite; wait(result.state); }
+        }
+        std::string received;
+        std::uint8_t buffer[16];
+        for (;;) {
+            const auto result = session.read(buffer);
+            if (result.state == TlsIoState::Closed) break;
+            if (result.state == TlsIoState::Ready) received.append(reinterpret_cast<char *>(buffer), result.bytes);
+            else wait(result.state);
+        }
+        assert(received == "ok" && backpressure);
+    }
+    assert(::fcntl(pair[0], F_GETFD) >= 0);
+    (void)::close(pair[0]);
+    int status = 0;
+    assert(::waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+void real_https_metadata_survives_all_machine_writers()
+{
+    using namespace skan;
+    Fixture fixture;
+    fixture.version = TLS1_3_VERSION;
+    const auto result = scan(fixture);
+    output::ScanReport report;
+    output::HostResult host;
+    host.address = result.target;
+    portscan::PortResult port;
+    port.target = result.target;
+    port.port = result.port;
+    port.state = portscan::PortState::Open;
+    host.ports.push_back(port);
+    host.services.push_back(result);
+    report.hosts.push_back(host);
+    std::ostringstream json, xml, grep;
+    assert(output::JsonOutputWriter{}.write(report, json, {}) == output::OutputStatus::Ok);
+    assert(output::XmlOutputWriter{}.write(report, xml, {}) == output::OutputStatus::Ok);
+    assert(output::GrepableOutputWriter{}.write(report, grep, {}) == output::OutputStatus::Ok);
+    assert(json.str().find("\"service\": \"https\"") != std::string::npos);
+    assert(xml.str().find("<name>https</name>") != std::string::npos);
+    assert(grep.str().find(" name=\"https\"") != std::string::npos);
+    for (const auto &text : {json.str(), xml.str(), grep.str()}) {
+        assert(text.find("TLS 1.3") != std::string::npos && text.find("CertificateProduct/9.9.9") != std::string::npos);
+        assert(text.find("fixture.test") != std::string::npos && text.find("http/1.1") != std::string::npos);
+        assert(text.find("nginx") != std::string::npos && text.find("1.26.2") != std::string::npos);
+        assert(text.find("tls") != std::string::npos);
+    }
+}
+
 } // namespace
 
 int main()
 {
+    Fixture named;
+    named.version = TLS1_3_VERSION;
+    named.server_name = "virtual.fixture.test";
+    assert(scan(named).service == "https");
+    handshake_failure_deadline_and_plaintext_cap_are_bounded();
+    concurrent_targets_keep_their_own_tls_and_application_evidence();
+    callbacks_can_cancel_and_start_another_tls_connection();
+    tls_write_retries_preserve_the_buffer_and_borrowed_descriptor();
+    real_https_metadata_survives_all_machine_writers();
     https_requires_encrypted_application_evidence();
     certificate_and_malformed_data_do_not_supply_application_identity();
     buffered_records_are_drained_and_abrupt_eof_is_not_http_completion();

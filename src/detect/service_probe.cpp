@@ -209,7 +209,8 @@ core::StatusCode ServiceTcpTransport::submit(
     ServiceResponseCallback callback)
 {
     if (submission.id == 0U || submission.target.empty() || submission.port.number == 0U ||
-        submission.port.protocol != TransportProtocol::Tcp || !callback || submission.max_response_bytes == 0U) {
+        submission.port.protocol != TransportProtocol::Tcp || !callback || submission.max_response_bytes == 0U ||
+        !valid_tls_server_name(submission.server_name)) {
         return core::StatusCode::InvalidArgument;
     }
     reap_completed();
@@ -291,7 +292,7 @@ core::StatusCode ServiceTcpTransport::submit(
         connection->payload.assign(submission.payload.begin(), submission.payload.end());
         connection->max_response_bytes = submission.max_response_bytes;
         if (submission.tls_session) {
-            connection->tls = std::make_unique<TlsSession>(file_descriptor);
+            connection->tls = std::make_unique<TlsSession>(file_descriptor, submission.server_name);
             if (!connection->tls->valid()) return core::StatusCode::IoError;
         }
         connection->event = std::make_unique<io::Event>(

@@ -8,6 +8,7 @@
 namespace {
 
 using namespace skan;
+using namespace std::string_literals;
 
 portscan::PortResult endpoint()
 {
@@ -130,6 +131,8 @@ void failed_current_tls_application_does_not_publish_provisional_identity()
         established(transport, application);
         transport.deliver(event(application, detect::ServiceResponseKind::Data,
             "HTTP/1.1 200 OK\r\nServer: Unfinished/9.9.9\r\n\r\nbody"));
+        // Duplicate handshake acknowledgement must not snapshot provisional HTTP.
+        established(transport, application);
         auto failure = event(application, kind);
         failure.system_error = ECONNRESET;
         transport.deliver(failure);
@@ -161,10 +164,47 @@ void oversized_application_retains_only_transport_evidence()
     assert(result.product.empty() && result.version.empty());
 }
 
+void explicit_server_names_reach_tls_fallbacks_and_default_http_host()
+{
+    const auto database = detect::ServiceProbeDatabase::built_in();
+    for (const std::string &name : std::vector<std::string>{"fixture.test", "A-1.example.test", std::string(63U, 'a') + ".test"}) {
+        io::IOEngine engine;
+        detect::RecordingServiceTransport transport;
+        detect::ServiceDetectionConfig configuration;
+        configuration.tls_server_name = name;
+        configuration.max_probes_per_port = 2U;
+        detect::ServiceScheduler scheduler(engine, transport, database, configuration);
+        assert(scheduler.submit({endpoint()}) == core::StatusCode::Ok);
+        assert(transport.submissions().front().server_name == name);
+        established(transport, transport.submissions().front());
+        const auto &application = transport.submissions().back();
+        assert(application.tls_session && application.server_name == name);
+        assert(application.payload.find("\r\nHost: " + name + "\r\n") != std::string::npos);
+    }
+}
+
+void invalid_server_names_are_rejected_before_a_submission()
+{
+    const auto database = detect::ServiceProbeDatabase::built_in();
+    for (const std::string &name : std::vector<std::string>{"bad\r\nHost: fake", "-bad.test", "bad-.test",
+         "a..test", ".test", "test.", "bad_name.test", "127.0.0.1", "::1", "bad\0.test"s,
+         std::string(64U, 'x') + ".test", std::string(254U, 'x'), "non\xc3\xa9.test"}) {
+        io::IOEngine engine;
+        detect::RecordingServiceTransport transport;
+        detect::ServiceDetectionConfig configuration;
+        configuration.tls_server_name = name;
+        detect::ServiceScheduler scheduler(engine, transport, database, configuration);
+        assert(scheduler.submit({endpoint()}) == core::StatusCode::InvalidArgument);
+        assert(transport.submissions().empty());
+    }
+}
+
 } // namespace
 
 int main()
 {
+    explicit_server_names_reach_tls_fallbacks_and_default_http_host();
+    invalid_server_names_are_rejected_before_a_submission();
     tls_events_require_attribution_and_handshake_before_application();
     failed_handshake_can_recover_plaintext_without_fabricating_a_tunnel();
     failed_handshake_has_an_explicit_error_and_no_tls_identity();

@@ -4,6 +4,9 @@
 #include <cerrno>
 #include <sys/socket.h>
 #include <vector>
+#include <array>
+
+#include "core/types.hpp"
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -83,14 +86,35 @@ const BIO_METHOD *socket_method()
 
 } // namespace
 
+bool valid_tls_server_name(std::string_view name) noexcept
+{
+    if (name.empty()) return true;
+    if (name.size() > 253U || core::parse_ip_address(name).has_value()) return false;
+    std::size_t label_length = 0U;
+    char previous = '.';
+    for (char character : name) {
+        if (character == '.') {
+            if (label_length == 0U || previous == '-') return false;
+            label_length = 0U;
+        } else {
+            const bool alphanumeric = (character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
+            if (!alphanumeric && character != '-') return false;
+            if ((label_length == 0U && character == '-') || ++label_length > 63U) return false;
+        }
+        previous = character;
+    }
+    return label_length > 0U && previous != '-';
+}
+
 struct TlsSession::Impl final {
     SSL_CTX *context{nullptr};
     SSL *session{nullptr};
     SocketState socket;
 
-    explicit Impl(int descriptor)
+    Impl(int descriptor, std::string_view server_name)
     {
-        if (descriptor < 0) return;
+        if (descriptor < 0 || !valid_tls_server_name(server_name)) return;
         context = SSL_CTX_new(TLS_client_method());
         if (context == nullptr) return;
         if (SSL_CTX_set_min_proto_version(context, TLS1_2_VERSION) != 1 ||
@@ -102,6 +126,13 @@ struct TlsSession::Impl final {
         session = SSL_new(context);
         if (session == nullptr) return;
         if (socket_method() == nullptr) { SSL_free(session); session = nullptr; return; }
+        if (!server_name.empty()) {
+            std::array<char, 254U> name{};
+            std::copy(server_name.begin(), server_name.end(), name.begin());
+            if (SSL_set_tlsext_host_name(session, name.data()) != 1) {
+                SSL_free(session); session = nullptr; return;
+            }
+        }
         BIO *bio = BIO_new(socket_method());
         if (bio == nullptr) { SSL_free(session); session = nullptr; return; }
         socket.descriptor = descriptor;
@@ -137,7 +168,8 @@ struct TlsSession::Impl final {
     }
 };
 
-TlsSession::TlsSession(int descriptor) : impl_(std::make_unique<Impl>(descriptor)) {}
+TlsSession::TlsSession(int descriptor, std::string_view server_name)
+    : impl_(std::make_unique<Impl>(descriptor, server_name)) {}
 TlsSession::~TlsSession() = default;
 bool TlsSession::valid() const noexcept { return impl_->session != nullptr; }
 

@@ -1,4 +1,5 @@
 #include "detect/service_scheduler.hpp"
+#include "detect/tls_session.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -139,7 +140,7 @@ core::StatusCode ServiceScheduler::validate_config() const noexcept
     }
     if (config_.max_outstanding == 0U || config_.timeout.count() <= 0 ||
         config_.max_response_bytes == 0U || config_.max_probes_per_port == 0U ||
-        config_.retry_delay.count() < 0 ||
+        config_.retry_delay.count() < 0 || !valid_tls_server_name(config_.tls_server_name) ||
         (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
         return core::StatusCode::InvalidArgument;
     }
@@ -597,6 +598,17 @@ void ServiceScheduler::start_or_retry(WorkItem work) noexcept
         return;
     }
     submission.tls_session = submission.tls_session || work.tls_session;
+    if (submission.tls_session) {
+        submission.server_name = config_.tls_server_name;
+        // Override only the project/default Host, never a custom virtual host.
+        constexpr std::string_view default_host = "\r\nHost: localhost\r\n";
+        const auto host = submission.payload.find(default_host);
+        if (!submission.server_name.empty() && host != std::string::npos &&
+            (submission.payload.starts_with("GET / HTTP/1.0\r\n") ||
+             submission.payload.starts_with("GET / HTTP/1.1\r\n"))) {
+            submission.payload.replace(host + 8U, 9U, submission.server_name);
+        }
+    }
 
     Pending pending;
     pending.work = work;

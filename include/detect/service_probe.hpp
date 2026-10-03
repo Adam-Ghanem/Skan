@@ -42,6 +42,7 @@ struct ServiceSubmission final {
     core::IpAddress target_ip{};
     bool tls_session{false};
     bool tls_handshake_only{false};
+    std::string server_name{};
 };
 
 struct ServiceResponse final {

@@ -5,10 +5,13 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string_view>
 
 #include "detect/tls_metadata.hpp"
 
 namespace skan::detect {
+
+bool valid_tls_server_name(std::string_view name) noexcept;
 
 enum class TlsIoState { Ready, WantRead, WantWrite, Closed, Error };
 
@@ -21,7 +24,7 @@ struct TlsIoResult final {
 /** Nonblocking TLS over a borrowed socket; never owns/closes the descriptor. */
 class TlsSession final {
 public:
-    explicit TlsSession(int descriptor);
+    explicit TlsSession(int descriptor, std::string_view server_name = {});
     ~TlsSession();
     TlsSession(const TlsSession &) = delete;
     TlsSession &operator=(const TlsSession &) = delete;
