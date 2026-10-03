@@ -197,6 +197,22 @@ void write_service(XmlWriter &xml, const detect::ServiceResult &service, std::si
     if (!service.tunnel.empty()) {
         xml.element(depth + 1U, "tunnel", service.tunnel);
     }
+    if (service.evidence.has_value()) {
+        const auto &e = *service.evidence;
+        std::string attributes = attribute("validator", e.validator) + attribute("kind", e.kind) +
+            attribute("version-source", e.version_source) + attribute("protocol-version", e.protocol_version) +
+            attribute("body-complete", e.body_complete ? "true" : "false");
+        if (e.status_code) attributes += attribute_number("status-code", *e.status_code);
+        xml.self_closing(depth + 1U, "evidence", attributes);
+    }
+    if (service.mqtt.has_value()) {
+        std::string mqtt_attributes = attribute("validator", "mqtt-3.1.1-connack-v1") +
+            attribute("requested-protocol", "3.1.1") +
+            attribute_number("return-code", static_cast<unsigned int>(service.mqtt->return_code)) +
+            attribute("session-present", "false") + attribute_number("frame-bytes", 4U);
+        if (service.mqtt->return_code == 0U) mqtt_attributes += attribute("accepted-protocol", "3.1.1");
+        xml.self_closing(depth + 1U, "mqtt", mqtt_attributes);
+    }
     if (service.tls_detected) {
         xml.open(depth + 1U, "tls");
         if (!service.tls_version.empty()) xml.element(depth + 2U, "version", service.tls_version);

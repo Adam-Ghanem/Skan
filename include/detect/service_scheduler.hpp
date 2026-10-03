@@ -63,6 +63,11 @@ private:
         ServiceSubmission submission;
         std::size_t probe_index{0U};
         std::string response;
+        // Retain candidates from earlier probes while replacing provisional
+        // HTTP evidence with the result of each cumulative reparse.
+        bool http_snapshot{false};
+        std::optional<ServiceMatchResult> previous_best_match;
+        std::size_t previous_best_match_probe_index{0U};
         DetectionTimePoint started_at{};
         io::TimerId timer_id{0U};
     };

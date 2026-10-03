@@ -359,7 +359,19 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
 
     ServiceMatchResult match;
     try {
-        match = matcher_.match(definition, pending.response);
+        if (pending.response.starts_with("HTTP/")) {
+            if (!pending.http_snapshot) {
+                pending.previous_best_match = pending.work.best_match;
+                pending.previous_best_match_probe_index = pending.work.best_match_probe_index;
+                pending.http_snapshot = true;
+            }
+            // A later chunk can invalidate framing or identity. Compare the
+            // current parse against earlier probes, never an obsolete parse
+            // of this same response.
+            pending.work.best_match = pending.previous_best_match;
+            pending.work.best_match_probe_index = pending.previous_best_match_probe_index;
+        }
+        match = matcher_.match(definition, pending.response, response.kind == ServiceResponseKind::Closed);
     } catch (...) {
         complete_pending(
             response.id,
@@ -765,6 +777,8 @@ void ServiceScheduler::append_result(
             result.certificate_not_after = match->tls.certificate_not_after;
             result.alpn = match->tls.alpn;
             result.confidence = match->confidence;
+            result.mqtt = match->mqtt;
+            result.evidence = match->evidence;
         }
         results_.push_back(std::move(result));
         results_sorted_ = false;

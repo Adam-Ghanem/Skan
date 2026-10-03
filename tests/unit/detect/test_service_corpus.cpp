@@ -253,7 +253,7 @@ int main()
     expect(database, "VNCBanner", "RFB 003.008\n", "vnc", "003.008");
     expect(database, "TelnetBanner", std::string{"\xff\xfb\x01", 3U}, "telnet");
     expect(database, "MemcachedVersion", "VERSION 1.6.32\r\n", "memcached", "1.6.32");
-    expect(database, "MQTTConnect", std::string{"\x20\x02\x00\x00", 4U}, "mqtt", "3.1.1");
+    expect(database, "MQTTConnect", std::string{"\x20\x02\x00\x00", 4U}, "mqtt", "");
     expect(database, "AMQP091", "AMQP\x00\x00\x09\x01", "amqp");
 
     const auto irc = ServiceMatcher(database).match(

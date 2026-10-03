@@ -114,10 +114,26 @@ jobs:
       - name: Fuzz target or capability-aware fallback
         run: |
           make fuzz
-          if ! command -v clang++ >/dev/null 2>&1; then
-            g++ -Iinclude -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 \
-              -O2 -c tests/fuzz/fuzz_packet_parsers.cpp -o /tmp/fuzz_packet_parsers.o
+          if command -v clang++ >/dev/null 2>&1; then
+            mkdir -p build/fuzz-corpus build/fuzz-reproducers
+            cp tests/fuzz/corpus/* build/fuzz-corpus/
+            cp tests/fuzz/seeds/service-v3/* build/fuzz-corpus/
+            ./build/fuzz_packet_parsers build/fuzz-corpus -max_len=8192 -max_total_time=30 -timeout=5 \
+              -artifact_prefix=build/fuzz-reproducers/ > build/fuzz-v3.log 2>&1
+          else
+            make build/tests/fuzz/fuzz_packet_parsers.o
           fi
+
+      - name: Retain fuzz log and failure reproducers
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: service-v3-fuzz-evidence
+          path: |
+            build/fuzz-v3.log
+            build/fuzz-reproducers/
+          if-no-files-found: ignore
+          retention-days: 7
 
   static-security-audit:
     runs-on: ubuntu-latest
@@ -130,7 +146,7 @@ jobs:
 
       - name: Validate workflow policy
         run: |
-          python3 -m unittest tests/security/test_workflow_policy.py
+          python3 -m unittest tests/security/test_workflow_policy.py tests/security/test_materialize_push.py
           python3 scripts/validate_workflow_policy.py .github/workflows/*.yml
 
       - name: Validate intelligence corpus contracts

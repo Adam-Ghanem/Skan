@@ -144,6 +144,62 @@ void assert_machine_os_detection_metadata_parity()
 
 int main()
 {
+    {
+        auto report = skan::output::test::make_report();
+        auto &service = report.hosts.front().services.front();
+        service.service = "elasticsearch";
+        service.product = "Elasticsearch";
+        service.version = "8.13.4";
+        service.evidence = skan::detect::ProtocolEvidence{"search-root-json-v1", "structured", "version.number", "1.1", 200U, true};
+        using namespace skan::output;
+        for (const auto format : {OutputFormat::Json, OutputFormat::Xml, OutputFormat::Grepable}) {
+            std::ostringstream stream;
+            assert(OutputManager::write(format, report, stream) == OutputStatus::Ok);
+            assert(stream.str().find("search-root-json-v1") != std::string::npos);
+            assert(stream.str().find("version.number") != std::string::npos);
+            assert(stream.str().find("structured") != std::string::npos);
+        }
+        service.evidence->status_code = 99U;
+        assert(validate_report(report) == OutputStatus::InvalidReport);
+        service.evidence->status_code = 200U;
+        service.evidence->body_complete = false;
+        assert(validate_report(report) == OutputStatus::InvalidReport);
+    }
+    for (std::uint8_t code : {std::uint8_t{0U}, std::uint8_t{1U}, std::uint8_t{5U}}) {
+        auto mqtt_report = skan::output::test::make_report();
+        auto &service = mqtt_report.hosts.front().services.front();
+        service.service = "mqtt";
+        service.product.clear();
+        service.version.clear();
+        service.mqtt = skan::detect::MqttConnackEvidence{code};
+        std::ostringstream mqtt_json, mqtt_xml, mqtt_grep;
+        using namespace skan::output;
+        assert(OutputManager::write(OutputFormat::Json, mqtt_report, mqtt_json) == OutputStatus::Ok);
+        assert(OutputManager::write(OutputFormat::Xml, mqtt_report, mqtt_xml) == OutputStatus::Ok);
+        assert(OutputManager::write(OutputFormat::Grepable, mqtt_report, mqtt_grep) == OutputStatus::Ok);
+        for (const auto &text : {mqtt_json.str(), mqtt_xml.str(), mqtt_grep.str()}) {
+            assert(text.find("mqtt-3.1.1-connack-v1") != std::string::npos);
+        }
+        assert(mqtt_json.str().find("\"return_code\": " + std::to_string(code)) != std::string::npos);
+        assert(mqtt_json.str().find("\"requested_protocol\": \"3.1.1\"") != std::string::npos);
+        assert(mqtt_json.str().find("\"session_present\": false") != std::string::npos);
+        assert(mqtt_json.str().find("\"frame_bytes\": 4") != std::string::npos);
+        assert((mqtt_json.str().find("\"accepted_protocol\": \"3.1.1\"") != std::string::npos) == (code == 0U));
+        assert(mqtt_xml.str().find("return-code=\"" + std::to_string(code) + "\"") != std::string::npos);
+        assert(mqtt_xml.str().find("requested-protocol=\"3.1.1\"") != std::string::npos);
+        assert(mqtt_xml.str().find("session-present=\"false\"") != std::string::npos);
+        assert(mqtt_xml.str().find("frame-bytes=\"4\"") != std::string::npos);
+        assert((mqtt_xml.str().find("accepted-protocol=\"3.1.1\"") != std::string::npos) == (code == 0U));
+        assert(mqtt_grep.str().find("mqtt_return_code=" + std::to_string(code)) != std::string::npos);
+        assert(mqtt_grep.str().find("mqtt_requested_protocol=\"3.1.1\"") != std::string::npos);
+        assert(mqtt_grep.str().find("mqtt_session_present=false mqtt_frame_bytes=4") != std::string::npos);
+        assert((mqtt_grep.str().find("mqtt_accepted_protocol=\"3.1.1\"") != std::string::npos) == (code == 0U));
+        service.mqtt->return_code = 6U;
+        assert(validate_report(mqtt_report) == OutputStatus::InvalidReport);
+        service.mqtt->return_code = 0U;
+        service.service = "http";
+        assert(validate_report(mqtt_report) == OutputStatus::InvalidReport);
+    }
     const skan::output::ScanReport report = skan::output::test::make_report();
     std::ostringstream normal;
     std::ostringstream json;

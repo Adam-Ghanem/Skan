@@ -14,10 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout verified baseline
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: 5776a5140430ac8644e3fbad7d23e2ae9d3b07ee
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Reconstruct verified patch
         env:
@@ -129,4 +130,8 @@ jobs:
           echo "verified tree: $tree"
 
       - name: Push materialized commit
-        run: git push origin HEAD:refs/heads/codex-materialized
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          git push origin HEAD:refs/heads/codex-materialized

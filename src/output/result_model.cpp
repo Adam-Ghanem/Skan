@@ -152,6 +152,28 @@ OutputStatus validate_report(const ScanReport &report) noexcept
             if (service.port.number == 0U || service.target.empty() || !valid_confidence(service.confidence)) {
                 return OutputStatus::InvalidReport;
             }
+            if (service.mqtt.has_value() &&
+                (service.mqtt->return_code > 5U || service.service != "mqtt")) {
+                return OutputStatus::InvalidReport;
+            }
+            if (service.evidence) {
+                const auto &e = *service.evidence;
+                if (e.validator.size() > 64U || e.kind.size() > 32U || e.version_source.size() > 64U ||
+                    e.protocol_version.size() > 16U ||
+                    (e.status_code && (*e.status_code < 100U || *e.status_code > 599U))) return OutputStatus::InvalidReport;
+                if (e.validator == "search-root-json-v1") {
+                    if (!(service.service == "elasticsearch" || service.service == "opensearch") ||
+                        e.kind != "structured" || e.version_source != "version.number" || !e.body_complete ||
+                        e.status_code != 200U || !(e.protocol_version == "1.0" || e.protocol_version == "1.1")) return OutputStatus::InvalidReport;
+                } else if (e.validator == "zookeeper-srvr-v1") {
+                    if (service.service != "zookeeper" || e.kind != "structured" ||
+                        e.version_source != "Zookeeper version" || !e.body_complete || e.status_code ||
+                        !e.protocol_version.empty()) return OutputStatus::InvalidReport;
+                } else if (e.validator == "http-1x-v1") {
+                    if (!e.status_code || !(e.protocol_version == "1.0" || e.protocol_version == "1.1") ||
+                        !(e.kind == "protocol" || e.kind == "header" || e.kind == "legacy-rule")) return OutputStatus::InvalidReport;
+                } else return OutputStatus::InvalidReport;
+            }
             if (service.rtt_ms.has_value() && !valid_nonnegative(*service.rtt_ms)) {
                 return OutputStatus::InvalidReport;
             }

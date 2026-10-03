@@ -24,6 +24,8 @@ struct ServiceMatchResult final {
     std::size_t priority{0U};
     std::size_t specificity{0U};
     std::size_t rule_index{0U};
+    std::optional<MqttConnackEvidence> mqtt{};
+    std::optional<ProtocolEvidence> evidence{};
 };
 
 /**
@@ -41,9 +43,12 @@ class ServiceMatcher final {
 public:
     explicit ServiceMatcher(const ServiceProbeDatabase &database) noexcept;
 
+    /** Offline callers default to a terminal observation. Streaming transports
+     * must pass false until orderly EOF; reset/timeout is not a complete body. */
     ServiceMatchResult match(
         const ServiceProbeDefinition &probe,
-        std::string_view response) const;
+        std::string_view response,
+        bool terminal = true) const;
 
 private:
     const ServiceProbeDatabase &database_;
