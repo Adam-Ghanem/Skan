@@ -40,6 +40,9 @@ jobs:
           make -j2
           make -j2 test
 
+      - name: Protocol validator mutation replay
+        run: make -j2 test-protocol-replay
+
       - name: Generated corpus production-loader gate
         run: make -j2 test-corpus-runtime
 

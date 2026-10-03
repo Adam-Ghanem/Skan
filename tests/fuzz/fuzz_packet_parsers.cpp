@@ -7,6 +7,7 @@
 #include "detect/service_db.hpp"
 #include "detect/service_matcher.hpp"
 #include "detect/protocol_parsers.hpp"
+#include "detect/protocol_validators.hpp"
 #include "detect/tls_metadata.hpp"
 #include "net/packet_receiver.hpp"
 #include "osdetect/os_matcher.hpp"
@@ -76,6 +77,21 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
     for (const auto &probe : v3_database.probes()) {
         (void)skan::detect::ServiceMatcher(v3_database).match(probe, text, false);
         (void)skan::detect::ServiceMatcher(v3_database).match(probe, text, true);
+    }
+    static const auto installed_database = [] {
+        skan::core::StatusCode installed_status{};
+        return skan::detect::ServiceProbeDatabase::load_file("data/service-probes.db", installed_status);
+    }();
+    if(size<=8192U) {
+        const auto http=skan::detect::parse_http_response(text,true);
+        for(const auto &probe:installed_database.probes()) {
+            for(const auto &rule:probe.rules) {
+                if(skan::detect::has_exchange_validator(rule.service))
+                    (void)skan::detect::validate_exchange(rule.service,probe,text,true);
+                if(skan::detect::has_api_validator(rule.service))
+                    (void)skan::detect::parse_api_identity(rule.service,probe.payload,http);
+            }
+        }
     }
     // Reach binary response validation with a valid request/database. Parsing
     // the fuzz bytes as both a database and a response almost never reaches it.

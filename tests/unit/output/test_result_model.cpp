@@ -49,5 +49,14 @@ int main()
     invalid = report;
     invalid.timing_metrics->estimated_drop_rate = 2.0;
     assert(skan::output::validate_report(invalid) == skan::output::OutputStatus::InvalidReport);
+    auto protocols = report;
+    auto &service = protocols.hosts.front().services.front();
+    service.service = "prometheus"; service.version = "3.5.0";
+    service.evidence = skan::detect::ProtocolEvidence{"prometheus-api-v1", "structured", "data.version", "1.1", 200U, true};
+    assert(skan::output::validate_report(protocols) == skan::output::OutputStatus::Ok);
+    service.service = "grafana";
+    assert(skan::output::validate_report(protocols) == skan::output::OutputStatus::InvalidReport);
+    service.service = "prometheus"; service.evidence->body_complete = false;
+    assert(skan::output::validate_report(protocols) == skan::output::OutputStatus::InvalidReport);
     return 0;
 }
