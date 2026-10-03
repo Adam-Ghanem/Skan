@@ -4,6 +4,7 @@ CPPFLAGS += -Iinclude
 CXXFLAGS += -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 -O2
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wformat=2 -O2
 LDFLAGS ?=
+LDLIBS += -lssl -lcrypto
 
 VERSION_FILE := VERSION
 SKAN_VERSION := $(strip $(file <$(VERSION_FILE)))
@@ -116,6 +117,7 @@ CPP_SOURCES := \
 		src/detect/service_matcher.cpp \
 	src/detect/protocol_parsers.cpp \
 		src/detect/tls_metadata.cpp \
+	src/detect/tls_session.cpp \
 		src/detect/service_probe.cpp \
 		src/detect/service_scheduler.cpp \
 			src/detect/service_detector.cpp \
@@ -180,7 +182,7 @@ PORTSCAN_OBJECTS := $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/por
 	$(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/tcp_ack.o $(BUILD_DIR)/portscan/port_scheduler.o \
 		$(BUILD_DIR)/portscan/udp_scan.o
 DETECT_OBJECTS := $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/detect/service_db.o \
-	$(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_probe.o \
+	$(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/tls_session.o $(BUILD_DIR)/detect/service_probe.o \
 		$(BUILD_DIR)/detect/service_scheduler.o $(BUILD_DIR)/detect/service_detector.o
 DB_OBJECTS := $(BUILD_DIR)/db/db_types.o $(BUILD_DIR)/db/os_db.o $(BUILD_DIR)/db/os_db_loader.o
 OSDETECT_OBJECTS := $(BUILD_DIR)/osdetect/os_probe_types.o $(BUILD_DIR)/osdetect/os_types.o \
@@ -231,6 +233,8 @@ TEST_SOURCES := \
 	tests/unit/detect/test_service_scheduler.cpp \
 	tests/unit/detect/test_service_detector.cpp \
 			tests/integration/detect/test_service_detection_local.cpp \
+			tests/integration/detect/test_service_tls_local.cpp \
+			tests/unit/detect/test_service_tls_scheduler.cpp \
 		tests/unit/db/test_os_db.cpp \
 		tests/unit/osdetect/test_os_matcher.cpp \
 		tests/unit/osdetect/test_os_probe.cpp \
@@ -321,6 +325,8 @@ TEST_BINARIES := \
 		$(BUILD_DIR)/test_service_scheduler \
 		$(BUILD_DIR)/test_service_detector \
 			$(BUILD_DIR)/test_service_detection_local \
+			$(BUILD_DIR)/test_service_tls_local \
+			$(BUILD_DIR)/test_service_tls_scheduler \
 			$(BUILD_DIR)/test_os_db \
 			$(BUILD_DIR)/test_os_matcher \
 			$(BUILD_DIR)/test_os_probe \
@@ -432,154 +438,154 @@ corpus-runtime: $(CORPUS_RUNTIME_TEST)
 test-corpus-runtime: corpus-runtime
 
 $(TARGET): $(CPP_OBJECTS) $(C_OBJECTS) | bin
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 benchmark:
 	$(MAKE) clean
 	$(MAKE) $(BUILD_DIR)/benchmark_offline
 
 $(BUILD_DIR)/benchmark_offline: $(BUILD_DIR)/benchmarks/offline_benchmark.o $(LIB_CPP_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_types: $(BUILD_DIR)/tests/unit/core/test_types.o $(CORE_OBJECTS) $(C_API_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_status: $(BUILD_DIR)/tests/unit/core/test_status.o $(BUILD_DIR)/core/status.o $(C_API_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_constants: $(BUILD_DIR)/tests/unit/core/test_constants.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_runtime_paths: $(BUILD_DIR)/tests/unit/core/test_runtime_paths.o $(BUILD_DIR)/core/runtime_paths.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_log: $(BUILD_DIR)/tests/unit/core/test_log.o $(CORE_LOG_OBJECT) $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_event: $(BUILD_DIR)/tests/unit/io/test_event.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_io_engine: $(BUILD_DIR)/tests/unit/io/test_io_engine.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_timer: $(BUILD_DIR)/tests/unit/io/test_timer.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_packet_element: $(BUILD_DIR)/tests/unit/packet/test_packet_element.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/ethernet.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_packet: $(BUILD_DIR)/tests/unit/packet/test_packet.o $(PACKET_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_ethernet: $(BUILD_DIR)/tests/unit/packet/test_ethernet.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/ethernet.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_ipv4: $(BUILD_DIR)/tests/unit/packet/test_ipv4.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/ipv4.o $(BUILD_DIR)/packet/checksum.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_ipv6: $(BUILD_DIR)/tests/unit/packet/test_ipv6.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/ipv6.o $(BUILD_DIR)/packet/ipv6_extensions.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_tcp: $(BUILD_DIR)/tests/unit/packet/test_tcp.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/tcp.o $(BUILD_DIR)/packet/checksum.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_udp: $(BUILD_DIR)/tests/unit/packet/test_udp.o $(BUILD_DIR)/packet/packet_element.o $(BUILD_DIR)/packet/udp.o $(BUILD_DIR)/packet/checksum.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_icmp: $(BUILD_DIR)/tests/unit/packet/test_icmp.o $(PACKET_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_icmpv6: $(BUILD_DIR)/tests/unit/packet/test_icmpv6.o $(PACKET_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_checksum: $(BUILD_DIR)/tests/unit/packet/test_checksum.o $(BUILD_DIR)/packet/checksum.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 DISCOVERY_OBJECTS := $(BUILD_DIR)/discovery/discovery.o $(BUILD_DIR)/discovery/discovery_types.o \
 	$(BUILD_DIR)/discovery/discovery_probe.o $(BUILD_DIR)/discovery/discovery_scheduler.o \
 	$(BUILD_DIR)/discovery/icmp_discovery.o $(BUILD_DIR)/discovery/tcp_discovery.o $(BUILD_DIR)/discovery/arp_discovery.o
 
 $(BUILD_DIR)/test_discovery_types: $(BUILD_DIR)/tests/unit/discovery/test_discovery_types.o $(BUILD_DIR)/discovery/discovery_types.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_discovery_probe: $(BUILD_DIR)/tests/unit/discovery/test_discovery_probe.o $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_discovery_scheduler: $(BUILD_DIR)/tests/unit/discovery/test_discovery_scheduler.o $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_discovery_local: $(BUILD_DIR)/tests/integration/discovery/test_discovery_local.o $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_port_types: $(BUILD_DIR)/tests/unit/portscan/test_port_types.o $(BUILD_DIR)/portscan/port_types.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_port_probe: $(BUILD_DIR)/tests/unit/portscan/test_port_probe.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(BUILD_DIR)/portscan/port_probe.o $(BUILD_DIR)/portscan/tcp_connect.o $(BUILD_DIR)/portscan/tcp_syn.o $(BUILD_DIR)/portscan/tcp_ack.o $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_port_scheduler: $(BUILD_DIR)/tests/unit/portscan/test_port_scheduler.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_udp_scan: $(BUILD_DIR)/tests/unit/portscan/test_udp_scan.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 $(BUILD_DIR)/test_portscan_local: $(BUILD_DIR)/tests/integration/portscan/test_portscan_local.o $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_types: $(BUILD_DIR)/tests/unit/detect/test_service_types.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_db: $(BUILD_DIR)/tests/unit/detect/test_service_db.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
-$(BUILD_DIR)/test_service_probe: $(BUILD_DIR)/tests/unit/detect/test_service_probe.o $(BUILD_DIR)/detect/service_probe.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+$(BUILD_DIR)/test_service_probe: $(BUILD_DIR)/tests/unit/detect/test_service_probe.o $(BUILD_DIR)/detect/service_probe.o $(BUILD_DIR)/detect/tls_session.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_v3: $(BUILD_DIR)/tests/unit/detect/test_service_v3.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_matcher: $(BUILD_DIR)/tests/unit/detect/test_service_matcher.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/benchmark_service_v3: $(BUILD_DIR)/benchmarks/service_v3_accuracy.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/benchmark_mqtt: $(BUILD_DIR)/benchmarks/mqtt_accuracy.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_corpus: $(BUILD_DIR)/tests/unit/detect/test_service_corpus.o $(BUILD_DIR)/detect/service_matcher.o $(BUILD_DIR)/detect/protocol_parsers.o $(BUILD_DIR)/detect/tls_metadata.o $(BUILD_DIR)/detect/service_db.o $(BUILD_DIR)/detect/service_types.o $(BUILD_DIR)/portscan/port_types.o $(BUILD_DIR)/portscan/port_result.o $(CORE_OBJECTS) | $(BUILD_DIR) tests/data/service-fingerprints-v1.tsv
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_tls_metadata: $(BUILD_DIR)/tests/unit/detect/test_tls_metadata.o $(BUILD_DIR)/detect/tls_metadata.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_scheduler: $(BUILD_DIR)/tests/unit/detect/test_service_scheduler.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_detector: $(BUILD_DIR)/tests/unit/detect/test_service_detector.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_service_detection_local: $(BUILD_DIR)/tests/integration/detect/test_service_detection_local.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 OS_TEST_OBJECTS := $(DB_OBJECTS) $(OSDETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
 
 $(BUILD_DIR)/test_os_db: $(BUILD_DIR)/tests/unit/db/test_os_db.o $(DB_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_os_matcher: $(BUILD_DIR)/tests/unit/osdetect/test_os_matcher.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_os_probe: $(BUILD_DIR)/tests/unit/osdetect/test_os_probe.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_os_scheduler: $(BUILD_DIR)/tests/unit/osdetect/test_os_scheduler.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_os_detection_injected: $(BUILD_DIR)/tests/integration/osdetect/test_os_detection_injected.o $(OS_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(CORPUS_RUNTIME_TEST): $(CORPUS_RUNTIME_TEST_OBJECT) $(LIB_CPP_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 SCANENGINE_TEST_OBJECTS := $(SCANENGINE_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
 OUTPUT_TEST_OBJECTS := $(OUTPUT_OBJECTS) $(DB_OBJECTS) $(OSDETECT_OBJECTS) $(DETECT_OBJECTS) \
@@ -587,140 +593,140 @@ OUTPUT_TEST_OBJECTS := $(OUTPUT_OBJECTS) $(DB_OBJECTS) $(OSDETECT_OBJECTS) $(DET
 	$(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
 
 $(BUILD_DIR)/test_timing_profile: $(BUILD_DIR)/tests/unit/scanengine/test_timing_profile.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_rtt_estimator: $(BUILD_DIR)/tests/unit/scanengine/test_rtt_estimator.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_congestion: $(BUILD_DIR)/tests/unit/scanengine/test_congestion.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_metrics: $(BUILD_DIR)/tests/unit/scanengine/test_scan_metrics.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_group: $(BUILD_DIR)/tests/unit/scanengine/test_scan_group.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_adaptive_scheduler: $(BUILD_DIR)/tests/unit/scanengine/test_adaptive_scheduler.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_engine: $(BUILD_DIR)/tests/unit/scanengine/test_scan_engine.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_engine_io: $(BUILD_DIR)/tests/integration/scanengine/test_scan_engine_io.o $(SCANENGINE_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_result_model: $(BUILD_DIR)/tests/unit/output/test_result_model.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_output_context: $(BUILD_DIR)/tests/unit/output/test_output_context.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_terminal_capabilities: $(BUILD_DIR)/tests/unit/output/test_terminal_capabilities.o $(BUILD_DIR)/output/terminal_capabilities.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_terminal_layout: $(BUILD_DIR)/tests/unit/output/test_terminal_layout.o $(BUILD_DIR)/output/terminal_capabilities.o $(BUILD_DIR)/output/terminal_layout.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_terminal_text: $(BUILD_DIR)/tests/unit/output/test_terminal_text.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_terminal_theme: $(BUILD_DIR)/tests/unit/output/test_terminal_theme.o $(BUILD_DIR)/output/terminal_theme.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_terminal_progress: $(BUILD_DIR)/tests/unit/output/test_terminal_progress.o $(BUILD_DIR)/output/terminal/progress_renderer.o $(BUILD_DIR)/output/terminal_text.o $(BUILD_DIR)/core/text_safety.o $(CORE_LOG_OBJECT) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_terminal_renderer: $(BUILD_DIR)/tests/unit/output/test_terminal_renderer.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_output_normal: $(BUILD_DIR)/tests/unit/output/test_output_normal.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_output_json: $(BUILD_DIR)/tests/unit/output/test_output_json.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_output_xml: $(BUILD_DIR)/tests/unit/output/test_output_xml.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_output_grepable: $(BUILD_DIR)/tests/unit/output/test_output_grepable.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_output_manager: $(BUILD_DIR)/tests/unit/output/test_output_manager.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_output_integration: $(BUILD_DIR)/tests/integration/output/test_output_integration.o $(OUTPUT_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 NET_TEST_OBJECTS := $(NET_OBJECTS) $(PACKET_OBJECTS) $(DISCOVERY_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT)
 $(BUILD_DIR)/test_interface_types: $(BUILD_DIR)/tests/unit/net/test_interface_types.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_transport: $(BUILD_DIR)/tests/unit/net/test_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_capture: $(BUILD_DIR)/tests/unit/net/test_capture.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_packet_receiver: $(BUILD_DIR)/tests/unit/net/test_packet_receiver.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_packet_filter: $(BUILD_DIR)/tests/unit/net/test_packet_filter.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_linux_transport: $(BUILD_DIR)/tests/unit/net/test_linux_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_network_scan_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 $(BUILD_DIR)/test_udp_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_udp_network_scan_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 $(BUILD_DIR)/test_linux_os_probe_transport: $(BUILD_DIR)/tests/unit/net/test_linux_os_probe_transport.o $(NET_TEST_OBJECTS) $(OSDETECT_OBJECTS) $(DB_OBJECTS) $(SCANENGINE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_linux_discovery_transport: $(BUILD_DIR)/tests/unit/net/test_linux_discovery_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_linux_loopback: $(BUILD_DIR)/tests/integration/net/test_linux_loopback.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 ORCHESTRATOR_TEST_OBJECTS := $(OUTPUT_TEST_OBJECTS) $(NET_OBJECTS) $(ORCHESTRATOR_OBJECTS)
 $(BUILD_DIR)/test_scan_config: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_config.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_state: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_state.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_session: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_session.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_events: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_events.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_report_builder: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_report_builder.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_scan_stage: $(BUILD_DIR)/tests/unit/orchestrator/test_scan_stage.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_pipeline: $(BUILD_DIR)/tests/unit/orchestrator/test_pipeline.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_pipeline_cancellation: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_cancellation.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_pipeline_discovery: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_discovery.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_pipeline_stages: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_stages.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/test_pipeline_stress: $(BUILD_DIR)/tests/integration/orchestrator/test_pipeline_stress.o $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 $(BUILD_DIR)/test_target_engine: $(BUILD_DIR)/tests/unit/target/test_target_engine.o $(TARGET_OBJECTS) $(CORE_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 $(BUILD_DIR)/test_target_pipeline: $(BUILD_DIR)/tests/integration/target/test_target_pipeline.o $(TARGET_OBJECTS) $(ORCHESTRATOR_TEST_OBJECTS) | $(BUILD_DIR)
-	$(CXX) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 $(BUILD_DIR)/%.o: src/%.cpp $(VERSION_FILE)
 	@mkdir -p $(dir $@)
@@ -771,7 +777,7 @@ fuzz:
 		echo "SKIPPED: clang++ is unavailable; offline libFuzzer target not built"; \
 	else \
 		mkdir -p $(BUILD_DIR); \
-		clang++ $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer $(LIB_CPP_SOURCES) tests/fuzz/fuzz_packet_parsers.cpp -o $(FUZZ_TARGET); \
+		clang++ $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -g -O1 -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer $(LIB_CPP_SOURCES) tests/fuzz/fuzz_packet_parsers.cpp -o $(FUZZ_TARGET) $(LDLIBS); \
 	fi
 
 test: $(TEST_BINARIES)
@@ -813,6 +819,8 @@ test: $(TEST_BINARIES)
 	./$(BUILD_DIR)/test_service_scheduler
 	./$(BUILD_DIR)/test_service_detector
 		./$(BUILD_DIR)/test_service_detection_local
+		./$(BUILD_DIR)/test_service_tls_local
+		./$(BUILD_DIR)/test_service_tls_scheduler
 		./$(BUILD_DIR)/test_os_db
 		./$(BUILD_DIR)/test_os_matcher
 		./$(BUILD_DIR)/test_os_probe
@@ -878,6 +886,12 @@ test-service-v3-replay: $(BUILD_DIR)/replay_service_v3
 	./$(BUILD_DIR)/replay_service_v3 tests/fuzz/seeds/service-v3/*
 
 $(BUILD_DIR)/replay_service_v3: tests/fuzz/replay_service_v3.cpp $(BUILD_DIR)/detect/protocol_parsers.o
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) $^ -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD_DIR)/test_service_tls_local: $(BUILD_DIR)/tests/integration/detect/test_service_tls_local.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+
+$(BUILD_DIR)/test_service_tls_scheduler: $(BUILD_DIR)/tests/unit/detect/test_service_tls_scheduler.o $(DETECT_OBJECTS) $(PORTSCAN_OBJECTS) $(SCANENGINE_OBJECTS) $(DISCOVERY_OBJECTS) $(PACKET_OBJECTS) $(IO_OBJECTS) $(CORE_OBJECTS) $(CORE_LOG_OBJECT) | $(BUILD_DIR)
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 -include $(BUILD_DIR)/tests/unit/detect/test_service_v3.d $(BUILD_DIR)/benchmarks/service_v3_accuracy.d

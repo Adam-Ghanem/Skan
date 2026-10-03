@@ -22,6 +22,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install TLS build dependency
+        uses: ./.github/actions/install-tls-toolchain
+
       - name: Toolchain
         run: |
           make --version | head -1
@@ -68,6 +71,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install TLS build dependency
+        uses: ./.github/actions/install-tls-toolchain
+
       - name: Build ${{ matrix.target }}
         run: make ${{ matrix.target }}
 
@@ -84,6 +90,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install TLS build dependency
+        uses: ./.github/actions/install-tls-toolchain
+
       - name: Run ${{ matrix.target }}
         run: make -j2 ${{ matrix.target }}
 
@@ -95,6 +104,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+
+      - name: Install TLS build dependency
+        uses: ./.github/actions/install-tls-toolchain
 
       - name: Benchmark isolation
         run: |
@@ -110,6 +122,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+
+      - name: Install TLS build dependency
+        uses: ./.github/actions/install-tls-toolchain
 
       - name: Fuzz target or capability-aware fallback
         run: |
@@ -143,6 +158,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+
+      - name: Install TLS build dependency
+        uses: ./.github/actions/install-tls-toolchain
 
       - name: Validate workflow policy
         run: |
@@ -202,6 +220,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install TLS build dependency
+        uses: ./.github/actions/install-tls-toolchain
+
       - name: Build Debian package in Debian 12
         run: |
           docker build --tag skan-debian12-builder --file tests/packaging/Dockerfile.builder .
@@ -260,6 +281,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+
+      - name: Install TLS build dependency
+        uses: ./.github/actions/install-tls-toolchain
 
       - name: Install isolated-lab tooling
         run: |

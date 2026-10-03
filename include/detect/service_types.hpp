@@ -42,7 +42,8 @@ enum class DetectionError {
     MalformedResponse,
     NoMatch,
     UnsupportedProtocol,
-    InternalError
+    InternalError,
+    TlsFailure
 };
 
 enum class DetectionMethod {

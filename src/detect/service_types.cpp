@@ -45,6 +45,8 @@ const char *detection_error_name(DetectionError error) noexcept
         return "NO_MATCH";
     case DetectionError::UnsupportedProtocol:
         return "UNSUPPORTED_PROTOCOL";
+    case DetectionError::TlsFailure:
+        return "TLS_FAILURE";
     case DetectionError::InternalError:
         return "INTERNAL_ERROR";
     default:

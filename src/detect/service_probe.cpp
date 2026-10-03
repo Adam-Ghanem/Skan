@@ -1,4 +1,5 @@
 #include "detect/service_probe.hpp"
+#include "detect/tls_session.hpp"
 
 #include <arpa/inet.h>
 #include <array>
@@ -18,6 +19,21 @@ namespace {
 std::optional<core::IpAddress> parse_target_address(std::string_view text) noexcept
 {
     return core::parse_ip_address(text);
+}
+
+bool requests_tls_session(const ServiceProbeDefinition &probe) noexcept
+{
+    const auto &payload = probe.payload;
+    if (probe.protocol != TransportProtocol::Tcp || payload.size() < 9U) return false;
+    const auto byte = [&payload](std::size_t index) { return static_cast<unsigned char>(payload[index]); };
+    if (byte(0U) != 0x16U || byte(1U) != 3U || byte(2U) > 3U || byte(5U) != 1U ||
+        (static_cast<std::size_t>(byte(3U)) << 8U | byte(4U)) != payload.size() - 5U ||
+        (static_cast<std::size_t>(byte(6U)) << 16U | static_cast<std::size_t>(byte(7U)) << 8U | byte(8U)) != payload.size() - 9U) {
+        return false;
+    }
+    return std::any_of(probe.rules.begin(), probe.rules.end(), [](const ServiceMatchRule &rule) {
+        return rule.service == "tls" || rule.tunnel == "tls";
+    });
 }
 
 } // namespace
@@ -63,7 +79,7 @@ void RecordingServiceTransport::deliver(const ServiceResponse &response)
         return;
     }
     ServiceResponseCallback callback = iterator->second;
-    if (response.kind != ServiceResponseKind::Data) {
+    if (response.kind != ServiceResponseKind::Data && response.kind != ServiceResponseKind::TlsEstablished) {
         callbacks_.erase(iterator);
     }
     callback(response);
@@ -109,6 +125,9 @@ core::StatusCode ServiceProbe::build(
     submission.payload = definition_.payload;
     submission.max_response_bytes = max_response_bytes_;
     submission.target_ip = *address;
+    submission.tls_session = requests_tls_session(definition_);
+    submission.tls_handshake_only = submission.tls_session;
+    if (submission.tls_handshake_only) submission.payload.clear();
     return core::StatusCode::Ok;
 }
 
@@ -157,6 +176,8 @@ struct ServiceTcpTransport::Connection final {
     bool completed{false};
     bool callback_in_progress{false};
     bool cancel_requested{false};
+    std::unique_ptr<TlsSession> tls;
+    std::optional<TlsMetadata> tls_metadata;
 
     ~Connection() noexcept
     {
@@ -269,6 +290,10 @@ core::StatusCode ServiceTcpTransport::submit(
         connection->target = submission.target;
         connection->payload.assign(submission.payload.begin(), submission.payload.end());
         connection->max_response_bytes = submission.max_response_bytes;
+        if (submission.tls_session) {
+            connection->tls = std::make_unique<TlsSession>(file_descriptor);
+            if (!connection->tls->valid()) return core::StatusCode::IoError;
+        }
         connection->event = std::make_unique<io::Event>(
             file_descriptor,
             io::EventMask::Read | io::EventMask::Write | io::EventMask::Error | io::EventMask::Hangup,
@@ -296,7 +321,10 @@ core::StatusCode ServiceTcpTransport::submit(
         return core::StatusCode::MemoryError;
     }
     if (connect_result == 0) {
-        on_writable(submission.id);
+        const auto active = connections_.find(submission.id);
+        active->second->connected = true;
+        if (active->second->tls) on_tls_event(submission.id);
+        else on_writable(submission.id);
     }
     return core::StatusCode::Ok;
 }
@@ -337,6 +365,10 @@ void ServiceTcpTransport::on_event(ServiceProbeId id) noexcept
             return;
         }
         iterator->second->connected = true;
+    }
+    if (iterator->second->connected && iterator->second->tls) {
+        on_tls_event(id);
+        return;
     }
     if (iterator->second->connected && io::has_event(ready, io::EventMask::Write)) {
         on_writable(id);
@@ -381,6 +413,61 @@ void ServiceTcpTransport::on_writable(ServiceProbeId id) noexcept
         if (connection.event->registered()) {
             (void)engine_.modify(*connection.event);
         }
+    }
+}
+
+void ServiceTcpTransport::on_tls_event(ServiceProbeId id) noexcept
+{
+    const auto iterator = connections_.find(id);
+    if (iterator == connections_.end() || iterator->second->completed || !iterator->second->tls) return;
+    Connection &connection = *iterator->second;
+    const auto waiting = [this, id, &connection](const TlsIoResult &result) {
+        if (result.state == TlsIoState::Ready) return false;
+        if (result.state == TlsIoState::WantRead || result.state == TlsIoState::WantWrite) {
+            connection.event->set_mask((result.state == TlsIoState::WantRead ? io::EventMask::Read : io::EventMask::Write) |
+                io::EventMask::Error | io::EventMask::Hangup);
+            if (engine_.modify(*connection.event) != core::StatusCode::Ok) {
+                emit(id, ServiceResponseKind::SocketError, nullptr, 0U, false, EIO);
+            }
+        } else if (result.state == TlsIoState::Closed && connection.tls_metadata.has_value()) {
+            emit(id, ServiceResponseKind::Closed, nullptr, 0U, false, 0);
+        } else {
+            const bool network_error = result.system_error == ECONNRESET || result.system_error == ECONNABORTED ||
+                result.system_error == ETIMEDOUT || result.system_error == EPIPE;
+            emit(id, network_error ? ServiceResponseKind::SocketError : ServiceResponseKind::TlsError,
+                nullptr, 0U, false, result.system_error == 0 ? EPROTO : result.system_error);
+        }
+        return true;
+    };
+    try {
+        if (!connection.tls_metadata.has_value()) {
+            if (waiting(connection.tls->handshake())) return;
+            connection.tls_metadata = connection.tls->metadata();
+            emit(id, ServiceResponseKind::TlsEstablished, nullptr, 0U, false, 0);
+            if (connection.completed) return;
+        }
+        while (connection.sent < connection.payload.size()) {
+            const auto result = connection.tls->write(std::span<const std::uint8_t>{connection.payload}.subspan(connection.sent));
+            if (waiting(result)) return;
+            if (result.bytes == 0U) {
+                emit(id, ServiceResponseKind::TlsError, nullptr, 0U, false, EPROTO);
+                return;
+            }
+            connection.sent += result.bytes;
+        }
+        std::uint8_t buffer[4096];
+        // Drain OpenSSL's buffered records as well as socket readiness. A
+        // callback may cancel this connection or start another one.
+        while (!connection.completed) {
+            const auto result = connection.tls->read(buffer);
+            if (waiting(result)) return;
+            const std::size_t remaining = connection.max_response_bytes - connection.response.size();
+            const std::size_t count = std::min(result.bytes, remaining);
+            connection.response.insert(connection.response.end(), buffer, buffer + count);
+            emit(id, ServiceResponseKind::Data, buffer, count, result.bytes > remaining, 0);
+        }
+    } catch (const std::bad_alloc &) {
+        emit(id, ServiceResponseKind::SocketError, nullptr, 0U, false, ENOMEM);
     }
 }
 
@@ -436,7 +523,7 @@ void ServiceTcpTransport::emit(
         return;
     }
     Connection &connection = *iterator->second;
-    const bool terminal = kind != ServiceResponseKind::Data || truncated;
+    const bool terminal = (kind != ServiceResponseKind::Data && kind != ServiceResponseKind::TlsEstablished) || truncated;
     connection.completed = terminal;
     connection.callback_in_progress = true;
     ServiceResponse response;
@@ -447,6 +534,7 @@ void ServiceTcpTransport::emit(
     response.response_truncated = truncated;
     response.received_at = DetectionClock::now();
     try {
+        if (kind == ServiceResponseKind::TlsEstablished) response.tls = connection.tls_metadata;
         if (bytes != nullptr && byte_count > 0U) {
             response.bytes.assign(bytes, bytes + byte_count);
         }
@@ -484,6 +572,7 @@ void ServiceTcpTransport::cleanup(Connection &connection, bool retain_event) noe
     if (!retain_event) {
         connection.event.reset();
     }
+    connection.tls.reset();
     if (connection.file_descriptor >= 0) {
         ::close(connection.file_descriptor);
         connection.file_descriptor = -1;
