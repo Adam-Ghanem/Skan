@@ -44,7 +44,7 @@
 ### Task 2: Lifecycle, errors, SNI and output evidence
 
 **Files:** TLS loopback tests; service scheduler/probe unit tests; service types sources; output tests as needed.
-**Interfaces:** Consume Task 1's typed TLS event and negotiated metadata; produce an explicit `tls-failure` detection error. `tls_server_name` accepts empty or a bounded ASCII DNS name, supplies SNI and the default TLS HTTP Host header.
+**Interfaces:** Consume Task 1's typed TLS event and negotiated metadata; produce an explicit `TLS_FAILURE` detection error. `tls_server_name` accepts empty or a bounded ASCII DNS name, supplies SNI and the default TLS HTTP Host header.
 
 - [ ] Add negative regressions before corresponding fixes: failed handshake cannot report TLS/HTTPS, abrupt EOF cannot finalize a close-delimited application identity, malformed later chunks revoke identity, byte limit applies to decrypted data, and no plaintext is sent after confirmed TLS.
 - [ ] Add callback cancellation/late callback, stalled handshake deadline, multiple concurrent targets, TLS read buffering and write backpressure tests. Expected before fixes: targeted assertion identifies a defect if present.

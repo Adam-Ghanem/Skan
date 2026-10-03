@@ -47,7 +47,7 @@ TCP connect scans normally run without root. Live SYN, ACK, UDP, and other raw-p
 - 🔎 Host discovery
 - 🔌 TCP & UDP scanning
 - 🧠 Service & OS detection
-- 🧬 Data-driven service fingerprints with bounded TLS metadata
+- 🧬 Data-driven service fingerprints with TLS 1.2/1.3 sessions and validated HTTPS identity
 - ⚙️ Adaptive scan scheduling
 - 🧩 Modular transport and packet architecture
 - 📦 Structured JSON results
@@ -116,10 +116,10 @@ Color requires an interactive color-capable stdout and can be disabled with `--n
 
 ## 🔧 Building from source
 
-This section is for developers. Package users do not need a compiler, Make, the repository path, or knowledge of the build directory. Skan currently targets Linux and requires a C++20 compiler and GNU Make.
+This section is for developers. Package users do not need a compiler, Make, the repository path, or knowledge of the build directory. Skan currently targets Linux and requires a C++20 compiler, GNU Make and OpenSSL 3.0 or newer development libraries.
 
 ```bash
-sudo apt-get install build-essential
+sudo apt-get install build-essential libssl-dev
 make -j2
 make test
 sudo make install PREFIX=/usr
@@ -223,7 +223,7 @@ Phases 29.1–33 establish the current release baseline:
 - CI creates an isolated dual-stack network namespace, validates raw IPv4/IPv6 open and closed ports, and compares Skan with Nmap.
 - Nmap-style aliases cover the implemented Connect, SYN, UDP, discovery, service, OS, timing, interface, and output capabilities.
 - Phase 32 adds multiple positional targets, `-4`/`-6`, resolved target exclusions, active-protocol port exclusions, and protocol-aware `-p`/`-p-`.
-- Service detection adds prioritized probes, per-probe timeouts, explicit fallbacks, soft/hard matches, a broader project-owned corpus, and bounded TLS certificate/ALPN metadata.
+- Service detection adds prioritized probes, per-probe timeouts, encrypted fallbacks after completed TLS handshakes, validated HTTPS identity and bounded certificate/selected-ALPN metadata. See [TLS session behavior and validation](docs/SERVICE_TLS_VALIDATION.md).
 - Phase 33 adds `--open` and `--reason` through the canonical output context without changing scan evidence or summaries.
 - The terminal-dashboard milestone adds capability detection, responsive layouts, safe display-width handling, deterministic redirected output, and truthful post-stage progress without changing scan evidence.
 - The project is MIT licensed.
