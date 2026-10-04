@@ -13,7 +13,7 @@ corpus-verify: corpus-test corpus-roundtrip
 	python3 -m tools.corpus.validate --root .
 
 corpus-external-verify: corpus-verify
-	python3 -m tools.corpus.cli stats --root .
+	python3 -m tools.corpus.external_integrity --root .
 
 corpus-performance:
 	python3 -m tools.corpus.performance --root . --max-load-seconds 20 --max-peak-rss-mib 1024
