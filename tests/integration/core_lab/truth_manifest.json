@@ -10,8 +10,8 @@
     "namespace": "skan-core-target",
     "scanner_interface": "skan-core0",
     "target_interface": "target0",
-    "ipv4_scanner": "192.0.2.1/30",
-    "ipv4_target": "192.0.2.2/30",
+    "ipv4_scanner": "192.0.2.5/30",
+    "ipv4_target": "192.0.2.6/30",
     "ipv6_scanner": "2001:db8:42::1/64",
     "ipv6_target": "2001:db8:42::2/64"
   },
