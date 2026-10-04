@@ -97,8 +97,8 @@ def refresh_detection_sources(
     records.extend(parse_iana_csv(iana_csv.read_text(encoding="utf-8"), iana_ctx))
     records.extend(parse_wappalyzer_json(wappalyzer_json.read_text(encoding="utf-8"), wapp_ctx))
 
-    canonical_dir = output_root / "canonical"
-    compile_summary = compile_records(records, canonical_dir, sources)
+    external_dir = output_root / "external"
+    compile_summary = compile_records(records, external_dir, sources)
     output_root.mkdir(parents=True, exist_ok=True)
     (output_root / "THIRD_PARTY_NOTICES.md").write_text(render_notices(records, sources), encoding="utf-8")
     locks = output_root / "locks"
@@ -107,8 +107,11 @@ def refresh_detection_sources(
     _write_lock(locks / "wappalyzergo.json", wapp_ctx, "wappalyzergo", "ProjectDiscovery WappalyzerGo")
 
     detection_kinds = {"service_matcher", "active_probe", "os_fingerprint", "udp_probe", "web_fingerprint", "device_fingerprint"}
-    detection_records = sum(1 for record in records if record.kind in detection_kinds)
-    registry_records = sum(1 for record in records if record.kind == "port_registry")
+    records_by_kind = compile_summary["records_by_kind"]
+    if not isinstance(records_by_kind, dict):
+        raise RuntimeError("external compiler returned invalid records_by_kind")
+    detection_records = sum(int(records_by_kind.get(kind, 0)) for kind in detection_kinds)
+    registry_records = int(records_by_kind.get("port_registry", 0))
     summary = {
         **compile_summary,
         "detection_records": detection_records,

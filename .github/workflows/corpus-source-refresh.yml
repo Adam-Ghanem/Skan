@@ -2,11 +2,6 @@ name: Corpus Source Refresh
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/fingerprint-corpus-v2-multisource
-    paths:
-      - .github/workflows/corpus-source-refresh.yml
 
 permissions:
   contents: write
@@ -19,7 +14,6 @@ jobs:
       - name: Check out source branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: codex/fingerprint-corpus-v2-multisource
           fetch-depth: 1
           persist-credentials: false
 
@@ -60,7 +54,7 @@ jobs:
               --output-root "$out"
           done
 
-          diff -qr /tmp/skan-corpus-a/canonical /tmp/skan-corpus-b/canonical
+          diff -qr /tmp/skan-corpus-a/external /tmp/skan-corpus-b/external
           diff -qr /tmp/skan-corpus-a/locks /tmp/skan-corpus-b/locks
           cmp /tmp/skan-corpus-a/stats.json /tmp/skan-corpus-b/stats.json
           cmp /tmp/skan-corpus-a/THIRD_PARTY_NOTICES.md /tmp/skan-corpus-b/THIRD_PARTY_NOTICES.md
@@ -82,7 +76,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp /tmp/skan-corpus-a/canonical/*.jsonl corpus/canonical/
+          rm -rf corpus/external
+          mkdir -p corpus/external
+          cp -a /tmp/skan-corpus-a/external/. corpus/external/
           mkdir -p corpus/locks corpus/reports
           cp /tmp/skan-corpus-a/locks/*.json corpus/locks/
           cp /tmp/skan-corpus-a/stats.json corpus/reports/external-stats.json
@@ -93,11 +89,24 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" != "branch" ]]; then
+            echo "Refusing to publish from non-branch ref: ${GITHUB_REF_TYPE:-<empty>}" >&2
+            exit 1
+          fi
+          if [[ -z "${GITHUB_REF_NAME:-}" ]]; then
+            echo "Refusing to publish without a branch ref name" >&2
+            exit 1
+          fi
+          if [[ -z "${DEFAULT_BRANCH:-}" || "$GITHUB_REF_NAME" == "$DEFAULT_BRANCH" ]]; then
+            echo "Refusing to publish directly to the default branch" >&2
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add corpus/canonical corpus/locks corpus/reports corpus/THIRD_PARTY_NOTICES.md
+          git add corpus/external corpus/locks corpus/reports corpus/THIRD_PARTY_NOTICES.md
           if git diff --cached --quiet; then
             echo "Generated corpus is already current"
             exit 0
@@ -106,4 +115,4 @@ jobs:
           auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
           git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
             push https://github.com/${GITHUB_REPOSITORY}.git \
-            HEAD:codex/fingerprint-corpus-v2-multisource
+            "HEAD:${GITHUB_REF_NAME}"
