@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -151,6 +152,32 @@ def wait_for_listener(protocol: str, port: int, timeout_seconds: float = 3.0) ->
             return
         time.sleep(0.05)
     raise LabError(f"{protocol} listener on port {port} did not become ready")
+
+
+def prime_neighbor_cache() -> None:
+    """Establish direct-link ARP/NDP adjacency without using scanner output as truth."""
+    topo = topology()
+    interface = topo["scanner_interface"]
+    endpoints = (
+        (socket.AF_INET, topo["ipv4_target"].split("/")[0], 18080),
+        (socket.AF_INET6, topo["ipv6_target"].split("/")[0], 18081),
+    )
+    for family, address, port in endpoints:
+        with socket.socket(family, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1.0)
+            endpoint = (address, port) if family == socket.AF_INET else (address, port, 0, 0)
+            try:
+                sock.connect(endpoint)
+            except OSError as exc:
+                raise LabError(f"failed to establish L2 adjacency for {address}: {exc}") from exc
+
+        result = run(["ip", "neigh", "show", "to", address, "dev", interface], capture=True, check=False)
+        normalized = result.stdout.upper()
+        if result.returncode != 0 or "LLADDR" not in normalized or "FAILED" in normalized or "INCOMPLETE" in normalized:
+            raise LabError(
+                f"neighbor resolution for {address} on {interface} is not usable: "
+                f"{result.stdout.strip() or result.stderr.strip() or 'no neighbor entry'}"
+            )
 
 
 def configure_firewall() -> None:
@@ -368,6 +395,9 @@ def build_snapshot(profile: str) -> dict[str, object]:
             "target_qdisc": capture_text([
                 "ip", "netns", "exec", topo["namespace"], "tc", "-j", "qdisc", "show", "dev", topo["target_interface"],
             ]),
+            "scanner_neighbors": capture_text(
+                ["ip", "neigh", "show", "dev", topo["scanner_interface"]]
+            ),
         },
     }
 
@@ -408,6 +438,11 @@ def smoke(skan: Path, evidence_dir: Path) -> None:
     setup()
     try:
         apply_profile("clean")
+        # Raw AF_PACKET SYN/ACK scans intentionally consume the kernel's
+        # directly-reachable neighbor state; the scanner does not synthesize
+        # an ARP/NDP resolution side path. Establish adjacency explicitly as
+        # lab setup, then verify it before packet capture starts.
+        prime_neighbor_cache()
         snapshot("clean", evidence_dir / "truth-before.json")
 
         capture = subprocess.Popen(
