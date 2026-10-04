@@ -12,12 +12,14 @@ SKAN_AUTHORIZED_LAB=1
 
 and root/CAP_NET_ADMIN. The controller only creates a local Linux network namespace and veth pair using documentation address space:
 
-- scanner IPv4: `192.0.2.1/30`
-- target IPv4: `192.0.2.2/30`
+- scanner IPv4: `192.0.2.5/30`
+- target IPv4: `192.0.2.6/30`
 - scanner IPv6: `2001:db8:42::1/64`
 - target IPv6: `2001:db8:42::2/64`
 
 The lab never selects or contacts a public target.
+
+The IPv4 subnet is intentionally distinct from the repository's older privileged CI namespace (`192.0.2.0/30`) so both labs can coexist in the same job without route ambiguity.
 
 Raw AF_PACKET SYN/ACK paths consume the kernel's direct-link ARP/NDP neighbor state. The lab therefore establishes IPv4 and IPv6 adjacency against its own known-open endpoints before raw smoke validation and verifies a usable `ip neigh` entry. This is a topology precondition only; neighbor priming is not a truth source and does not change any canonical scanner state.
 
