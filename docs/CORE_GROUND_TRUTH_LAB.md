@@ -19,6 +19,8 @@ and root/CAP_NET_ADMIN. The controller only creates a local Linux network namesp
 
 The lab never selects or contacts a public target.
 
+Raw AF_PACKET SYN/ACK paths consume the kernel's direct-link ARP/NDP neighbor state. The lab therefore establishes IPv4 and IPv6 adjacency against its own known-open endpoints before raw smoke validation and verifies a usable `ip neigh` entry. This is a topology precondition only; neighbor priming is not a truth source and does not change any canonical scanner state.
+
 ## Independent truth
 
 `truth_manifest.json` defines configured truth from lab configuration, not from Skan or Nmap output.
@@ -29,6 +31,7 @@ Truth is verified from independent operating-system evidence:
 - IPv4 firewall rules via `iptables-save`
 - IPv6 firewall rules via `ip6tables-save`
 - traffic-control state via `tc -j qdisc`
+- scanner-side ARP/NDP adjacency via `ip neigh`
 - packet evidence via `tcpdump` during live smoke validation
 
 A scanner disagreement must therefore be investigated against configured socket/firewall/packet truth. Nmap may be used later as a differential peer, never as the oracle.
