@@ -454,9 +454,12 @@ def smoke(skan: Path, evidence_dir: Path) -> None:
         )
         time.sleep(0.15)
 
+        ipv4_target = topo["ipv4_target"].split("/")[0]
+        ipv6_target = topo["ipv6_target"].split("/")[0]
+
         ipv4 = scanner_run(
             skan,
-            ["-Pn", "-sS", "-p", "18080,18082", "--reason", "-e", topo["scanner_interface"], "192.0.2.2"],
+            ["-Pn", "-sS", "-p", "18080,18082", "--reason", "-e", topo["scanner_interface"], ipv4_target],
             evidence_dir / "syn-ipv4.txt",
         )
         assert_output(ipv4, 18080, "tcp", "OPEN")
@@ -464,7 +467,7 @@ def smoke(skan: Path, evidence_dir: Path) -> None:
 
         ipv6 = scanner_run(
             skan,
-            ["-Pn", "-sS", "-6", "-p", "18081,18082", "--reason", "-e", topo["scanner_interface"], "2001:db8:42::2"],
+            ["-Pn", "-sS", "-6", "-p", "18081,18082", "--reason", "-e", topo["scanner_interface"], ipv6_target],
             evidence_dir / "syn-ipv6.txt",
         )
         assert_output(ipv6, 18081, "tcp", "OPEN")
@@ -472,7 +475,7 @@ def smoke(skan: Path, evidence_dir: Path) -> None:
 
         ack4 = scanner_run(
             skan,
-            ["-Pn", "-sA", "-p", "18080,18083,18084", "--reason", "-e", topo["scanner_interface"], "192.0.2.2"],
+            ["-Pn", "-sA", "-p", "18080,18083,18084", "--reason", "-e", topo["scanner_interface"], ipv4_target],
             evidence_dir / "ack-ipv4.txt",
         )
         assert_output(ack4, 18080, "tcp", "UNFILTERED")
