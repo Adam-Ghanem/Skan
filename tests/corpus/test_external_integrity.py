@@ -176,6 +176,24 @@ class ExternalIntegrityTests(unittest.TestCase):
             },
         )
 
+    def test_record_kind_must_be_in_its_declared_store(self) -> None:
+        service_path = self.fixture.external / "services.jsonl"
+        product_path = self.fixture.external / "products.jsonl"
+        product_path.write_bytes(service_path.read_bytes())
+        service_path.write_bytes(b"")
+        self.fixture._write_manifest(self.fixture._load_by_file())
+        self.fixture._write_stats(self.fixture.records)
+
+        self.assert_invalid("service_matcher.*products.jsonl")
+
+    def test_manifest_schema_version_rejects_boolean(self) -> None:
+        path = self.fixture.external / "manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["schema_version"] = True
+        path.write_bytes(_canonical_json(manifest))
+
+        self.assert_invalid("manifest.*schema")
+
     def test_cli_prints_one_compact_json_summary(self) -> None:
         completed = subprocess.run(
             [
@@ -221,21 +239,21 @@ class ExternalIntegrityTests(unittest.TestCase):
         (self.fixture.external / "unexpected.jsonl").write_bytes(b"")
         self.assert_invalid("unexpected.jsonl")
 
-    def test_duplicate_id_across_stores_is_rejected(self) -> None:
+    def test_duplicate_record_cannot_be_smuggled_into_another_store(self) -> None:
         service_path = self.fixture.external / "services.jsonl"
         product_path = self.fixture.external / "products.jsonl"
         product_path.write_bytes(service_path.read_bytes())
         by_file = self.fixture._load_by_file()
         self.fixture._write_manifest(by_file)
 
-        self.assert_invalid("duplicate external record id")
+        self.assert_invalid("service_matcher.*products.jsonl")
 
     def test_unresolved_merge_conflict_is_rejected(self) -> None:
         original = self.fixture.records[0]
         conflicting = replace(original, id="", product="Conflicting FTP")
         conflicting = replace(conflicting, id=stable_record_id(conflicting))
-        products = self.fixture.external / "products.jsonl"
-        write_jsonl(products, [conflicting])
+        services = self.fixture.external / "services.jsonl"
+        write_jsonl(services, [original, conflicting])
         by_file = self.fixture._load_by_file()
         self.fixture._write_manifest(by_file)
 
@@ -248,6 +266,26 @@ class ExternalIntegrityTests(unittest.TestCase):
     def test_provenance_hash_disagrees_with_lock(self) -> None:
         self.fixture._write_lock(sha256="b" * 64)
         self.assert_invalid("rapid7-recog.*sha256")
+
+    def test_represented_source_requires_its_lock(self) -> None:
+        (self.fixture.locks / f"{_SOURCE_ID}.json").unlink()
+        self.assert_invalid("rapid7-recog.*missing.*lock")
+
+    def test_source_lock_rejects_wrong_filename(self) -> None:
+        source = self.fixture.locks / f"{_SOURCE_ID}.json"
+        source.rename(self.fixture.locks / "wrong.json")
+        self.assert_invalid("wrong filename")
+
+    def test_provenance_url_and_license_disagree_with_lock(self) -> None:
+        for field, fragment in (
+            ("source_url", "source_url"),
+            ("license_policy", "license_policy"),
+        ):
+            with self.subTest(field=field):
+                fixture = ExternalRepositoryFixture(Path(self.temporary.name) / field)
+                fixture._write_lock(**{field: "wrong"})
+                with self.assertRaisesRegex(ValueError, fragment):
+                    verify_external_repository(fixture.root)
 
     def test_missing_notices_are_rejected(self) -> None:
         self.fixture.notices.unlink()
@@ -336,6 +374,28 @@ class ExternalIntegrityTests(unittest.TestCase):
     def test_nonfinite_governed_json_is_rejected(self) -> None:
         self.fixture.stats.write_bytes(b'{"total_records":NaN}\n')
         self.assert_invalid("non-finite")
+
+    def test_cli_governed_failure_is_concise_and_nonzero(self) -> None:
+        self.fixture._write_stats(self.fixture.records, total_records=2)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tools.corpus.external_integrity",
+                "--root",
+                str(self.fixture.root),
+            ],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertEqual(completed.stdout, "")
+        self.assertEqual(len(completed.stderr.splitlines()), 1)
+        self.assertIn("external corpus verification failed:", completed.stderr)
 
 
 if __name__ == "__main__":

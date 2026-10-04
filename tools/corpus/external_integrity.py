@@ -14,7 +14,7 @@ from typing import Any, Mapping
 from tools.corpus.attribution import render_notices
 from tools.corpus.dedupe import merge_records
 from tools.corpus.external_io import load_jsonl
-from tools.corpus.external_layout import EXTERNAL_STORE_FILES
+from tools.corpus.external_layout import EXTERNAL_KIND_FILES, EXTERNAL_STORE_FILES
 from tools.corpus.external_model import CanonicalRecord
 from tools.corpus.external_sources import SourcePolicy, load_source_manifest
 
@@ -147,7 +147,12 @@ def _load_manifest(directory: Path) -> dict[str, dict[str, Any]]:
         ),
         "external manifest",
     )
-    if set(value) != {"schema_version", "stores"} or value.get("schema_version") != 1:
+    schema_version = value.get("schema_version")
+    if (
+        set(value) != {"schema_version", "stores"}
+        or type(schema_version) is not int
+        or schema_version != 1
+    ):
         raise ValueError("external manifest has an invalid schema")
     stores = _require_object(value.get("stores"), "external manifest stores")
     if set(stores) != set(EXTERNAL_STORE_FILES):
@@ -212,6 +217,18 @@ def _load_records(
             loaded = load_jsonl(path, sources)
         except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
             raise ValueError(f"external store {name} is invalid: {exc}") from exc
+        misplaced = next(
+            (
+                record
+                for record in loaded
+                if EXTERNAL_KIND_FILES.get(record.kind) != name
+            ),
+            None,
+        )
+        if misplaced is not None:
+            raise ValueError(
+                f"external record kind {misplaced.kind} is stored in {name}"
+            )
         duplicate = next((record.id for record in loaded if record.id in seen_ids), None)
         if duplicate is not None:
             raise ValueError(f"duplicate external record id across stores: {duplicate}")
