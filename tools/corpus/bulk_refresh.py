@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import shutil
 from typing import Iterable
 
 from tools.corpus.adapters.common import AdapterContext
@@ -68,6 +69,22 @@ def _write_lock(path: Path, context: AdapterContext, adapter: str, attribution: 
     )
 
 
+def _reset_generated_directory(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise ValueError(f"generated output directory must not be a symlink: {path}")
+    if path.exists() and not path.is_dir():
+        raise ValueError(f"generated output path must be a directory: {path}")
+    path.mkdir(exist_ok=True)
+    for child in path.iterdir():
+        if child.is_symlink() or child.is_file():
+            child.unlink()
+        elif child.is_dir():
+            shutil.rmtree(child)
+        else:
+            raise ValueError(f"unsupported generated output entry: {child}")
+
+
 def refresh_detection_sources(
     *,
     repo_root: Path,
@@ -98,10 +115,12 @@ def refresh_detection_sources(
     records.extend(parse_wappalyzer_json(wappalyzer_json.read_text(encoding="utf-8"), wapp_ctx))
 
     external_dir = output_root / "external"
+    _reset_generated_directory(external_dir)
     compile_summary = compile_records(records, external_dir, sources)
     output_root.mkdir(parents=True, exist_ok=True)
     (output_root / "THIRD_PARTY_NOTICES.md").write_text(render_notices(records, sources), encoding="utf-8")
     locks = output_root / "locks"
+    _reset_generated_directory(locks)
     _write_lock(locks / "rapid7-recog.json", recog_ctx, "recog", "Rapid7 Recog")
     _write_lock(locks / "iana-services.json", iana_ctx, "iana_services", "")
     _write_lock(locks / "wappalyzergo.json", wapp_ctx, "wappalyzergo", "ProjectDiscovery WappalyzerGo")

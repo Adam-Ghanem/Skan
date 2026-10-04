@@ -46,6 +46,14 @@ class BulkRefreshTests(unittest.TestCase):
                 canonical = output / "canonical"
                 canonical.mkdir(parents=True)
                 (canonical / "services.jsonl").write_bytes(sentinel)
+                (output / "external").mkdir()
+                (output / "locks").mkdir()
+                (output / "external" / f"stale-{output.name}.jsonl").write_bytes(
+                    b"stale external data\n"
+                )
+                (output / "locks" / f"stale-{output.name}.json").write_bytes(
+                    b"{}\n"
+                )
                 summaries.append(
                     refresh_detection_sources(
                         repo_root=repo_root,
@@ -79,6 +87,28 @@ class BulkRefreshTests(unittest.TestCase):
                 self.assertEqual(summary["files"]["web.jsonl"], 1)
                 self.assertEqual(summary["files"]["registry.jsonl"], 1)
                 self.assertTrue((output / "THIRD_PARTY_NOTICES.md").is_file())
+                self.assertEqual(
+                    sorted(path.name for path in (output / "external").iterdir()),
+                    [
+                        "cpe.jsonl",
+                        "devices.jsonl",
+                        "manifest.json",
+                        "os.jsonl",
+                        "products.jsonl",
+                        "registry.jsonl",
+                        "services.jsonl",
+                        "udp.jsonl",
+                        "web.jsonl",
+                    ],
+                )
+                self.assertEqual(
+                    sorted(path.name for path in (output / "locks").iterdir()),
+                    [
+                        "iana-services.json",
+                        "rapid7-recog.json",
+                        "wappalyzergo.json",
+                    ],
+                )
 
             def recursive_bytes(root: Path) -> dict[str, bytes]:
                 return {
