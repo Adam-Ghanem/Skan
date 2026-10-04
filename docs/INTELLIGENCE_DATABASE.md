@@ -1,19 +1,32 @@
 # Intelligence Database v2
 
-Skan Intelligence Database v2 starts with a fail-closed build-time corpus
-contract. It does not change scanner runtime behavior in this milestone. The
-project-owned databases under `data/` remain authoritative.
+Skan Intelligence Database v2 uses two fail-closed, offline corpus authorities:
+
+- `corpus/canonical/` is the governed mirror of the first-party databases that
+  compile deterministically to the packaged `data/*.db` runtime authority.
+- `corpus/external/` is generated public-source intelligence bound by a separate
+  manifest. It is governed input for future runtime work, not active scanner
+  detection data.
+
+This milestone changes corpus storage and verification only. In particular,
+`skan -sV` does not load records from `corpus/external/`.
 
 ## Source governance
 
-`corpus/sources/sources.json` is the only approved source-policy manifest. The
-standard-library validator rejects unknown fields, unsafe identifiers, mutable
-or incorrectly bound revisions, unapproved licenses, non-redistributable data,
-missing attribution, malformed hashes, and untrusted first-party identities.
-Validation performs no downloads and never executes adapters.
+`corpus/sources/sources.json` governs the clean-room first-party mirror.
+`corpus/sources/external-sources.json` governs generated public-source records.
+The standard-library validators reject unknown fields, unsafe identifiers,
+incorrectly bound revisions, unapproved licenses, non-redistributable data,
+missing attribution, malformed hashes, and untrusted identities. Validation is
+offline and never executes adapters.
 
-The current manifest authorizes only Skan's clean-room, first-party corpus. Nmap
-and proprietary fingerprint databases are not accepted as source material.
+Each represented external source must have a lock under `corpus/locks/`. The
+lock binds the source revision, download URL, license policy, and content hash
+to record provenance. `corpus/THIRD_PARTY_NOTICES.md` is regenerated from those
+represented sources and compared byte-for-byte during verification.
+
+Nmap is comparator-only. Its code and fingerprint databases are not imported,
+derived, translated, or accepted as corpus source material.
 
 ## Canonical schema
 
@@ -53,17 +66,25 @@ Run the contract suite with:
 make test-corpus
 ```
 
-## Verified migration mirror and loader gate
+## First-party runtime mirror and loader gate
 
 The populated files in `corpus/canonical/` are the governed, verified canonical
-mirror of Skan's four first-party runtime databases. Their commit-marker manifest
-binds every JSONL store's kind, count, and hash; readers reject incomplete or
-mixed generations. They remain build-time inputs, not installed runtime data.
+mirror of Skan's four first-party runtime databases. Its commit-marker manifest
+binds these stores by kind, count, and hash:
 
-`data/service-probes.db`, `data/udp-probes.db`, `data/os-fingerprints.db`, and
-`data/os-fingerprints-v6.db` remain the production and package authority in this
-milestone. `build/corpus-runtime/` is generated and ignored. A runtime-authority
-or packaging switch is deliberately deferred.
+- `active-probes.jsonl`;
+- `services.jsonl`;
+- `os.jsonl`; and
+- `udp.jsonl`.
+
+Readers reject incomplete or mixed generations. The empty
+`corpus/canonical/products.jsonl` file is a backward-compatible enrichment
+placeholder. It is not manifest-bound and is not a runtime database.
+
+The canonical stores compile deterministically to `service-probes.db`,
+`udp-probes.db`, `os-fingerprints.db`, and `os-fingerprints-v6.db`. The reviewed
+copies under `data/` remain the production and package runtime authority.
+`build/corpus-runtime/` is generated and ignored.
 
 The offline lifecycle is:
 
@@ -94,3 +115,43 @@ tooling.
 The source-policy rules above remain mandatory for all corpus changes: preserve
 the pinned first-party source identity and license terms, and do not copy,
 derive, or import Nmap or proprietary fingerprint data.
+
+## Generated external intelligence
+
+`corpus/external/` contains a complete generated public-source generation. Its
+own `manifest.json` binds the exact SHA-256, record count, and per-kind counts
+for every expected JSONL store, including intentionally empty stores. The
+current committed generation contains:
+
+- 30,535 total records;
+- 17,824 detection records;
+- 2,302 passive service matchers;
+- 15,522 web fingerprints; and
+- 12,711 port-registry records.
+
+These counts describe governed committed intelligence, not current `-sV`
+coverage. External service and web records are not loaded by the scanner. Port
+registry assignments are metadata and are not product-detection evidence.
+
+The external verifier checks the exact store inventory, manifest hashes and
+counts, canonical records, duplicate identities, unresolved conflicts,
+provenance against source locks, corrected post-deduplication statistics, and
+third-party notices. Run the complete offline boundary check with:
+
+```bash
+make -f GNUmakefile corpus-external-verify
+```
+
+`tools.corpus.bulk_refresh` stages a complete generation under an isolated
+output root. Refresh publication is deterministic: two generations from the
+same pinned inputs must be byte-identical, and only the generated external
+directory, locks, corrected statistics, and notices are installed. It never
+publishes external records into `corpus/canonical/`.
+
+## Next runtime milestone
+
+Activating passive external service intelligence requires a separately bounded
+runtime index. That milestone must preserve protocol evidence, include collision
+negative fixtures, enforce measured memory and lookup-latency limits, and reject
+port-only product guessing. Until those acceptance criteria are met, external
+records remain verified offline intelligence rather than scanner runtime rules.
