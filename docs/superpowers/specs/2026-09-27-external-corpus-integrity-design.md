@@ -24,6 +24,8 @@ The first-party reconciliation later replaced the external service store while `
 - `os.jsonl`
 - `udp.jsonl`
 
+The existing empty `products.jsonl` remains an unbound first-party enrichment placeholder for backward compatibility. It is not external intelligence and is not a runtime database.
+
 `corpus/external/` is the authoritative generated public-source corpus. It contains deterministic stores for every supported external record kind plus `manifest.json`. External stores retain their established filenames, including `services.jsonl`, because the separate root removes the collision without changing the external record schema.
 
 The external store set is exact:

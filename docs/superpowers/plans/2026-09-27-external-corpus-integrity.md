@@ -129,8 +129,9 @@ Expected: PASS.
 **Files:**
 - Create: `corpus/external/manifest.json`
 - Create: `corpus/external/services.jsonl`
-- Move: `corpus/canonical/{cpe,devices,products,registry,web}.jsonl` to `corpus/external/`
+- Move: `corpus/canonical/{cpe,devices,registry,web}.jsonl` to `corpus/external/`
 - Preserve unchanged: `corpus/canonical/{active-probes,services,os,udp}.jsonl` and `corpus/canonical/manifest.json`
+- Preserve unchanged: the legacy empty `corpus/canonical/products.jsonl` first-party enrichment placeholder
 - Create empty governed external stores: `corpus/external/{os,products,udp,devices,cpe}.jsonl` when the moved file is not already present
 - Modify: `corpus/reports/external-stats.json` only if recomputation differs
 - Modify: `corpus/canonical/README.md`
