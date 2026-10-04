@@ -56,6 +56,17 @@ class GroundTruthManifestTest(unittest.TestCase):
                 f"{key} must stay inside documentation address space",
             )
 
+    def test_ipv4_topology_is_isolated_from_legacy_privileged_lab(self) -> None:
+        topology = self.manifest["topology"]
+        scanner = ipaddress.ip_interface(topology["ipv4_scanner"])
+        target = ipaddress.ip_interface(topology["ipv4_target"])
+        self.assertEqual(scanner.network, target.network)
+        self.assertEqual(scanner.network.prefixlen, 30)
+
+        legacy_network = ipaddress.ip_network("192.0.2.0/30")
+        self.assertFalse(scanner.ip in legacy_network)
+        self.assertFalse(target.ip in legacy_network)
+
     def test_truth_cases_are_unique_and_explicit(self) -> None:
         cases = self.manifest["truth_cases"]
         self.assertGreaterEqual(len(cases), 9)
