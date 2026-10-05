@@ -594,9 +594,18 @@ std::optional<std::vector<std::uint8_t>> LinuxUDPScanTransport::compose_frame(
     if (!target_ip.valid() || !submission.source_ip.valid()) {
         return std::nullopt;
     }
-    const auto udp = packet::UDP::parse(std::span<const std::uint8_t>{submission.packet});
+    if (submission.source_port == 0U || submission.port.number == 0U ||
+        submission.port.protocol != portscan::Protocol::Udp) {
+        return std::nullopt;
+    }
+
+    packet::UDP udp;
+    udp.set_source_port(submission.source_port);
+    udp.set_destination_port(submission.port.number);
+    udp.set_payload(submission.payload);
+
     const auto destination = destination_mac(target_ip);
-    if (!udp.has_value() || !destination.has_value()) {
+    if (!destination.has_value()) {
         return std::nullopt;
     }
     packet::Packet packet;
@@ -625,7 +634,7 @@ std::optional<std::vector<std::uint8_t>> LinuxUDPScanTransport::compose_frame(
     } else {
         return std::nullopt;
     }
-    packet.set_udp(*udp);
+    packet.set_udp(std::move(udp));
     std::vector<std::uint8_t> frame = packet.serialize();
     return frame.empty() ? std::nullopt : std::optional<std::vector<std::uint8_t>>{std::move(frame)};
 }
