@@ -164,7 +164,7 @@ int main()
     ambiguous_port.probe = skan::portscan::ScanProbeType::Udp;
     ambiguous_port.state = skan::portscan::PortState::OpenOrFiltered;
     ambiguous_port.reason = skan::portscan::ScanReason::UdpTimeout;
-    ambiguous_report.hosts.front().ports.push_back(std::move(ambiguous_port));
+    ambiguous_report.hosts.front().ports.push_back(ambiguous_port);
 
     std::ostringstream ambiguous_wide;
     assert(writer.write(ambiguous_report, ambiguous_wide, interactive) == skan::output::OutputStatus::Ok);
