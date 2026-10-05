@@ -388,7 +388,7 @@ core::StatusCode UDPScheduler::submit(const core::Target &target, const std::vec
         for (const core::Host &host : target.resolved_hosts) {
             if (!parse_target_ip(host).has_value()) {
                 for (const Port &port : ports) {
-                    append_terminal_result(WorkItem{host, port, 0U, ""}, PortState::Unknown,
+                    append_terminal_result(WorkItem{host, port, 0U, ""}, PortState::Error,
                                            ScanReason::InvalidTarget);
                 }
                 status_ = core::StatusCode::InvalidArgument;
@@ -598,7 +598,7 @@ void UDPScheduler::pump() noexcept
         const UDPProbeDefinition *definition = database_.for_port(work.port.number);
         if (!destination.has_value() || definition == nullptr) {
             release_source_port(source_port);
-            append_terminal_result(work, PortState::Unknown, ScanReason::InvalidTarget);
+            append_terminal_result(work, PortState::Error, ScanReason::InvalidTarget);
             status_ = core::StatusCode::InvalidArgument;
             break;
         }
