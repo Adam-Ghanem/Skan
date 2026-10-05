@@ -14,7 +14,7 @@ path. Silence cannot prove a firewall exists.
 | FILTERED | Filtering evidence or completed TCP silence policy prevents endpoint determination | Connect, SYN, ACK, UDP (explicit filtering only) | endpoint ambiguous |
 | UNFILTERED | Correlated ACK reset proves the ACK reaches the endpoint path; does not prove a listener | ACK only | definitive path property, service unknown |
 | OPEN_OR_FILTERED | UDP silence cannot distinguish a listener from filtering/loss | UDP only | ambiguous |
-| UNKNOWN | Insufficient or conflicting admitted evidence | all | ambiguous |
+| UNKNOWN | Conflicting admitted evidence. Current CORE-02 publishers use UNKNOWN only for explicit evidence conflict; method-defined silence maps to FILTERED or OPEN_OR_FILTERED instead | all | ambiguous |
 | ERROR | Local scanner/runtime failure prevents valid classification | all | no endpoint inference |
 | UNREACHABLE | Valid path/network evidence reports failed reachability | all | definitive path failure, service unknown |
 
