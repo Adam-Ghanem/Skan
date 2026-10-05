@@ -49,8 +49,7 @@ bool should_confirm_negative(
         return false;
     }
     return (state == PortState::Closed && reason == ScanReason::ConnectionRefused) ||
-           (state == PortState::Filtered && reason == ScanReason::Timeout) ||
-           (state == PortState::Unknown && reason == ScanReason::SocketError);
+           (state == PortState::Filtered && reason == ScanReason::Timeout);
 }
 
 } // namespace
@@ -134,7 +133,7 @@ core::StatusCode PortScanScheduler::submit(
                     append_terminal_result(
                         WorkItem{host, port},
                         config_.method,
-                        PortState::Unknown,
+                        PortState::Error,
                         ScanReason::InvalidTarget);
                 }
                 status_ = core::StatusCode::InvalidArgument;
@@ -212,7 +211,28 @@ void PortScanScheduler::receive(const PortResponse &response) noexcept
     const PortScanTimePoint completed_at = response.received_at == PortScanTimePoint{}
                                                ? PortScanClock::now()
                                                : response.received_at;
-    complete_pending(response.id, state, reason, completed_at);
+    Pending &pending = iterator->second;
+    if (completed_at < pending.started_at) {
+        return;
+    }
+
+    if (state == PortState::Error || config_.method == ScanProbeType::TcpConnect) {
+        complete_pending(response.id, state, reason, completed_at);
+        return;
+    }
+
+    if (!pending.candidate_state.has_value()) {
+        pending.candidate_state = state;
+        pending.candidate_reason = reason;
+        pending.candidate_at = completed_at;
+        return;
+    }
+    if (!pending.conflict && *pending.candidate_state != state) {
+        pending.candidate_state = PortState::Unknown;
+        pending.candidate_reason = ScanReason::ConflictingEvidence;
+        pending.candidate_at = completed_at;
+        pending.conflict = true;
+    }
 }
 
 const std::vector<PortResult> &PortScanScheduler::results() const noexcept
@@ -255,7 +275,7 @@ void PortScanScheduler::pump() noexcept
             append_terminal_result(
                 work,
                 config_.method,
-                PortState::Unknown,
+                PortState::Error,
                 build_status == core::StatusCode::InvalidArgument ? ScanReason::InvalidTarget
                                                                    : ScanReason::InternalError);
             continue;
@@ -270,7 +290,7 @@ void PortScanScheduler::pump() noexcept
             const std::chrono::milliseconds timeout = timing_ == nullptr ? config_.timeout : timing_->timeout();
             timer_id = engine_.schedule(timeout, [this, id]() { on_timeout(id); });
             if (timer_id == 0U) {
-                append_terminal_result(work, config_.method, PortState::Unknown, ScanReason::InternalError);
+                append_terminal_result(work, config_.method, PortState::Error, ScanReason::InternalError);
                 if (status_ == core::StatusCode::Ok) {
                     status_ = core::StatusCode::InternalError;
                 }
@@ -280,7 +300,7 @@ void PortScanScheduler::pump() noexcept
             const auto inserted = pending_.emplace(id, std::move(pending));
             if (!inserted.second) {
                 (void)engine_.cancel(timer_id);
-                append_terminal_result(work, config_.method, PortState::Unknown, ScanReason::InternalError);
+                append_terminal_result(work, config_.method, PortState::Error, ScanReason::InternalError);
                 status_ = core::StatusCode::InternalError;
                 break;
             }
@@ -297,7 +317,7 @@ void PortScanScheduler::pump() noexcept
                 append_terminal_result(
                     work,
                     config_.method,
-                    PortState::Unknown,
+                    PortState::Error,
                     submission_failure_reason(submit_status));
                 status_ = submit_status;
                 break;
@@ -306,7 +326,7 @@ void PortScanScheduler::pump() noexcept
             (void)transport_.cancel(id);
             (void)engine_.cancel(timer_id);
             pending_.erase(id);
-            append_terminal_result(work, config_.method, PortState::Unknown, ScanReason::InternalError);
+            append_terminal_result(work, config_.method, PortState::Error, ScanReason::InternalError);
             status_ = core::StatusCode::MemoryError;
             break;
         }
@@ -389,7 +409,17 @@ void PortScanScheduler::finish_attempt(
             matching_observations = ++work.error_observations;
         }
 
-        if (matching_observations < 2U && work.retry_count < max_retries && defer_retry(work)) {
+        if (matching_observations < 2U && work.retry_count < max_retries) {
+            if (defer_retry(work)) {
+                pump();
+                return;
+            }
+            append_terminal_result(
+                work,
+                config_.method,
+                PortState::Error,
+                ScanReason::InternalError,
+                rtt_ms);
             pump();
             return;
         }
@@ -409,7 +439,17 @@ void PortScanScheduler::finish_attempt(
             return;
         }
     } else if ((reason == ScanReason::Timeout || reason == ScanReason::AckTimeout) &&
-               work.retry_count < max_retries && defer_retry(work)) {
+               work.retry_count < max_retries) {
+        if (defer_retry(work)) {
+            pump();
+            return;
+        }
+        append_terminal_result(
+            work,
+            config_.method,
+            PortState::Error,
+            ScanReason::InternalError,
+            rtt_ms);
         pump();
         return;
     }
@@ -478,6 +518,26 @@ void PortScanScheduler::on_timeout(PortProbeId id) noexcept
     Pending pending = std::move(iterator->second);
     (void)transport_.cancel(id);
     pending_.erase(iterator);
+
+    if (pending.candidate_state.has_value()) {
+        double rtt_ms = std::chrono::duration<double, std::milli>(
+                            pending.candidate_at - pending.started_at)
+                            .count();
+        if (rtt_ms < 0.0) {
+            rtt_ms = 0.0;
+        }
+        if (timing_ != nullptr) {
+            timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt_ms)});
+            timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+        }
+        finish_attempt(
+            std::move(pending.work),
+            *pending.candidate_state,
+            pending.candidate_reason,
+            rtt_ms);
+        return;
+    }
+
     if (timing_ != nullptr) {
         timing_->on_timeout();
         timing_->metrics().set_parallelism(pending_.size(), pending_.size());
