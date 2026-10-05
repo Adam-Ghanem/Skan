@@ -114,6 +114,7 @@ private:
         portscan::PortResponseCallback callback;
         CorrelationKey correlation_key;
         bool observed{false};
+        bool failed{false};
     };
 
     void on_capture_event(io::Event &event) noexcept;
