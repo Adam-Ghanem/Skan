@@ -755,7 +755,9 @@ core::StatusCode LinuxNetworkScanTransport::cancel(portscan::PortProbeId id) noe
     const auto found = pending_.find(id);
     if (found != pending_.end()) {
         correlation_.remove(found->second.correlation_key);
-        if (found->second.observed) {
+        if (found->second.failed) {
+            ++session_.failed;
+        } else if (found->second.observed) {
             ++session_.completed;
         } else {
             ++session_.timed_out;
@@ -795,6 +797,32 @@ void LinuxNetworkScanTransport::on_capture_event(io::Event &event) noexcept
             }
             if (received.capture.status != CaptureStatus::Success) {
                 session_.capture_status = received.capture.status;
+                if (received.capture.status == CaptureStatus::Empty ||
+                    received.capture.status == CaptureStatus::OversizedFrame) {
+                    return;
+                }
+                session_.last_system_error = received.capture.system_error;
+                session_.last_error = received.capture.message;
+                while (!pending_.empty()) {
+                    const auto current = pending_.begin();
+                    const portscan::PortProbeId id = current->first;
+                    current->second.failed = true;
+                    portscan::PortResponse response;
+                    response.id = id;
+                    response.source_address = current->second.submission.target;
+                    response.kind = portscan::PortResponseKind::SocketError;
+                    response.system_error = received.capture.system_error;
+                    response.received_at = std::chrono::steady_clock::now();
+                    response.reason = portscan::ScanReason::SocketError;
+                    portscan::PortResponseCallback callback = current->second.callback;
+                    callback(response);
+                    const auto still_pending = pending_.find(id);
+                    if (still_pending != pending_.end()) {
+                        correlation_.remove(still_pending->second.correlation_key);
+                        ++session_.failed;
+                        pending_.erase(still_pending);
+                    }
+                }
                 return;
             }
             session_.capture_status = CaptureStatus::Success;
