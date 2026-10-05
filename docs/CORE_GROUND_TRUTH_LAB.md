@@ -128,6 +128,8 @@ A live smoke run records:
 - IPv4 SYN output
 - IPv6 SYN output
 - IPv4 ACK output
+- IPv6 ACK output
+- IPv4 Connect and UDP output
 - packet capture
 
 The truth snapshots contain the manifest plus observed listener/firewall/qdisc state and do not derive truth from scanner output.
