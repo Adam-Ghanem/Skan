@@ -671,7 +671,7 @@ $(BUILD_DIR)/test_packet_filter: $(BUILD_DIR)/tests/unit/net/test_packet_filter.
 $(BUILD_DIR)/test_linux_transport: $(BUILD_DIR)/tests/unit/net/test_linux_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 
-$(BUILD_DIR)/test_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_network_scan_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
+$(BUILD_DIR)/test_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_network_scan_transport.o $(NET_TEST_OBJECTS) $(BUILD_DIR)/portscan/tcp_syn.o | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@
 $(BUILD_DIR)/test_udp_network_scan_transport: $(BUILD_DIR)/tests/unit/net/test_udp_network_scan_transport.o $(NET_TEST_OBJECTS) | $(BUILD_DIR)
 	$(CXX) $(LDFLAGS) $^ -o $@

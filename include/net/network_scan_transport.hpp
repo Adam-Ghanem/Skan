@@ -39,6 +39,9 @@ bool matches_tcp_reply(
     const portscan::PortSubmission &submission,
     const PacketObservation &observation) noexcept;
 
+/** Preserve the validated TCP wire evidence passed to a port probe. */
+std::optional<std::vector<std::uint8_t>> tcp_response_bytes(const PacketObservation &observation);
+
 /** Match a bounded ICMP quote of an emitted, unfragmented base-header TCP probe. */
 bool matches_tcp_unreachable(
     const portscan::PortSubmission &submission,

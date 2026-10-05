@@ -507,6 +507,17 @@ def smoke(skan: Path, evidence_dir: Path) -> None:
         assert_output(ack4, 18083, "tcp", "FILTERED", "ACK_TIMEOUT")
         assert_output(ack4, 18084, "tcp", "FILTERED", "ICMP_ADMINISTRATIVELY_PROHIBITED")
 
+        ack6 = scanner_run(
+            skan,
+            ["-Pn", "-sA", "-6", "-p", "18081,18082,18083,18084", "--reason",
+             "-e", topo["scanner_interface"], ipv6_target],
+            evidence_dir / "ack-ipv6.txt",
+        )
+        assert_output(ack6, 18081, "tcp", "UNFILTERED", "ACK_RST")
+        assert_output(ack6, 18082, "tcp", "UNFILTERED", "ACK_RST")
+        assert_output(ack6, 18083, "tcp", "FILTERED", "ACK_TIMEOUT")
+        assert_output(ack6, 18084, "tcp", "FILTERED", "ICMP_ADMINISTRATIVELY_PROHIBITED")
+
         connect4 = scanner_run(
             skan,
             ["-Pn", "-sT", "-p", "18080,18082", "--reason", ipv4_target],
