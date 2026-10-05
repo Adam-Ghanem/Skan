@@ -157,5 +157,27 @@ int main()
     assert(plain_open_output.str().find("1 filtered") != std::string::npos);
     assert(plain_open_output.str().find("filtered=1") == std::string::npos);
 
+    skan::output::ScanReport ambiguous_report = report;
+    skan::portscan::PortResult ambiguous_port;
+    ambiguous_port.target = ambiguous_report.hosts.front().address;
+    ambiguous_port.port = {53U, skan::portscan::Protocol::Udp};
+    ambiguous_port.probe = skan::portscan::ScanProbeType::Udp;
+    ambiguous_port.state = skan::portscan::PortState::OpenOrFiltered;
+    ambiguous_port.reason = skan::portscan::ScanReason::UdpTimeout;
+    ambiguous_report.hosts.front().ports.push_back(ambiguous_port);
+
+    std::ostringstream ambiguous_wide;
+    assert(writer.write(ambiguous_report, ambiguous_wide, interactive) == skan::output::OutputStatus::Ok);
+    assert(ambiguous_wide.str().find("OPEN_OR_FILTERED") != std::string::npos);
+    assert(ambiguous_wide.str().find("1 open_or_filtered") != std::string::npos);
+
+    std::ostringstream ambiguous_narrow;
+    assert(writer.write(ambiguous_report, ambiguous_narrow, narrow) == skan::output::OutputStatus::Ok);
+    assert(ambiguous_narrow.str().find("OPEN_OR_FILTERED") != std::string::npos);
+    std::istringstream ambiguous_lines(ambiguous_narrow.str());
+    while (std::getline(ambiguous_lines, narrow_line)) {
+        assert(skan::output::display_width(narrow_line) <= 72U);
+    }
+
     return 0;
 }

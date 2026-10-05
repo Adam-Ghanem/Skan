@@ -238,9 +238,65 @@ const char *scan_reason_name(ScanReason reason) noexcept
         return "UNSUPPORTED_PROTOCOL";
     case ScanReason::ConflictingEvidence:
         return "CONFLICTING_EVIDENCE";
+    case ScanReason::IcmpProtocolUnreachable:
+        return "ICMP_PROTOCOL_UNREACHABLE";
     default:
         return "UNKNOWN";
     }
+}
+
+bool valid_port_result_semantics(
+    Protocol protocol,
+    ScanProbeType probe,
+    PortState state,
+    ScanReason reason) noexcept
+{
+    if ((protocol == Protocol::Udp) != (probe == ScanProbeType::Udp)) {
+        return false;
+    }
+
+    switch (state) {
+    case PortState::Open:
+        return (probe == ScanProbeType::TcpConnect && reason == ScanReason::ImmediateSuccess) ||
+               (probe == ScanProbeType::TcpSyn && reason == ScanReason::SynAck) ||
+               (probe == ScanProbeType::Udp && reason == ScanReason::UdpResponse);
+    case PortState::Closed:
+        return (probe == ScanProbeType::TcpConnect && reason == ScanReason::ConnectionRefused) ||
+               (probe == ScanProbeType::TcpSyn && reason == ScanReason::Rst) ||
+               (probe == ScanProbeType::Udp && reason == ScanReason::IcmpPortUnreachable);
+    case PortState::Filtered:
+        return (probe == ScanProbeType::TcpConnect && reason == ScanReason::Timeout) ||
+               (probe == ScanProbeType::TcpSyn &&
+                (reason == ScanReason::Timeout ||
+                 reason == ScanReason::IcmpAdministrativelyProhibited ||
+                 reason == ScanReason::IcmpPortUnreachable ||
+                 reason == ScanReason::IcmpProtocolUnreachable)) ||
+               (probe == ScanProbeType::TcpAck &&
+                (reason == ScanReason::AckTimeout ||
+                 reason == ScanReason::IcmpAdministrativelyProhibited ||
+                 reason == ScanReason::IcmpPortUnreachable ||
+                 reason == ScanReason::IcmpProtocolUnreachable)) ||
+               (probe == ScanProbeType::Udp && reason == ScanReason::IcmpAdministrativelyProhibited);
+    case PortState::Unknown:
+        return reason == ScanReason::ConflictingEvidence;
+    case PortState::OpenOrFiltered:
+        return probe == ScanProbeType::Udp && reason == ScanReason::UdpTimeout;
+    case PortState::Unfiltered:
+        return probe == ScanProbeType::TcpAck && reason == ScanReason::AckRst;
+    case PortState::Error:
+        return reason == ScanReason::LocalAddressUnavailable ||
+               reason == ScanReason::SocketError ||
+               reason == ScanReason::InvalidTarget ||
+               reason == ScanReason::InvalidPort ||
+               reason == ScanReason::UnsupportedMethod ||
+               reason == ScanReason::CapabilityUnavailable ||
+               reason == ScanReason::InternalError ||
+               reason == ScanReason::UnsupportedProtocol;
+    case PortState::Unreachable:
+        return (probe == ScanProbeType::TcpConnect && reason == ScanReason::NetworkUnreachable) ||
+               (probe != ScanProbeType::TcpConnect && reason == ScanReason::IcmpNetworkUnreachable);
+    }
+    return false;
 }
 
 } // namespace skan::portscan

@@ -9,6 +9,13 @@ int main()
 {
     skan::output::JsonOutputWriter writer;
     skan::output::ScanReport report = skan::output::test::make_report();
+    skan::portscan::PortResult ambiguous;
+    ambiguous.target = report.hosts.front().address;
+    ambiguous.port = {53U, skan::portscan::Protocol::Udp};
+    ambiguous.probe = skan::portscan::ScanProbeType::Udp;
+    ambiguous.state = skan::portscan::PortState::OpenOrFiltered;
+    ambiguous.reason = skan::portscan::ScanReason::UdpTimeout;
+    report.hosts.front().ports.push_back(ambiguous);
     report.warnings.push_back(std::string("invalid-utf8") + static_cast<char>(0x9b));
     std::ostringstream first;
     std::ostringstream second;
@@ -46,6 +53,9 @@ int main()
     assert(first.str().find("\"alpn\": [") != std::string::npos);
     assert(first.str().find(static_cast<char>(0x9b)) == std::string::npos);
     assert(first.str().find("invalid-utf8?") != std::string::npos);
+    assert(first.str().find("\"state\": \"OPEN_OR_FILTERED\"") != std::string::npos);
+    assert(first.str().find("\"reason\": \"UDP_TIMEOUT\"") != std::string::npos);
+    assert(first.str().find("\"open_or_filtered_ports\": 1") != std::string::npos);
 
     skan::output::OutputContext compact;
     compact.pretty_json = false;

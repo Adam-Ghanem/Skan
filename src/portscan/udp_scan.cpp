@@ -171,8 +171,7 @@ void RecordingUDPTransport::deliver(const UDPResponse &response)
     if (found == callbacks_.end()) {
         return;
     }
-    UDPResponseCallback callback = std::move(found->second);
-    callbacks_.erase(found);
+    UDPResponseCallback callback = found->second;
     callback(response);
 }
 
@@ -389,7 +388,7 @@ core::StatusCode UDPScheduler::submit(const core::Target &target, const std::vec
         for (const core::Host &host : target.resolved_hosts) {
             if (!parse_target_ip(host).has_value()) {
                 for (const Port &port : ports) {
-                    append_terminal_result(WorkItem{host, port, 0U, ""}, PortState::Unknown,
+                    append_terminal_result(WorkItem{host, port, 0U, ""}, PortState::Error,
                                            ScanReason::InvalidTarget);
                 }
                 status_ = core::StatusCode::InvalidArgument;
@@ -453,19 +452,23 @@ void UDPScheduler::receive(const UDPResponse &response) noexcept
     if (found == pending_.end()) {
         return;
     }
-    const Pending &pending = found->second;
+    Pending &pending = found->second;
     const auto target_ip = parse_target_ip(pending.work.host);
-    if (!target_ip.has_value() ||
-        (response.source_ip.valid() && response.source_ip != *target_ip) ||
-        (!response.source_ip.valid() && target_ip->is_ipv4() && response.source_ipv4 != 0U &&
-         response.source_ipv4 != ((static_cast<std::uint32_t>(target_ip->bytes[0]) << 24U) |
-                                  (static_cast<std::uint32_t>(target_ip->bytes[1]) << 16U) |
-                                  (static_cast<std::uint32_t>(target_ip->bytes[2]) << 8U) |
-                                  static_cast<std::uint32_t>(target_ip->bytes[3]))) ||
-        (!response.source_ip.valid() && target_ip->is_ipv6() && !response.source_address.empty() &&
-         response.source_address != pending.work.host.address) ||
-        (response.source_port != 0U && response.source_port != pending.work.port.number) ||
-        (response.destination_port != 0U && response.destination_port != pending.submission.source_port)) {
+    if (!target_ip.has_value()) {
+        return;
+    }
+    const bool direct_datagram = response.kind == UDPResponseKind::Datagram;
+    if (direct_datagram &&
+        ((response.source_ip.valid() && response.source_ip != *target_ip) ||
+         (!response.source_ip.valid() && target_ip->is_ipv4() && response.source_ipv4 != 0U &&
+          response.source_ipv4 != ((static_cast<std::uint32_t>(target_ip->bytes[0]) << 24U) |
+                                   (static_cast<std::uint32_t>(target_ip->bytes[1]) << 16U) |
+                                   (static_cast<std::uint32_t>(target_ip->bytes[2]) << 8U) |
+                                   static_cast<std::uint32_t>(target_ip->bytes[3]))) ||
+         (!response.source_ip.valid() && target_ip->is_ipv6() && !response.source_address.empty() &&
+          response.source_address != pending.work.host.address) ||
+         (response.source_port != 0U && response.source_port != pending.work.port.number) ||
+         (response.destination_port != 0U && response.destination_port != pending.submission.source_port))) {
         return;
     }
 
@@ -480,8 +483,7 @@ void UDPScheduler::receive(const UDPResponse &response) noexcept
             response.bytes.size() > definition->max_response_bytes || !datagram.has_value() ||
             datagram->source_port() != pending.work.port.number ||
             datagram->destination_port() != pending.submission.source_port) {
-            state = PortState::Error;
-            reason = ScanReason::MalformedResponse;
+            accepted = false;
         } else {
             state = PortState::Open;
             reason = ScanReason::UdpResponse;
@@ -497,12 +499,11 @@ void UDPScheduler::receive(const UDPResponse &response) noexcept
         reason = ScanReason::IcmpAdministrativelyProhibited;
         break;
     case UDPResponseKind::IcmpNetworkUnreachable:
-        state = PortState::Filtered;
+        state = PortState::Unreachable;
         reason = ScanReason::IcmpNetworkUnreachable;
         break;
     case UDPResponseKind::Malformed:
-        state = PortState::Error;
-        reason = ScanReason::MalformedResponse;
+        accepted = false;
         break;
     case UDPResponseKind::SocketError:
         state = PortState::Error;
@@ -512,9 +513,29 @@ void UDPScheduler::receive(const UDPResponse &response) noexcept
         accepted = false;
         break;
     }
-    if (accepted) {
-        const UDPScanTimePoint completed_at = response.received_at == UDPScanTimePoint{} ? UDPScanClock::now() : response.received_at;
+    if (!accepted) {
+        return;
+    }
+    const UDPScanTimePoint completed_at =
+        response.received_at == UDPScanTimePoint{} ? UDPScanClock::now() : response.received_at;
+    if (completed_at < pending.started_at) {
+        return;
+    }
+    if (state == PortState::Error) {
         complete_pending(response.id, state, reason, completed_at);
+        return;
+    }
+    if (!pending.candidate_state.has_value()) {
+        pending.candidate_state = state;
+        pending.candidate_reason = reason;
+        pending.candidate_at = completed_at;
+        return;
+    }
+    if (!pending.conflict && *pending.candidate_state != state) {
+        pending.candidate_state = PortState::Unknown;
+        pending.candidate_reason = ScanReason::ConflictingEvidence;
+        pending.candidate_at = completed_at;
+        pending.conflict = true;
     }
 }
 
@@ -577,7 +598,7 @@ void UDPScheduler::pump() noexcept
         const UDPProbeDefinition *definition = database_.for_port(work.port.number);
         if (!destination.has_value() || definition == nullptr) {
             release_source_port(source_port);
-            append_terminal_result(work, PortState::Unknown, ScanReason::InvalidTarget);
+            append_terminal_result(work, PortState::Error, ScanReason::InvalidTarget);
             status_ = core::StatusCode::InvalidArgument;
             break;
         }
@@ -742,6 +763,27 @@ void UDPScheduler::on_timeout(UDPProbeId id) noexcept
     (void)transport_.cancel(id);
     release_source_port(pending.submission.source_port);
     pending_.erase(found);
+
+    if (pending.candidate_state.has_value()) {
+        double rtt = std::chrono::duration<double, std::milli>(
+                         pending.candidate_at - pending.started_at)
+                         .count();
+        if (rtt < 0.0) {
+            rtt = 0.0;
+        }
+        append_terminal_result(
+            pending.work,
+            *pending.candidate_state,
+            pending.candidate_reason,
+            rtt);
+        if (timing_ != nullptr) {
+            timing_->on_response(std::chrono::milliseconds{static_cast<long long>(rtt)});
+            timing_->metrics().set_parallelism(pending_.size(), pending_.size());
+        }
+        pump();
+        return;
+    }
+
     if (timing_ != nullptr) {
         timing_->on_timeout();
     }

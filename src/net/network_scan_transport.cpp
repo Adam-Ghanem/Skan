@@ -460,6 +460,50 @@ bool matches_tcp_unreachable(
     return true;
 }
 
+std::optional<portscan::ScanReason> classify_tcp_unreachable_reason(
+    const PacketObservation &observation) noexcept
+{
+    if (observation.icmp.has_value() &&
+        observation.icmp->type() == packet::IcmpType::DestinationUnreachable) {
+        switch (observation.icmp->code()) {
+        case 0U:
+        case 1U:
+        case 5U:
+        case 6U:
+        case 7U:
+            return portscan::ScanReason::IcmpNetworkUnreachable;
+        case 2U:
+            return portscan::ScanReason::IcmpProtocolUnreachable;
+        case 3U:
+            return portscan::ScanReason::IcmpPortUnreachable;
+        case 9U:
+        case 10U:
+        case 13U:
+            return portscan::ScanReason::IcmpAdministrativelyProhibited;
+        default:
+            return std::nullopt;
+        }
+    }
+    if (observation.icmpv6.has_value() &&
+        observation.icmpv6->type() == packet::Icmpv6Type::DestinationUnreachable) {
+        switch (observation.icmpv6->code()) {
+        case 0U:
+        case 2U:
+        case 3U:
+            return portscan::ScanReason::IcmpNetworkUnreachable;
+        case 1U:
+        case 5U:
+        case 6U:
+            return portscan::ScanReason::IcmpAdministrativelyProhibited;
+        case 4U:
+            return portscan::ScanReason::IcmpPortUnreachable;
+        default:
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
 const char *network_scan_status_name(NetworkScanStatus status) noexcept
 {
     switch (status) {
@@ -711,8 +755,14 @@ core::StatusCode LinuxNetworkScanTransport::cancel(portscan::PortProbeId id) noe
     const auto found = pending_.find(id);
     if (found != pending_.end()) {
         correlation_.remove(found->second.correlation_key);
+        if (found->second.failed) {
+            ++session_.failed;
+        } else if (found->second.observed) {
+            ++session_.completed;
+        } else {
+            ++session_.timed_out;
+        }
         pending_.erase(found);
-        ++session_.timed_out;
     }
     return core::StatusCode::Ok;
 }
@@ -747,6 +797,32 @@ void LinuxNetworkScanTransport::on_capture_event(io::Event &event) noexcept
             }
             if (received.capture.status != CaptureStatus::Success) {
                 session_.capture_status = received.capture.status;
+                if (received.capture.status == CaptureStatus::Empty ||
+                    received.capture.status == CaptureStatus::OversizedFrame) {
+                    return;
+                }
+                session_.last_system_error = received.capture.system_error;
+                session_.last_error = received.capture.message;
+                while (!pending_.empty()) {
+                    const auto current = pending_.begin();
+                    const portscan::PortProbeId id = current->first;
+                    current->second.failed = true;
+                    portscan::PortResponse response;
+                    response.id = id;
+                    response.source_address = current->second.submission.target;
+                    response.kind = portscan::PortResponseKind::SocketError;
+                    response.system_error = received.capture.system_error;
+                    response.received_at = std::chrono::steady_clock::now();
+                    response.reason = portscan::ScanReason::SocketError;
+                    portscan::PortResponseCallback callback = current->second.callback;
+                    callback(response);
+                    const auto still_pending = pending_.find(id);
+                    if (still_pending != pending_.end()) {
+                        correlation_.remove(still_pending->second.correlation_key);
+                        ++session_.failed;
+                        pending_.erase(still_pending);
+                    }
+                }
                 return;
             }
             session_.capture_status = CaptureStatus::Success;
@@ -766,16 +842,23 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
         if (pending == pending_.end()) {
             return;
         }
+        const auto typed_reason = classify_tcp_unreachable_reason(observation);
+        if (!typed_reason.has_value()) {
+            return;
+        }
         portscan::PortResponse response;
         response.id = id;
-        response.source_address = pending->second.submission.target;
-        response.source_ip = pending->second.submission.target_ip;
+        if (observation.ipv4.has_value()) {
+            response.source_ip = core::IpAddress::from_ipv4(observation.ipv4->source_address());
+        } else if (observation.ipv6.has_value()) {
+            response.source_ip = core::IpAddress::from_ipv6(observation.ipv6->source_address());
+        }
+        response.source_address = response.source_ip.valid() ? response.source_ip.to_string() : std::string{};
         response.kind = portscan::PortResponseKind::Unreachable;
         response.received_at = observation.received_at;
+        response.reason = *typed_reason;
+        pending->second.observed = true;
         portscan::PortResponseCallback callback = pending->second.callback;
-        correlation_.remove(pending->second.correlation_key);
-        pending_.erase(pending);
-        ++session_.completed;
         callback(response);
     };
 
@@ -822,10 +905,8 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
                     response.kind = portscan::PortResponseKind::Packet;
                     response.bytes = std::move(bytes);
                     response.received_at = observation.received_at;
+                    pending->second.observed = true;
                     portscan::PortResponseCallback callback = pending->second.callback;
-                    correlation_.remove(pending->second.correlation_key);
-                    pending_.erase(pending);
-                    ++session_.completed;
                     callback(response);
                 }
             }
@@ -886,10 +967,8 @@ void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &ob
     response.bytes = std::move(bytes);
     response.received_at = observation.received_at;
     response.source_ip.scope = pending->second.submission.target_ip.scope;
+    pending->second.observed = true;
     portscan::PortResponseCallback callback = pending->second.callback;
-    correlation_.remove(pending->second.correlation_key);
-    pending_.erase(pending);
-    ++session_.completed;
     callback(response);
 }
 

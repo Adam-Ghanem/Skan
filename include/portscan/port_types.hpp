@@ -62,7 +62,8 @@ enum class ScanReason {
     UnsupportedProtocol,
     AckRst,
     AckTimeout,
-    ConflictingEvidence
+    ConflictingEvidence,
+    IcmpProtocolUnreachable
 };
 
 struct Port final {
@@ -111,6 +112,11 @@ const char *protocol_name(Protocol protocol) noexcept;
 const char *scan_probe_type_name(ScanProbeType probe) noexcept;
 const char *port_state_name(PortState state) noexcept;
 const char *scan_reason_name(ScanReason reason) noexcept;
+bool valid_port_result_semantics(
+    Protocol protocol,
+    ScanProbeType probe,
+    PortState state,
+    ScanReason reason) noexcept;
 
 } // namespace skan::portscan
 

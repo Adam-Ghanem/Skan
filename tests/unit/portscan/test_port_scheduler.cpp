@@ -117,6 +117,37 @@ int main()
         assert(scheduler.results().front().retry_count == 1U);
     }
 
+    // Once two negative categories disagree, extra retry budget must not
+    // permit a later majority to overwrite the conflict.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{100}, 1U};
+        config.retries = 2U;
+        config.retry_delay = std::chrono::milliseconds{1};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{8081U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, PortResponseKind::ConnectionRefused, ECONNREFUSED, {},
+                           PortScanClock::now()});
+        assert(scheduler.results().empty());
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
+        assert(transport.submissions().size() == 2U);
+
+        const auto second = transport.submissions().back();
+        transport.deliver({second.id, second.target, PortResponseKind::SocketError, ETIMEDOUT, {},
+                           PortScanClock::now()});
+
+        assert(scheduler.complete());
+        assert(transport.submissions().size() == 2U);
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Unknown);
+        assert(scheduler.results().front().reason == ScanReason::ConflictingEvidence);
+        assert(scheduler.results().front().retry_count == 1U);
+    }
+
     {
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
@@ -127,7 +158,26 @@ int main()
         assert(scheduler.complete());
         assert(scheduler.pending_count() == 0U);
         assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Error);
         assert(scheduler.results().front().reason == ScanReason::InternalError);
+    }
+
+    // Local socket failures are scanner errors, never UNKNOWN/FILTERED evidence.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{100}, 1U};
+        config.retries = 3U;
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{8080U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        const auto submission = transport.submissions().front();
+        transport.deliver({submission.id, submission.target, PortResponseKind::SocketError,
+                           EADDRNOTAVAIL, {}, PortScanClock::now()});
+        assert(scheduler.complete());
+        assert(transport.submissions().size() == 1U);
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Error);
+        assert(scheduler.results().front().reason == ScanReason::LocalAddressUnavailable);
     }
 
     {
@@ -188,12 +238,12 @@ int main()
         assert(scheduler.results().empty());
     }
 
-    // A definitive SYN RST is authoritative and must not be delayed by the
-    // timeout retry budget.
+    // A definitive raw result is retained until the existing attempt deadline
+    // so contradictory evidence in the same window cannot be hidden.
     {
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
-        PortScanConfig config{ScanProbeType::TcpSyn, std::chrono::milliseconds{100}, 1U};
+        PortScanConfig config{ScanProbeType::TcpSyn, std::chrono::milliseconds{2}, 1U};
         config.retries = 1U;
         config.retry_delay = std::chrono::milliseconds{50};
         PortScanScheduler scheduler(engine, transport, config);
@@ -210,11 +260,82 @@ int main()
         transport.deliver({submission.id, submission.target, PortResponseKind::Packet, 0,
                            bytes, PortScanClock::now()});
 
+        assert(!scheduler.complete());
+        assert(scheduler.results().empty());
+        std::this_thread::sleep_for(std::chrono::milliseconds{3});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         assert(scheduler.complete());
         assert(transport.submissions().size() == 1U);
         assert(scheduler.results().size() == 1U);
         assert(scheduler.results().front().state == PortState::Closed);
         assert(scheduler.results().front().reason == ScanReason::Rst);
+    }
+
+    // Duplicate raw evidence is idempotent; conflicting evidence is explicit UNKNOWN.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpSyn, std::chrono::milliseconds{2}, 1U};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{8443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        const PortSubmission submission = transport.submissions().front();
+
+        skan::packet::TCP synack;
+        synack.set_source_port(submission.port.number);
+        synack.set_destination_port(submission.source_port);
+        synack.set_acknowledgment_number(submission.sequence_number + 1U);
+        synack.set_flags(skan::packet::TcpFlag::Syn | skan::packet::TcpFlag::Ack);
+        std::vector<std::uint8_t> synack_bytes(synack.serialized_size());
+        assert(synack.serialize(synack_bytes) == skan::core::StatusCode::Ok);
+
+        skan::packet::TCP rst;
+        rst.set_source_port(submission.port.number);
+        rst.set_destination_port(submission.source_port);
+        rst.set_acknowledgment_number(submission.sequence_number + 1U);
+        rst.set_flags(skan::packet::TcpFlag::Rst | skan::packet::TcpFlag::Ack);
+        std::vector<std::uint8_t> rst_bytes(rst.serialized_size());
+        assert(rst.serialize(rst_bytes) == skan::core::StatusCode::Ok);
+
+        transport.deliver({submission.id, submission.target, PortResponseKind::Packet, 0,
+                           synack_bytes, PortScanClock::now()});
+        transport.deliver({submission.id, submission.target, PortResponseKind::Packet, 0,
+                           synack_bytes, PortScanClock::now()});
+        transport.deliver({submission.id, submission.target, PortResponseKind::Packet, 0,
+                           rst_bytes, PortScanClock::now()});
+        assert(scheduler.results().empty());
+        std::this_thread::sleep_for(std::chrono::milliseconds{3});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Unknown);
+        assert(scheduler.results().front().reason == ScanReason::ConflictingEvidence);
+    }
+
+    // A stale packet predating the current attempt cannot classify it.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpSyn, std::chrono::milliseconds{2}, 1U};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{9443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        const PortSubmission submission = transport.submissions().front();
+
+        skan::packet::TCP synack;
+        synack.set_source_port(submission.port.number);
+        synack.set_destination_port(submission.source_port);
+        synack.set_acknowledgment_number(submission.sequence_number + 1U);
+        synack.set_flags(skan::packet::TcpFlag::Syn | skan::packet::TcpFlag::Ack);
+        std::vector<std::uint8_t> bytes(synack.serialized_size());
+        assert(synack.serialize(bytes) == skan::core::StatusCode::Ok);
+        transport.deliver({submission.id, submission.target, PortResponseKind::Packet, 0, bytes,
+                           PortScanClock::now() - std::chrono::hours{1}});
+
+        std::this_thread::sleep_for(std::chrono::milliseconds{3});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
+        assert(scheduler.complete());
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Filtered);
+        assert(scheduler.results().front().reason == ScanReason::Timeout);
     }
 
     {
@@ -306,7 +427,7 @@ int main()
     {
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
-        PortScanConfig config{ScanProbeType::TcpAck, std::chrono::milliseconds{100}, 1U};
+        PortScanConfig config{ScanProbeType::TcpAck, std::chrono::milliseconds{2}, 1U};
         PortScanScheduler scheduler(engine, transport, config);
         assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
         const PortSubmission submission = transport.submissions().front();
@@ -333,6 +454,10 @@ int main()
         assert(scheduler.pending_count() == 1U && scheduler.results().empty());
         response.id = submission.id;
         scheduler.receive(response);
+        scheduler.receive(response);
+        assert(!scheduler.complete() && scheduler.results().empty());
+        std::this_thread::sleep_for(std::chrono::milliseconds{3});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         assert(scheduler.complete() && scheduler.results().size() == 1U);
         assert(scheduler.results().front().state == PortState::Unfiltered);
         assert(scheduler.results().front().reason == ScanReason::AckRst);
@@ -343,22 +468,37 @@ int main()
     {
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
-        PortScanConfig config{ScanProbeType::TcpAck, std::chrono::milliseconds{100}, 1U};
+        PortScanConfig config{ScanProbeType::TcpAck, std::chrono::milliseconds{2}, 1U};
         PortScanScheduler scheduler(engine, transport, config);
         assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
         const PortSubmission submission = transport.submissions().front();
-        PortResponse response{submission.id, "127.0.0.2", PortResponseKind::Unreachable, 0, {}, PortScanClock::now()};
+        PortResponse response{submission.id, "127.0.0.254", PortResponseKind::Unreachable, 0, {},
+                              PortScanClock::now()};
+        response.reason = ScanReason::IcmpNetworkUnreachable;
         scheduler.receive(response);
         assert(scheduler.pending_count() == 1U && scheduler.results().empty());
-        response.source_address = submission.target;
-        response.source_ip = *skan::core::parse_ip_address("127.0.0.2");
+        std::this_thread::sleep_for(std::chrono::milliseconds{3});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
+        assert(scheduler.complete() && scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Unreachable);
+        assert(scheduler.results().front().reason == ScanReason::IcmpNetworkUnreachable);
+    }
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpAck, std::chrono::milliseconds{2}, 1U};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        const PortSubmission submission = transport.submissions().front();
+        PortResponse response{submission.id, "127.0.0.254", PortResponseKind::Unreachable, 0, {},
+                              PortScanClock::now()};
+        response.reason = ScanReason::IcmpAdministrativelyProhibited;
         scheduler.receive(response);
-        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
-        response.source_ip = submission.target_ip;
-        scheduler.receive(response);
+        std::this_thread::sleep_for(std::chrono::milliseconds{3});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
         assert(scheduler.complete() && scheduler.results().size() == 1U);
         assert(scheduler.results().front().state == PortState::Filtered);
-        assert(scheduler.results().front().reason == ScanReason::IcmpNetworkUnreachable);
+        assert(scheduler.results().front().reason == ScanReason::IcmpAdministrativelyProhibited);
     }
     return 0;
 }

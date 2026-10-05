@@ -344,8 +344,14 @@ core::StatusCode LinuxUDPScanTransport::cancel(portscan::UDPProbeId id) noexcept
 {
     const auto found = pending_.find(id);
     if (found != pending_.end()) {
+        if (found->second.failed) {
+            ++session_.failed;
+        } else if (found->second.observed) {
+            ++session_.completed;
+        } else {
+            ++session_.timed_out;
+        }
         pending_.erase(found);
-        ++session_.timed_out;
     }
     return core::StatusCode::Ok;
 }
@@ -362,11 +368,40 @@ void LinuxUDPScanTransport::on_capture_event(io::Event &event) noexcept
     }
     try {
         const ReceiverResult received = receiver_.receive();
-        if (received.capture.status != CaptureStatus::Success || !received.observation.has_value()) {
-            session_.capture_status = received.capture.status;
+        if (received.capture.status == CaptureStatus::WouldBlock) {
+            session_.capture_status = CaptureStatus::Success;
             return;
         }
-        dispatch_observation(*received.observation);
+        if (received.capture.status != CaptureStatus::Success) {
+            session_.capture_status = received.capture.status;
+            if (received.capture.status == CaptureStatus::Empty ||
+                received.capture.status == CaptureStatus::OversizedFrame) {
+                return;
+            }
+            session_.last_system_error = received.capture.system_error;
+            session_.last_error = received.capture.message;
+            while (!pending_.empty()) {
+                const auto current = pending_.begin();
+                const portscan::UDPProbeId id = current->first;
+                current->second.failed = true;
+                portscan::UDPResponse response;
+                response.id = id;
+                response.kind = portscan::UDPResponseKind::SocketError;
+                response.received_at = std::chrono::steady_clock::now();
+                portscan::UDPResponseCallback callback = current->second.callback;
+                callback(response);
+                const auto still_pending = pending_.find(id);
+                if (still_pending != pending_.end()) {
+                    ++session_.failed;
+                    pending_.erase(still_pending);
+                }
+            }
+            return;
+        }
+        session_.capture_status = CaptureStatus::Success;
+        if (received.observation.has_value()) {
+            dispatch_observation(*received.observation);
+        }
     } catch (...) {
         session_.capture_status = CaptureStatus::ReceiveFailed;
     }
@@ -441,8 +476,7 @@ std::optional<portscan::UDPProbeId> LinuxUDPScanTransport::match_icmp(
         const auto target = parse_ipv4(pending.submission.target);
         if (!target.has_value() || embedded_source != source_ipv4_ || embedded_destination != *target ||
             embedded_source_port != pending.submission.source_port ||
-            embedded_destination_port != pending.submission.port.number ||
-            observation.ipv4->source_address() != *target) {
+            embedded_destination_port != pending.submission.port.number) {
             continue;
         }
         if (matched.has_value()) {
@@ -474,8 +508,7 @@ std::optional<portscan::UDPProbeId> LinuxUDPScanTransport::match_icmpv6(
             quote->ip.destination_address() != pending.submission.destination_ip.bytes ||
             observation.ipv6->destination_address() != pending.submission.source_ip.bytes ||
             quote->source_port != pending.submission.source_port ||
-            quote->destination_port != pending.submission.port.number ||
-            observation.ipv6->source_address() != pending.submission.destination_ip.bytes) {
+            quote->destination_port != pending.submission.port.number) {
             continue;
         }
         if (matched.has_value()) {
@@ -547,9 +580,8 @@ void LinuxUDPScanTransport::dispatch_observation(const PacketObservation &observ
             return;
         }
     }
+    found->second.observed = true;
     portscan::UDPResponseCallback callback = found->second.callback;
-    pending_.erase(found);
-    ++session_.completed;
     callback(response);
 }
 
@@ -562,9 +594,18 @@ std::optional<std::vector<std::uint8_t>> LinuxUDPScanTransport::compose_frame(
     if (!target_ip.valid() || !submission.source_ip.valid()) {
         return std::nullopt;
     }
-    const auto udp = packet::UDP::parse(std::span<const std::uint8_t>{submission.packet});
+    if (submission.source_port == 0U || submission.port.number == 0U ||
+        submission.port.protocol != portscan::Protocol::Udp) {
+        return std::nullopt;
+    }
+
+    packet::UDP udp;
+    udp.set_source_port(submission.source_port);
+    udp.set_destination_port(submission.port.number);
+    udp.set_payload(submission.payload);
+
     const auto destination = destination_mac(target_ip);
-    if (!udp.has_value() || !destination.has_value()) {
+    if (!destination.has_value()) {
         return std::nullopt;
     }
     packet::Packet packet;
@@ -593,7 +634,7 @@ std::optional<std::vector<std::uint8_t>> LinuxUDPScanTransport::compose_frame(
     } else {
         return std::nullopt;
     }
-    packet.set_udp(*udp);
+    packet.set_udp(std::move(udp));
     std::vector<std::uint8_t> frame = packet.serialize();
     return frame.empty() ? std::nullopt : std::optional<std::vector<std::uint8_t>>{std::move(frame)};
 }

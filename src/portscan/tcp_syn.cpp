@@ -86,13 +86,24 @@ core::StatusCode TcpSynProbe::assess(
     if (response.id != submission.id) {
         return core::StatusCode::NotFound;
     }
-    if (response.kind == PortResponseKind::Unreachable) {
-        if (response.source_ip.valid() && submission.target_ip.valid() && response.source_ip != submission.target_ip) {
-            return core::StatusCode::NotFound;
-        }
-        state = PortState::Unreachable;
-        reason = ScanReason::NetworkUnreachable;
+    if (response.kind == PortResponseKind::SocketError) {
+        state = PortState::Error;
+        reason = ScanReason::SocketError;
         return core::StatusCode::Ok;
+    }
+    if (response.kind == PortResponseKind::Unreachable) {
+        reason = response.reason;
+        if (reason == ScanReason::IcmpNetworkUnreachable) {
+            state = PortState::Unreachable;
+            return core::StatusCode::Ok;
+        }
+        if (reason == ScanReason::IcmpAdministrativelyProhibited ||
+            reason == ScanReason::IcmpPortUnreachable ||
+            reason == ScanReason::IcmpProtocolUnreachable) {
+            state = PortState::Filtered;
+            return core::StatusCode::Ok;
+        }
+        return core::StatusCode::NotFound;
     }
     if (response.kind != PortResponseKind::Packet) {
         return core::StatusCode::NotFound;
@@ -114,13 +125,16 @@ core::StatusCode TcpSynProbe::assess(
     }
     const std::uint16_t flags = tcp.flags();
     const bool has_ack = packet::has_flag(flags, packet::TcpFlag::Ack);
-    if (packet::has_flag(flags, packet::TcpFlag::Syn) && has_ack &&
+    const bool has_syn = packet::has_flag(flags, packet::TcpFlag::Syn);
+    const bool has_rst = packet::has_flag(flags, packet::TcpFlag::Rst);
+    const bool has_fin = packet::has_flag(flags, packet::TcpFlag::Fin);
+    if (has_syn && has_ack && !has_rst && !has_fin &&
         tcp.acknowledgment_number() == submission.sequence_number + 1U) {
         state = PortState::Open;
         reason = ScanReason::SynAck;
         return core::StatusCode::Ok;
     }
-    if (packet::has_flag(flags, packet::TcpFlag::Rst) &&
+    if (has_rst && !has_syn && !has_fin &&
         (!has_ack || tcp.acknowledgment_number() == submission.sequence_number + 1U)) {
         state = PortState::Closed;
         reason = ScanReason::Rst;

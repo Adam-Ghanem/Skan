@@ -98,15 +98,24 @@ core::StatusCode TcpAckProbe::assess(
     if (response.id != submission.id || submission.probe != type()) {
         return core::StatusCode::NotFound;
     }
-    if (response.kind == PortResponseKind::Unreachable) {
-        if (response.source_ip.valid()
-                ? (!submission.target_ip.valid() || response.source_ip != submission.target_ip)
-                : response.source_address != submission.target) {
-            return core::StatusCode::NotFound;
-        }
-        state = PortState::Filtered;
-        reason = ScanReason::IcmpNetworkUnreachable;
+    if (response.kind == PortResponseKind::SocketError) {
+        state = PortState::Error;
+        reason = ScanReason::SocketError;
         return core::StatusCode::Ok;
+    }
+    if (response.kind == PortResponseKind::Unreachable) {
+        reason = response.reason;
+        if (reason == ScanReason::IcmpNetworkUnreachable) {
+            state = PortState::Unreachable;
+            return core::StatusCode::Ok;
+        }
+        if (reason == ScanReason::IcmpAdministrativelyProhibited ||
+            reason == ScanReason::IcmpPortUnreachable ||
+            reason == ScanReason::IcmpProtocolUnreachable) {
+            state = PortState::Filtered;
+            return core::StatusCode::Ok;
+        }
+        return core::StatusCode::NotFound;
     }
     if (response.kind != PortResponseKind::Packet) {
         return core::StatusCode::NotFound;

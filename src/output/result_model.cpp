@@ -141,7 +141,9 @@ OutputStatus validate_report(const ScanReport &report) noexcept
             return OutputStatus::InvalidReport;
         }
         for (const portscan::PortResult &port : host.ports) {
-            if (port.port.number == 0U || port.target.empty()) {
+            if (port.port.number == 0U || port.target.empty() ||
+                !portscan::valid_port_result_semantics(
+                    port.port.protocol, port.probe, port.state, port.reason)) {
                 return OutputStatus::InvalidReport;
             }
             if (port.rtt_ms.has_value() && !valid_nonnegative(*port.rtt_ms)) {

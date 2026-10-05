@@ -87,12 +87,13 @@ int main()
 
     PortResponse local_address{1U, "127.0.0.1", PortResponseKind::SocketError, EADDRNOTAVAIL, {}, PortScanClock::now()};
     assert(connect_probe.assess(local_address, connect_submission, state, reason) == skan::core::StatusCode::Ok);
-    assert(state == PortState::Unknown);
+    assert(state == PortState::Error);
     assert(reason == ScanReason::LocalAddressUnavailable);
 
     PortResponse reset{1U, "127.0.0.1", PortResponseKind::SocketError, ECONNRESET, {}, PortScanClock::now()};
     assert(connect_probe.assess(reset, connect_submission, state, reason) == skan::core::StatusCode::Ok);
-    assert(state == PortState::Unknown);
+    assert(state == PortState::Error);
+    assert(reason == ScanReason::SocketError);
 
     PortResponse wrong_id{2U, "127.0.0.1", PortResponseKind::Connected, 0, {}, PortScanClock::now()};
     assert(connect_probe.assess(wrong_id, connect_submission, state, reason) == skan::core::StatusCode::NotFound);
@@ -160,14 +161,19 @@ int main()
     assert(ack_probe.assess(ack_syn_response, ack_submission, state, reason) ==
            skan::core::StatusCode::NotFound);
 
-    PortResponse ack_unreachable{9U, "127.0.0.1", PortResponseKind::Unreachable, 0, {}, PortScanClock::now()};
+    PortResponse ack_unreachable{9U, "127.0.0.254", PortResponseKind::Unreachable, 0, {}, PortScanClock::now()};
+    ack_unreachable.reason = ScanReason::IcmpNetworkUnreachable;
     assert(ack_probe.assess(ack_unreachable, ack_submission, state, reason) ==
            skan::core::StatusCode::Ok);
-    assert(state == PortState::Filtered);
+    assert(state == PortState::Unreachable);
     assert(reason == ScanReason::IcmpNetworkUnreachable);
-    ack_unreachable.source_address = "127.0.0.2";
-    assert(ack_probe.assess(ack_unreachable, ack_submission, state, reason) ==
-           skan::core::StatusCode::NotFound);
+
+    PortResponse ack_filtered = ack_unreachable;
+    ack_filtered.reason = ScanReason::IcmpAdministrativelyProhibited;
+    assert(ack_probe.assess(ack_filtered, ack_submission, state, reason) ==
+           skan::core::StatusCode::Ok);
+    assert(state == PortState::Filtered);
+    assert(reason == ScanReason::IcmpAdministrativelyProhibited);
 
     skan::packet::TCP rst;
     rst.set_source_port(syn_submission.port.number);
@@ -182,10 +188,17 @@ int main()
     assert(state == PortState::Closed);
     assert(reason == ScanReason::Rst);
 
-    PortResponse syn_unreachable{7U, "127.0.0.1", PortResponseKind::Unreachable, 0, {}, PortScanClock::now()};
+    PortResponse syn_unreachable{7U, "127.0.0.254", PortResponseKind::Unreachable, 0, {}, PortScanClock::now()};
+    syn_unreachable.reason = ScanReason::IcmpNetworkUnreachable;
     assert(syn_probe.assess(syn_unreachable, syn_submission, state, reason) == skan::core::StatusCode::Ok);
     assert(state == PortState::Unreachable);
-    assert(reason == ScanReason::NetworkUnreachable);
+    assert(reason == ScanReason::IcmpNetworkUnreachable);
+
+    PortResponse syn_filtered = syn_unreachable;
+    syn_filtered.reason = ScanReason::IcmpAdministrativelyProhibited;
+    assert(syn_probe.assess(syn_filtered, syn_submission, state, reason) == skan::core::StatusCode::Ok);
+    assert(state == PortState::Filtered);
+    assert(reason == ScanReason::IcmpAdministrativelyProhibited);
 
     PortResponse malformed{7U, "127.0.0.1", PortResponseKind::Packet, 0, {1U}, PortScanClock::now()};
     assert(syn_probe.assess(malformed, syn_submission, state, reason) == skan::core::StatusCode::ParseError);

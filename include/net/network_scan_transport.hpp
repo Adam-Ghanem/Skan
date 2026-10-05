@@ -44,6 +44,9 @@ bool matches_tcp_unreachable(
     const portscan::PortSubmission &submission,
     const PacketObservation &observation) noexcept;
 
+std::optional<portscan::ScanReason> classify_tcp_unreachable_reason(
+    const PacketObservation &observation) noexcept;
+
 struct NetworkScanConfig final {
     std::string interface_name;
     std::size_t max_frame_size{65535U};
@@ -110,6 +113,8 @@ private:
         portscan::PortSubmission submission;
         portscan::PortResponseCallback callback;
         CorrelationKey correlation_key;
+        bool observed{false};
+        bool failed{false};
     };
 
     void on_capture_event(io::Event &event) noexcept;

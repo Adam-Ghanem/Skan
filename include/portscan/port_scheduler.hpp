@@ -59,6 +59,10 @@ private:
         PortSubmission submission;
         PortScanTimePoint started_at{};
         io::TimerId timer_id{0U};
+        std::optional<PortState> candidate_state;
+        ScanReason candidate_reason{ScanReason::InternalError};
+        PortScanTimePoint candidate_at{};
+        bool conflict{false};
     };
 
     struct DeferredRetry final {

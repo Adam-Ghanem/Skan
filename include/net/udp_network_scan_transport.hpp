@@ -40,6 +40,8 @@ private:
     struct Pending final {
         portscan::UDPSubmission submission;
         portscan::UDPResponseCallback callback;
+        bool observed{false};
+        bool failed{false};
     };
 
     void on_capture_event(io::Event &event) noexcept;

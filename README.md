@@ -38,7 +38,7 @@ sudo skan -sU -p 53 192.0.2.10
 skan -sV --top-ports 100 192.0.2.10
 ```
 
-TCP connect scans normally run without root. Live SYN, ACK, UDP, and other raw-packet modes can require `sudo`; the package never installs Skan setuid and does not assign Linux capabilities automatically. ACK scans map filtering only: a reset is `UNFILTERED`, while a timeout is `FILTERED`; neither result identifies an open service.
+TCP connect scans normally run without root. Live SYN, ACK, UDP, and other raw-packet modes can require `sudo`; the package never installs Skan setuid and does not assign Linux capabilities automatically. ACK scans map firewall reachability rather than service state: a reset is `UNFILTERED`, a completed silence policy or validated administrative rejection is `FILTERED`, validated path failure is `UNREACHABLE`, and local scanner failure is `ERROR`; none of these identifies an open service.
 
 ## ⚡ Highlights
 
@@ -157,7 +157,7 @@ sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 | --- | --- |
 | `-sT` | TCP Connect scan |
 | `-sS` | Capability-gated Linux SYN scan |
-| `-sA` | Capability-gated Linux ACK firewall-mapping scan; reports only `FILTERED` or `UNFILTERED` |
+| `-sA` | Capability-gated Linux ACK firewall-mapping scan; endpoint evidence is `FILTERED` or `UNFILTERED`, with `UNREACHABLE`/`ERROR` reserved for validated path/local failures |
 | `-sU` | Capability-gated Linux UDP scan |
 | `-sn` / `-Pn` | Discovery-only / skip discovery |
 | `-sV` / `-O` | Service/version / OS detection |
@@ -172,6 +172,10 @@ sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 See [Nmap compatibility](docs/NMAP_COMPATIBILITY.md) for exact boundaries.
 See [Service fingerprinting](docs/SERVICE_FINGERPRINTS.md) for the clean-room probe format and corpus limits.
 See [OS evidence confidence](docs/OS_EVIDENCE_CONFIDENCE.md) for scoring, missing observations, and classification limits.
+See [Core scanner contract](docs/CORE_SCANNER_SPEC.md),
+[port-state semantics](docs/PORT_STATE_SEMANTICS.md), and
+[CORE-02 acceptance](docs/CORE_ACCEPTANCE.md) for evidence requirements,
+ambiguity, reason mappings and validation gates.
 See [Intelligence Database v2](docs/INTELLIGENCE_DATABASE.md) for governed
 source, canonical-record, and migration-gate contracts.
 

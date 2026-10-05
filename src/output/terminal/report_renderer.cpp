@@ -151,6 +151,17 @@ std::string endpoint_label(const portscan::PortResult &port)
     return std::to_string(port.port.number) + "/" + portscan::protocol_name(port.port.protocol);
 }
 
+std::size_t state_column_width(
+    const std::vector<const portscan::PortResult *> &ports,
+    std::size_t minimum) noexcept
+{
+    std::size_t width = minimum;
+    for (const portscan::PortResult *port : ports) {
+        width = std::max(width, display_width(portscan::port_state_name(port->state)) + 1U);
+    }
+    return width;
+}
+
 std::vector<const detect::ServiceResult *> services_for(
     const std::vector<const detect::ServiceResult *> &services,
     const portscan::PortResult &port)
@@ -324,7 +335,7 @@ private:
             return;
         }
         constexpr std::size_t endpoint_cells = 12U;
-        constexpr std::size_t state_cells = 13U;
+        const std::size_t state_cells = state_column_width(ports, 13U);
         constexpr std::size_t service_cells = 14U;
         constexpr std::size_t version_cells = 28U;
         output << "\n  " << padded("PORT", endpoint_cells) << padded("STATE", state_cells)
@@ -387,7 +398,7 @@ private:
                             const TerminalTheme &theme)
     {
         constexpr std::size_t endpoint_cells = 11U;
-        constexpr std::size_t state_cells = 14U;
+        const std::size_t state_cells = state_column_width(ports, 14U);
         constexpr std::size_t service_cells = 18U;
         const std::size_t reason_cells = context.include_reasons ? 20U : 0U;
         const std::size_t fixed = 2U + endpoint_cells + state_cells + service_cells + reason_cells;
@@ -419,7 +430,7 @@ private:
                               const TerminalTheme &theme)
     {
         constexpr std::size_t endpoint_cells = 11U;
-        constexpr std::size_t state_cells = 14U;
+        const std::size_t state_cells = state_column_width(ports, 14U);
         constexpr std::size_t service_cells = 18U;
         const std::size_t version_cells = layout.columns - 2U - endpoint_cells - state_cells - service_cells;
         write_row(output, "PORT", "STATE", "SERVICE", "VERSION", "", endpoint_cells, state_cells,
@@ -450,7 +461,7 @@ private:
                               const TerminalTheme &theme)
     {
         constexpr std::size_t endpoint_cells = 11U;
-        constexpr std::size_t state_cells = 14U;
+        const std::size_t state_cells = state_column_width(ports, 14U);
         const std::size_t service_cells = layout.columns - 2U - endpoint_cells - state_cells;
         write_row(output, "PORT", "STATE", "SERVICE", "", "", endpoint_cells, state_cells,
                   service_cells, 0U, 0U, theme, TerminalStyle::Brand);
@@ -484,6 +495,17 @@ public:
                 const TerminalTheme &theme) const
     {
         const ScanSummary summary = calculate_summary(report);
+        const bool has_extended =
+            summary.open_or_filtered_ports != 0U || summary.unfiltered_ports != 0U ||
+            summary.error_ports != 0U || summary.unreachable_ports != 0U ||
+            summary.unknown_ports != 0U;
+        const std::string extended =
+            std::to_string(summary.open_or_filtered_ports) + " open_or_filtered / " +
+            std::to_string(summary.unfiltered_ports) + " unfiltered / " +
+            std::to_string(summary.unknown_ports) + " unknown / " +
+            std::to_string(summary.error_ports) + " error / " +
+            std::to_string(summary.unreachable_ports) + " unreachable";
+
         if (layout.mode == TerminalLayoutMode::Plain) {
             if (layout.columns < 64U) {
                 const std::string compact = std::to_string(summary.open_ports) + " open / " +
@@ -491,12 +513,22 @@ public:
                                             std::to_string(summary.filtered_ports) + " filtered / " +
                                             std::to_string(summary.ports_scanned) + " scanned";
                 output << "Summary  " << fit(compact, available_after(layout.columns, 9U)) << '\n';
+                if (has_extended) {
+                    output << "  " << summary.open_or_filtered_ports << " open_or_filtered\n"
+                           << "  " << summary.unfiltered_ports << " unfiltered\n"
+                           << "  " << summary.unknown_ports << " unknown\n"
+                           << "  " << summary.error_ports << " error\n"
+                           << "  " << summary.unreachable_ports << " unreachable\n";
+                }
                 return;
             }
             output << "Summary: " << summary.hosts << " hosts (" << summary.hosts_up << " up); "
                    << summary.ports_scanned << " ports scanned; " << summary.open_ports << " open, "
                    << summary.closed_ports << " closed, " << summary.filtered_ports << " filtered; "
                    << summary.services_detected << " services";
+            if (has_extended) {
+                output << "; " << extended;
+            }
             if (report.duration_ms.has_value()) {
                 output << " duration=" << format_ms(*report.duration_ms);
             }
@@ -520,6 +552,10 @@ public:
                    << " / " << theme.apply(closed, TerminalStyle::Closed)
                    << " / " << theme.apply(filtered, TerminalStyle::Filtered)
                    << " / " << remainder << '\n';
+        }
+        if (has_extended) {
+            output << "  " << theme.apply(
+                fit(extended, layout.columns - 2U), TerminalStyle::Metadata) << '\n';
         }
     }
 };

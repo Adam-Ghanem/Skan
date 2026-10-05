@@ -79,10 +79,9 @@ int main()
     open_response.destination_port = transport.submissions()[0].source_port;
     open_response.kind = UDPResponseKind::Datagram;
     open_response.bytes = response_bytes;
+    open_response.received_at = UDPScanClock::now();
     transport.deliver(open_response);
-    assert(scheduler.results().size() == 1U);
-    assert(scheduler.results()[0].state == PortState::Open);
-    assert(scheduler.results()[0].probe_name.has_value());
+    assert(scheduler.results().empty());
     assert(scheduler.pending_count() == 2U);
 
     UDPResponse closed_response;
@@ -91,21 +90,29 @@ int main()
     closed_response.source_port = 69U;
     closed_response.destination_port = transport.submissions()[1].source_port;
     closed_response.kind = UDPResponseKind::IcmpPortUnreachable;
+    closed_response.received_at = UDPScanClock::now();
     transport.deliver(closed_response);
-    assert(scheduler.results().size() == 2U);
-    assert(scheduler.results()[1].state == PortState::Closed);
     transport.deliver(closed_response);
-    assert(scheduler.results().size() == 2U);
+    assert(scheduler.results().empty());
 
     assert(scheduler.run() == core::StatusCode::Ok);
     assert(scheduler.complete());
     assert(scheduler.results().size() == 3U);
+    const PortResult *open = nullptr;
+    const PortResult *closed = nullptr;
     const PortResult *timed_out = nullptr;
     for (const PortResult &result : scheduler.results()) {
-        if (result.port.number == 161U) {
-            timed_out = &result;
-        }
+        if (result.port.number == 53U) open = &result;
+        if (result.port.number == 69U) closed = &result;
+        if (result.port.number == 161U) timed_out = &result;
     }
+    assert(open != nullptr);
+    assert(open->state == PortState::Open);
+    assert(open->reason == ScanReason::UdpResponse);
+    assert(open->probe_name.has_value());
+    assert(closed != nullptr);
+    assert(closed->state == PortState::Closed);
+    assert(closed->reason == ScanReason::IcmpPortUnreachable);
     assert(timed_out != nullptr);
     assert(timed_out->state == PortState::OpenOrFiltered);
     assert(timed_out->reason == ScanReason::UdpTimeout);
@@ -137,10 +144,13 @@ int main()
     ipv6_response.kind = UDPResponseKind::Datagram;
     ipv6_response.bytes = ipv6_response_bytes;
     ipv6_response.source_ip = loopback;
+    ipv6_response.received_at = UDPScanClock::now();
     ipv6_transport.deliver(ipv6_response);
+    assert(ipv6_scheduler.results().empty());
+    assert(ipv6_scheduler.run() == core::StatusCode::Ok);
     assert(ipv6_scheduler.results().size() == 1U);
     assert(ipv6_scheduler.results().front().state == PortState::Open);
-    assert(ipv6_scheduler.run() == core::StatusCode::Ok);
+    assert(ipv6_scheduler.results().front().reason == ScanReason::UdpResponse);
 
     const auto scoped_ipv6 = core::parse_ip_address("fe80::1%lo");
     assert(scoped_ipv6.has_value());
@@ -156,12 +166,14 @@ int main()
     scoped_error.source_port = 53U;
     scoped_error.destination_port = scoped_submission.source_port;
     scoped_error.kind = UDPResponseKind::IcmpPortUnreachable;
+    scoped_error.received_at = UDPScanClock::now();
     scoped_transport.deliver(scoped_error);
+    scoped_transport.deliver(scoped_error);
+    assert(scoped_scheduler.results().empty());
+    assert(scoped_scheduler.run() == core::StatusCode::Ok);
     assert(scoped_scheduler.results().size() == 1U);
     assert(scoped_scheduler.results().front().state == PortState::Closed);
-    scoped_transport.deliver(scoped_error);
-    assert(scoped_scheduler.results().size() == 1U);
-    assert(scoped_scheduler.run() == core::StatusCode::Ok);
+    assert(scoped_scheduler.results().front().reason == ScanReason::IcmpPortUnreachable);
 
     RecordingUDPTransport malformed_transport;
     PortScanConfig malformed_config = config;
@@ -172,9 +184,90 @@ int main()
     malformed.id = malformed_transport.submissions().front().id;
     malformed.kind = UDPResponseKind::Datagram;
     malformed.bytes = {0x00U, 0x01U};
+    malformed.received_at = UDPScanClock::now();
     malformed_transport.deliver(malformed);
-    assert(malformed_scheduler.results().front().state == PortState::Error);
-    assert(malformed_scheduler.results().front().reason == ScanReason::MalformedResponse);
+    assert(malformed_scheduler.results().empty());
+    assert(malformed_scheduler.run() == core::StatusCode::Ok);
+    assert(malformed_scheduler.results().size() == 1U);
+    assert(malformed_scheduler.results().front().state == PortState::OpenOrFiltered);
+    assert(malformed_scheduler.results().front().reason == ScanReason::UdpTimeout);
+
+    // Valid contradictory evidence in one attempt is never resolved arbitrarily.
+    {
+        RecordingUDPTransport conflict_transport;
+        PortScanConfig conflict_config = config;
+        conflict_config.timeout = std::chrono::milliseconds{2};
+        conflict_config.retries = 0U;
+        conflict_config.max_outstanding = 1U;
+        UDPScheduler conflict_scheduler(engine, conflict_transport, database, conflict_config);
+        assert(conflict_scheduler.submit(target, {{53U, Protocol::Udp}}) == core::StatusCode::Ok);
+        const UDPSubmission submission = conflict_transport.submissions().front();
+
+        packet::UDP datagram;
+        datagram.set_source_port(53U);
+        datagram.set_destination_port(submission.source_port);
+        datagram.set_payload({0x42U});
+        std::vector<std::uint8_t> bytes(datagram.serialized_size(), 0U);
+        assert(datagram.serialize(bytes) == core::StatusCode::Ok);
+
+        UDPResponse positive;
+        positive.id = submission.id;
+        positive.source_ipv4 = 0xC000020AU;
+        positive.source_port = 53U;
+        positive.destination_port = submission.source_port;
+        positive.kind = UDPResponseKind::Datagram;
+        positive.bytes = bytes;
+        positive.received_at = UDPScanClock::now();
+        conflict_transport.deliver(positive);
+
+        UDPResponse negative;
+        negative.id = submission.id;
+        negative.kind = UDPResponseKind::IcmpPortUnreachable;
+        negative.received_at = UDPScanClock::now();
+        conflict_transport.deliver(negative);
+
+        assert(conflict_scheduler.results().empty());
+        assert(conflict_scheduler.run() == core::StatusCode::Ok);
+        assert(conflict_scheduler.results().size() == 1U);
+        assert(conflict_scheduler.results().front().state == PortState::Unknown);
+        assert(conflict_scheduler.results().front().reason == ScanReason::ConflictingEvidence);
+    }
+
+    // ICMP path failure and administrative filtering remain semantically distinct.
+    {
+        RecordingUDPTransport path_transport;
+        PortScanConfig path_config = config;
+        path_config.timeout = std::chrono::milliseconds{2};
+        path_config.retries = 0U;
+        path_config.max_outstanding = 1U;
+        UDPScheduler path_scheduler(engine, path_transport, database, path_config);
+        assert(path_scheduler.submit(target, {{53U, Protocol::Udp}}) == core::StatusCode::Ok);
+        UDPResponse path;
+        path.id = path_transport.submissions().front().id;
+        path.kind = UDPResponseKind::IcmpNetworkUnreachable;
+        path.received_at = UDPScanClock::now();
+        path_transport.deliver(path);
+        assert(path_scheduler.run() == core::StatusCode::Ok);
+        assert(path_scheduler.results().front().state == PortState::Unreachable);
+        assert(path_scheduler.results().front().reason == ScanReason::IcmpNetworkUnreachable);
+    }
+    {
+        RecordingUDPTransport filtered_transport;
+        PortScanConfig filtered_config = config;
+        filtered_config.timeout = std::chrono::milliseconds{2};
+        filtered_config.retries = 0U;
+        filtered_config.max_outstanding = 1U;
+        UDPScheduler filtered_scheduler(engine, filtered_transport, database, filtered_config);
+        assert(filtered_scheduler.submit(target, {{53U, Protocol::Udp}}) == core::StatusCode::Ok);
+        UDPResponse denied;
+        denied.id = filtered_transport.submissions().front().id;
+        denied.kind = UDPResponseKind::IcmpAdministrativelyProhibited;
+        denied.received_at = UDPScanClock::now();
+        filtered_transport.deliver(denied);
+        assert(filtered_scheduler.run() == core::StatusCode::Ok);
+        assert(filtered_scheduler.results().front().state == PortState::Filtered);
+        assert(filtered_scheduler.results().front().reason == ScanReason::IcmpAdministrativelyProhibited);
+    }
 
     auto drain_recording = [](RecordingUDPTransport &recording) {
         std::size_t index = 0U;
@@ -201,6 +294,7 @@ int main()
     }
     RecordingUDPTransport stress_transport;
     PortScanConfig stress_config = config;
+    stress_config.timeout = std::chrono::milliseconds{1};
     stress_config.max_outstanding = 64U;
     stress_config.retries = 0U;
     UDPScheduler stress_scheduler(engine, stress_transport, database, stress_config);

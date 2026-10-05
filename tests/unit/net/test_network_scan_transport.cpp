@@ -155,6 +155,38 @@ void test_icmp_quote_correlation()
             assert(net::matches_tcp_unreachable(submission, error));
         }
         set_quote(error, quote);
+
+        if (ipv6) {
+            auto classified = error;
+            classified.icmpv6->set_code(0U);
+            assert(net::classify_tcp_unreachable_reason(classified) ==
+                   portscan::ScanReason::IcmpNetworkUnreachable);
+            classified.icmpv6->set_code(1U);
+            assert(net::classify_tcp_unreachable_reason(classified) ==
+                   portscan::ScanReason::IcmpAdministrativelyProhibited);
+            classified.icmpv6->set_code(4U);
+            assert(net::classify_tcp_unreachable_reason(classified) ==
+                   portscan::ScanReason::IcmpPortUnreachable);
+            classified.icmpv6->set_code(7U);
+            assert(!net::classify_tcp_unreachable_reason(classified).has_value());
+        } else {
+            auto classified = error;
+            classified.icmp->set_code(0U);
+            assert(net::classify_tcp_unreachable_reason(classified) ==
+                   portscan::ScanReason::IcmpNetworkUnreachable);
+            classified.icmp->set_code(2U);
+            assert(net::classify_tcp_unreachable_reason(classified) ==
+                   portscan::ScanReason::IcmpProtocolUnreachable);
+            classified.icmp->set_code(3U);
+            assert(net::classify_tcp_unreachable_reason(classified) ==
+                   portscan::ScanReason::IcmpPortUnreachable);
+            classified.icmp->set_code(13U);
+            assert(net::classify_tcp_unreachable_reason(classified) ==
+                   portscan::ScanReason::IcmpAdministrativelyProhibited);
+            classified.icmp->set_code(8U);
+            assert(!net::classify_tcp_unreachable_reason(classified).has_value());
+        }
+
         auto invalid = error;
         if (ipv6) { invalid.ipv6->set_destination_address(submission.target_ip.bytes); }
         else { invalid.ipv4->set_destination_address(0xc0000203U); }
