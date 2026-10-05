@@ -24,9 +24,10 @@ dated before submission is stale and MUST be ignored. Retired attempts cannot
 change a published result. No added settling delay or retry algorithm is required.
 
 TCP Connect uses kernel socket completion rather than raw packet observations.
-Its existing bounded negative-confirmation policy is preserved: refused,
-timeout and local socket failures may be confirmed within the retry budget;
-contradictory negative categories produce UNKNOWN/CONFLICTING_EVIDENCE.
+Its existing bounded negative-confirmation policy is preserved for refused
+and timeout evidence. Local socket failures terminate immediately as ERROR;
+they are not endpoint evidence and are never confirmed as a network state.
+Contradictory endpoint-negative categories produce UNKNOWN/CONFLICTING_EVIDENCE.
 A later successful connect proves acceptance at that attempt and yields OPEN.
 This is temporal endpoint evidence, not an assertion that a previous refusal
 never occurred. A majority of negative observations MUST NOT hide a conflict.
