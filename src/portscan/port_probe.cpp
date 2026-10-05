@@ -52,8 +52,7 @@ void RecordingPortScanTransport::deliver(const PortResponse &response)
     if (iterator == callbacks_.end()) {
         return;
     }
-    PortResponseCallback callback = std::move(iterator->second);
-    callbacks_.erase(iterator);
+    PortResponseCallback callback = iterator->second;
     callback(response);
 }
 
