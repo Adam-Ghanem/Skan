@@ -399,24 +399,30 @@ void benchmark_mixed_udp(std::size_t count)
             return std::size_t{0U};
         }
         std::size_t index = 0U;
-        while (index < transport.submissions().size()) {
-            const auto &submission = transport.submissions()[index++];
-            skan::packet::UDP response_packet;
-            response_packet.set_source_port(submission.port.number);
-            response_packet.set_destination_port(submission.source_port);
-            response_packet.set_payload({0x01U});
-            std::vector<std::uint8_t> bytes(response_packet.serialized_size(), 0U);
-            if (response_packet.serialize(bytes) != skan::core::StatusCode::Ok) {
+        while (!scheduler.complete()) {
+            while (index < transport.submissions().size()) {
+                const auto &submission = transport.submissions()[index++];
+                skan::packet::UDP response_packet;
+                response_packet.set_source_port(submission.port.number);
+                response_packet.set_destination_port(submission.source_port);
+                response_packet.set_payload({0x01U});
+                std::vector<std::uint8_t> bytes(response_packet.serialized_size(), 0U);
+                if (response_packet.serialize(bytes) != skan::core::StatusCode::Ok) {
+                    return std::size_t{0U};
+                }
+                skan::portscan::UDPResponse response;
+                response.id = submission.id;
+                response.source_ip = submission.destination_ip;
+                response.source_port = submission.port.number;
+                response.destination_port = submission.source_port;
+                response.kind = skan::portscan::UDPResponseKind::Datagram;
+                response.bytes = std::move(bytes);
+                response.received_at = skan::portscan::UDPScanClock::now();
+                transport.deliver(response);
+            }
+            if (!scheduler.complete() && scheduler.run_once(2) != skan::core::StatusCode::Ok) {
                 return std::size_t{0U};
             }
-            skan::portscan::UDPResponse response;
-            response.id = submission.id;
-            response.source_ip = submission.destination_ip;
-            response.source_port = submission.port.number;
-            response.destination_port = submission.source_port;
-            response.kind = skan::portscan::UDPResponseKind::Datagram;
-            response.bytes = std::move(bytes);
-            transport.deliver(response);
         }
         return scheduler.results().size();
     });
