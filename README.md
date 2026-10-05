@@ -38,7 +38,7 @@ sudo skan -sU -p 53 192.0.2.10
 skan -sV --top-ports 100 192.0.2.10
 ```
 
-TCP connect scans normally run without root. Live SYN, ACK, UDP, and other raw-packet modes can require `sudo`; the package never installs Skan setuid and does not assign Linux capabilities automatically. ACK scans map filtering only: a reset is `UNFILTERED`, while a timeout is `FILTERED`; neither result identifies an open service.
+TCP connect scans normally run without root. Live SYN, ACK, UDP, and other raw-packet modes can require `sudo`; the package never installs Skan setuid and does not assign Linux capabilities automatically. ACK scans map firewall reachability rather than service state: a reset is `UNFILTERED`, a completed silence policy or validated administrative rejection is `FILTERED`, validated path failure is `UNREACHABLE`, and local scanner failure is `ERROR`; none of these identifies an open service.
 
 ## ⚡ Highlights
 
@@ -157,7 +157,7 @@ sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 | --- | --- |
 | `-sT` | TCP Connect scan |
 | `-sS` | Capability-gated Linux SYN scan |
-| `-sA` | Capability-gated Linux ACK firewall-mapping scan; reports only `FILTERED` or `UNFILTERED` |
+| `-sA` | Capability-gated Linux ACK firewall-mapping scan; endpoint evidence is `FILTERED` or `UNFILTERED`, with `UNREACHABLE`/`ERROR` reserved for validated path/local failures |
 | `-sU` | Capability-gated Linux UDP scan |
 | `-sn` / `-Pn` | Discovery-only / skip discovery |
 | `-sV` / `-O` | Service/version / OS detection |
