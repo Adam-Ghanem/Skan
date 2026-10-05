@@ -15,7 +15,7 @@ int main()
     ambiguous.probe = skan::portscan::ScanProbeType::Udp;
     ambiguous.state = skan::portscan::PortState::OpenOrFiltered;
     ambiguous.reason = skan::portscan::ScanReason::UdpTimeout;
-    report.hosts.front().ports.push_back(std::move(ambiguous));
+    report.hosts.front().ports.push_back(ambiguous);
     report.warnings.push_back(std::string("invalid-utf8") + static_cast<char>(0x9b));
     std::ostringstream first;
     std::ostringstream second;
