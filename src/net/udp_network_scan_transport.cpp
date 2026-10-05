@@ -344,7 +344,9 @@ core::StatusCode LinuxUDPScanTransport::cancel(portscan::UDPProbeId id) noexcept
 {
     const auto found = pending_.find(id);
     if (found != pending_.end()) {
-        if (found->second.observed) {
+        if (found->second.failed) {
+            ++session_.failed;
+        } else if (found->second.observed) {
             ++session_.completed;
         } else {
             ++session_.timed_out;
@@ -366,11 +368,40 @@ void LinuxUDPScanTransport::on_capture_event(io::Event &event) noexcept
     }
     try {
         const ReceiverResult received = receiver_.receive();
-        if (received.capture.status != CaptureStatus::Success || !received.observation.has_value()) {
-            session_.capture_status = received.capture.status;
+        if (received.capture.status == CaptureStatus::WouldBlock) {
+            session_.capture_status = CaptureStatus::Success;
             return;
         }
-        dispatch_observation(*received.observation);
+        if (received.capture.status != CaptureStatus::Success) {
+            session_.capture_status = received.capture.status;
+            if (received.capture.status == CaptureStatus::Empty ||
+                received.capture.status == CaptureStatus::OversizedFrame) {
+                return;
+            }
+            session_.last_system_error = received.capture.system_error;
+            session_.last_error = received.capture.message;
+            while (!pending_.empty()) {
+                const auto current = pending_.begin();
+                const portscan::UDPProbeId id = current->first;
+                current->second.failed = true;
+                portscan::UDPResponse response;
+                response.id = id;
+                response.kind = portscan::UDPResponseKind::SocketError;
+                response.received_at = std::chrono::steady_clock::now();
+                portscan::UDPResponseCallback callback = current->second.callback;
+                callback(response);
+                const auto still_pending = pending_.find(id);
+                if (still_pending != pending_.end()) {
+                    ++session_.failed;
+                    pending_.erase(still_pending);
+                }
+            }
+            return;
+        }
+        session_.capture_status = CaptureStatus::Success;
+        if (received.observation.has_value()) {
+            dispatch_observation(*received.observation);
+        }
     } catch (...) {
         session_.capture_status = CaptureStatus::ReceiveFailed;
     }
