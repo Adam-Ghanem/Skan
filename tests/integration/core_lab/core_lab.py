@@ -408,10 +408,28 @@ def snapshot(profile: str, output: Path) -> None:
     output.write_text(json.dumps(build_snapshot(profile), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def assert_output(text: str, port: int, transport: str, state: str) -> None:
-    pattern = re.compile(rf"(^|\s){port}/{transport}\s+{re.escape(state)}(\s|$)", re.MULTILINE)
-    if not pattern.search(text):
-        raise LabError(f"expected {port}/{transport} {state}; scanner output did not contain it")
+def assert_output(
+    text: str,
+    port: int,
+    transport: str,
+    state: str,
+    reason: str | None = None,
+) -> None:
+    row = re.compile(rf"(^|\s){port}/{transport}\s+{re.escape(state)}(\s|$)")
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not row.search(line):
+            continue
+        if reason is None:
+            return
+        evidence_window = "\n".join(lines[index : index + 3])
+        if re.search(rf"(^|\s){re.escape(reason)}(\s|$)", evidence_window):
+            return
+        raise LabError(
+            f"expected {port}/{transport} {state} reason={reason}; "
+            "state row was present but reason did not match"
+        )
+    raise LabError(f"expected {port}/{transport} {state}; scanner output did not contain it")
 
 
 def scanner_run(skan: Path, args: list[str], output: Path) -> str:
@@ -459,28 +477,52 @@ def smoke(skan: Path, evidence_dir: Path) -> None:
 
         ipv4 = scanner_run(
             skan,
-            ["-Pn", "-sS", "-p", "18080,18082", "--reason", "-e", topo["scanner_interface"], ipv4_target],
+            ["-Pn", "-sS", "-p", "18080,18082,18083,18084", "--reason",
+             "-e", topo["scanner_interface"], ipv4_target],
             evidence_dir / "syn-ipv4.txt",
         )
-        assert_output(ipv4, 18080, "tcp", "OPEN")
-        assert_output(ipv4, 18082, "tcp", "CLOSED")
+        assert_output(ipv4, 18080, "tcp", "OPEN", "SYN_ACK")
+        assert_output(ipv4, 18082, "tcp", "CLOSED", "RST")
+        assert_output(ipv4, 18083, "tcp", "FILTERED", "TIMEOUT")
+        assert_output(ipv4, 18084, "tcp", "FILTERED", "ICMP_ADMINISTRATIVELY_PROHIBITED")
 
         ipv6 = scanner_run(
             skan,
-            ["-Pn", "-sS", "-6", "-p", "18081,18082", "--reason", "-e", topo["scanner_interface"], ipv6_target],
+            ["-Pn", "-sS", "-6", "-p", "18081,18082,18083,18084", "--reason",
+             "-e", topo["scanner_interface"], ipv6_target],
             evidence_dir / "syn-ipv6.txt",
         )
-        assert_output(ipv6, 18081, "tcp", "OPEN")
-        assert_output(ipv6, 18082, "tcp", "CLOSED")
+        assert_output(ipv6, 18081, "tcp", "OPEN", "SYN_ACK")
+        assert_output(ipv6, 18082, "tcp", "CLOSED", "RST")
+        assert_output(ipv6, 18083, "tcp", "FILTERED", "TIMEOUT")
+        assert_output(ipv6, 18084, "tcp", "FILTERED", "ICMP_ADMINISTRATIVELY_PROHIBITED")
 
         ack4 = scanner_run(
             skan,
-            ["-Pn", "-sA", "-p", "18080,18083,18084", "--reason", "-e", topo["scanner_interface"], ipv4_target],
+            ["-Pn", "-sA", "-p", "18080,18083,18084", "--reason",
+             "-e", topo["scanner_interface"], ipv4_target],
             evidence_dir / "ack-ipv4.txt",
         )
-        assert_output(ack4, 18080, "tcp", "UNFILTERED")
-        assert_output(ack4, 18083, "tcp", "FILTERED")
-        assert_output(ack4, 18084, "tcp", "FILTERED")
+        assert_output(ack4, 18080, "tcp", "UNFILTERED", "ACK_RST")
+        assert_output(ack4, 18083, "tcp", "FILTERED", "ACK_TIMEOUT")
+        assert_output(ack4, 18084, "tcp", "FILTERED", "ICMP_ADMINISTRATIVELY_PROHIBITED")
+
+        connect4 = scanner_run(
+            skan,
+            ["-Pn", "-sT", "-p", "18080,18082", "--reason", ipv4_target],
+            evidence_dir / "connect-ipv4.txt",
+        )
+        assert_output(connect4, 18080, "tcp", "OPEN", "IMMEDIATE_SUCCESS")
+        assert_output(connect4, 18082, "tcp", "CLOSED", "CONNECTION_REFUSED")
+
+        udp4 = scanner_run(
+            skan,
+            ["-Pn", "-sU", "-p", "18090,18092", "--reason",
+             "-e", topo["scanner_interface"], ipv4_target],
+            evidence_dir / "udp-ipv4.txt",
+        )
+        assert_output(udp4, 18090, "udp", "OPEN", "UDP_RESPONSE")
+        assert_output(udp4, 18092, "udp", "CLOSED", "ICMP_PORT_UNREACHABLE")
 
         snapshot("clean", evidence_dir / "truth-after.json")
     finally:
