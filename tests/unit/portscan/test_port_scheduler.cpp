@@ -117,6 +117,37 @@ int main()
         assert(scheduler.results().front().retry_count == 1U);
     }
 
+    // Once two negative categories disagree, extra retry budget must not
+    // permit a later majority to overwrite the conflict.
+    {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpConnect, std::chrono::milliseconds{100}, 1U};
+        config.retries = 2U;
+        config.retry_delay = std::chrono::milliseconds{1};
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{8081U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+
+        const auto first = transport.submissions().front();
+        transport.deliver({first.id, first.target, PortResponseKind::ConnectionRefused, ECONNREFUSED, {},
+                           PortScanClock::now()});
+        assert(scheduler.results().empty());
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
+        assert(transport.submissions().size() == 2U);
+
+        const auto second = transport.submissions().back();
+        transport.deliver({second.id, second.target, PortResponseKind::SocketError, ETIMEDOUT, {},
+                           PortScanClock::now()});
+
+        assert(scheduler.complete());
+        assert(transport.submissions().size() == 2U);
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == PortState::Unknown);
+        assert(scheduler.results().front().reason == ScanReason::ConflictingEvidence);
+        assert(scheduler.results().front().retry_count == 1U);
+    }
+
     {
         skan::io::IOEngine engine;
         RecordingPortScanTransport transport;
