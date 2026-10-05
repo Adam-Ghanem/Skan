@@ -34,6 +34,9 @@ jobs:
           bash -n scripts/privileged_validation.sh
           test -x scripts/privileged_validation.sh
 
+      - name: Validate Core V3 ground-truth lab contract
+        run: make test-core-lab-contract
+
       - name: Clean production build and tests
         run: |
           make clean
@@ -264,7 +267,7 @@ jobs:
       - name: Install isolated-lab tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y ethtool iptables nmap tcpdump
+          sudo apt-get install -y ethtool iproute2 iptables nmap tcpdump
 
       - name: Build Skan
         run: |
@@ -352,6 +355,12 @@ jobs:
           sudo ip netns exec skan-target ip6tables -A INPUT -i target0 -p tcp --dport 8085 -j REJECT --reject-with icmp6-adm-prohibited
           sudo env SKAN_AUTHORIZED_LAB=1 python3 tests/integration/cli/test_ack_private_lab.py
 
+      - name: Validate Core V3 independent ground-truth lab
+        run: |
+          sudo env SKAN_AUTHORIZED_LAB=1 python3 tests/integration/core_lab/core_lab.py smoke \
+            --skan "$PWD/bin/skan" \
+            --evidence-dir "$PWD/validation_runs/core-ground-truth"
+
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -361,6 +370,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Remove isolated namespace
+      - name: Remove isolated namespaces
         if: always()
-        run: sudo ip netns delete skan-target || true
+        run: |
+          sudo env SKAN_AUTHORIZED_LAB=1 python3 tests/integration/core_lab/core_lab.py cleanup || true
+          sudo ip netns delete skan-target || true

@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "lab_id": "skan-core-v3-ground-truth",
+  "safety": {
+    "authorization_env": "SKAN_AUTHORIZED_LAB",
+    "authorization_value": "1",
+    "public_targets_allowed": false
+  },
+  "topology": {
+    "namespace": "skan-core-target",
+    "scanner_interface": "skan-core0",
+    "target_interface": "target0",
+    "ipv4_scanner": "192.0.2.5/30",
+    "ipv4_target": "192.0.2.6/30",
+    "ipv6_scanner": "2001:db8:42::1/64",
+    "ipv6_target": "2001:db8:42::2/64"
+  },
+  "truth_cases": [
+    {
+      "id": "tcp-open-ipv4",
+      "transport": "tcp",
+      "port": 18080,
+      "families": [
+        "ipv4"
+      ],
+      "configured_truth": "OPEN",
+      "truth_source": "bound-listening-socket"
+    },
+    {
+      "id": "tcp-open-ipv6",
+      "transport": "tcp",
+      "port": 18081,
+      "families": [
+        "ipv6"
+      ],
+      "configured_truth": "OPEN",
+      "truth_source": "bound-listening-socket"
+    },
+    {
+      "id": "tcp-closed",
+      "transport": "tcp",
+      "port": 18082,
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "configured_truth": "CLOSED",
+      "truth_source": "verified-no-listener"
+    },
+    {
+      "id": "tcp-drop",
+      "transport": "tcp",
+      "port": 18083,
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "configured_truth": "FILTERED",
+      "truth_source": "firewall-drop"
+    },
+    {
+      "id": "tcp-admin-reject",
+      "transport": "tcp",
+      "port": 18084,
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "configured_truth": "FILTERED",
+      "truth_source": "firewall-admin-prohibited"
+    },
+    {
+      "id": "tcp-rst-rate-limited",
+      "transport": "tcp",
+      "port": 18085,
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "configured_truth": "RATE_LIMITED",
+      "truth_source": "firewall-rate-limited-tcp-reset"
+    },
+    {
+      "id": "tcp-icmp-rate-limited",
+      "transport": "tcp",
+      "port": 18086,
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "configured_truth": "RATE_LIMITED",
+      "truth_source": "firewall-rate-limited-admin-prohibited"
+    },
+    {
+      "id": "udp-open-ipv4",
+      "transport": "udp",
+      "port": 18090,
+      "families": [
+        "ipv4"
+      ],
+      "configured_truth": "OPEN",
+      "truth_source": "bound-datagram-echo-socket"
+    },
+    {
+      "id": "udp-open-ipv6",
+      "transport": "udp",
+      "port": 18091,
+      "families": [
+        "ipv6"
+      ],
+      "configured_truth": "OPEN",
+      "truth_source": "bound-datagram-echo-socket"
+    },
+    {
+      "id": "udp-closed",
+      "transport": "udp",
+      "port": 18092,
+      "families": [
+        "ipv4",
+        "ipv6"
+      ],
+      "configured_truth": "CLOSED",
+      "truth_source": "verified-no-listener"
+    }
+  ],
+  "network_profiles": [
+    {
+      "id": "clean",
+      "kind": "clean"
+    },
+    {
+      "id": "loss-1",
+      "kind": "loss",
+      "loss_percent": 1,
+      "seed": 424242
+    },
+    {
+      "id": "loss-5",
+      "kind": "loss",
+      "loss_percent": 5,
+      "seed": 424242
+    },
+    {
+      "id": "loss-10",
+      "kind": "loss",
+      "loss_percent": 10,
+      "seed": 424242
+    },
+    {
+      "id": "loss-20",
+      "kind": "loss",
+      "loss_percent": 20,
+      "seed": 424242
+    },
+    {
+      "id": "rtt-1",
+      "kind": "rtt",
+      "round_trip_ms": 1
+    },
+    {
+      "id": "rtt-20",
+      "kind": "rtt",
+      "round_trip_ms": 20
+    },
+    {
+      "id": "rtt-100",
+      "kind": "rtt",
+      "round_trip_ms": 100
+    },
+    {
+      "id": "rtt-300",
+      "kind": "rtt",
+      "round_trip_ms": 300
+    },
+    {
+      "id": "rtt-800",
+      "kind": "rtt",
+      "round_trip_ms": 800
+    },
+    {
+      "id": "jitter",
+      "kind": "jitter",
+      "delay_ms": 100,
+      "jitter_ms": 20
+    },
+    {
+      "id": "duplicate",
+      "kind": "duplicate",
+      "duplicate_percent": 2,
+      "seed": 424242
+    },
+    {
+      "id": "reorder",
+      "kind": "reorder",
+      "delay_ms": 20,
+      "reorder_percent": 25,
+      "correlation_percent": 50,
+      "seed": 424242
+    },
+    {
+      "id": "burst-loss",
+      "kind": "burst-loss",
+      "p": 1,
+      "r": 25,
+      "one_minus_h": 75,
+      "one_minus_k": 0.1,
+      "seed": 424242
+    },
+    {
+      "id": "bandwidth-10mbit",
+      "kind": "bandwidth",
+      "rate": "10mbit"
+    }
+  ],
+  "evidence_required": [
+    "truth-manifest",
+    "listener-snapshot",
+    "ipv4-firewall-snapshot",
+    "ipv6-firewall-snapshot",
+    "qdisc-snapshot",
+    "packet-capture-when-live-validation-runs"
+  ]
+}
