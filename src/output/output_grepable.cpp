@@ -123,6 +123,15 @@ OutputStatus GrepableOutputWriter::write(
                     output << " tls=true";
                     if (!service->tls_version.empty())
                         output << " tls_version=\"" << detail::grep_escape(service->tls_version) << '\"';
+                    const auto field = [&output](const char *name, const std::string &value) {
+                        if (!value.empty()) output << ' ' << name << "=\"" << detail::grep_escape(value) << '\"';
+                    };
+                    field("certificate_subject", service->certificate_subject);
+                    field("certificate_issuer", service->certificate_issuer);
+                    field("certificate_not_before", service->certificate_not_before);
+                    field("certificate_not_after", service->certificate_not_after);
+                    for (const auto &name : service->certificate_san_names) field("certificate_san", name);
+                    for (const auto &protocol : service->alpn) field("alpn", protocol);
                 }
                 output << " confidence=" << std::setprecision(15) << service->confidence
                        << " method=" << detect::detection_method_name(service->method)

@@ -39,6 +39,12 @@ class BuildEnvironmentTests(unittest.TestCase):
     def test_ci_builder_installs_corpus_test_interpreter(self):
         self.assertIn("python3", builder_packages())
 
+    def test_debian_build_declares_tls_development_library(self):
+        self.assertIn("libssl-dev", debian_build_dependencies())
+
+    def test_ci_builder_installs_tls_development_library(self):
+        self.assertIn("libssl-dev", builder_packages())
+
 
 if __name__ == "__main__":
     unittest.main()

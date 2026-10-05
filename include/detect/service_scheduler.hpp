@@ -56,6 +56,7 @@ private:
         std::size_t retry_count{0U};
         std::optional<ServiceMatchResult> best_match;
         std::size_t best_match_probe_index{0U};
+        bool tls_session{false};
     };
 
     struct Pending final {
@@ -70,6 +71,8 @@ private:
         std::size_t previous_best_match_probe_index{0U};
         DetectionTimePoint started_at{};
         io::TimerId timer_id{0U};
+        std::optional<TlsMetadata> tls{};
+        DetectionError terminal_error{DetectionError::None};
     };
 
     struct DeferredRetry final {

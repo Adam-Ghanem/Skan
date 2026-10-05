@@ -42,7 +42,8 @@ enum class DetectionError {
     MalformedResponse,
     NoMatch,
     UnsupportedProtocol,
-    InternalError
+    InternalError,
+    TlsFailure
 };
 
 enum class DetectionMethod {
@@ -108,6 +109,8 @@ struct ServiceDetectionConfig final {
     scanengine::TimingProfile timing_profile{};
     std::size_t retries{0U};
     std::chrono::milliseconds retry_delay{250};
+    /** Optional ASCII DNS name for SNI/default TLS HTTP Host; not trust verification. */
+    std::string tls_server_name{};
 };
 
 struct ServiceDetectionSelection final {

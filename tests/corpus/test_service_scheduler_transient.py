@@ -110,7 +110,7 @@ class ServiceSchedulerTransientFailureTest(unittest.TestCase):
                 f"""
                 .PHONY: service-transient-harness
                 service-transient-harness: build/test_service_scheduler
-                \t$(CXX) $(CXXFLAGS) -Iinclude {source} $(LDFLAGS) {objects} -o {binary}
+                \t$(CXX) $(CXXFLAGS) -Iinclude {source} $(LDFLAGS) {objects} -o {binary} $(LDLIBS)
                 """
             )
             subprocess.run(

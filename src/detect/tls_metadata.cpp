@@ -298,6 +298,14 @@ void parse_certificate_message(std::span<const std::uint8_t> message, TlsMetadat
 
 } // namespace
 
+TlsMetadata parse_tls_certificate(std::span<const std::uint8_t> certificate)
+{
+    TlsMetadata metadata;
+    try { parse_certificate(certificate, metadata); }
+    catch (const std::bad_alloc &) { return {}; }
+    return metadata;
+}
+
 TlsMetadata parse_tls_metadata(std::span<const std::uint8_t> response)
 {
     TlsMetadata metadata;
