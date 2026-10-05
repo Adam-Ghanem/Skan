@@ -7,7 +7,8 @@ It is **not** a declaration that CORE-03 or correlation V3 is complete.
 
 The historical CORE-02 executable returned TIMEOUT for both the independently
 listening OPEN port and the CLOSED port, including after neighbor-cache priming.
-Increasing its deadline from 500 ms to 3000 ms did not resolve the failure.
+Increasing the requested CLI timeout from 500 ms to 3000 ms did not resolve it;
+that must not be confused with the scheduler's actual adaptive deadline.
 The independent capture contains checksum-valid SYN/ACK and RST/ACK replies:
 
 | Probe | Local endpoint | Remote endpoint | Sent sequence | Reply acknowledgment |
@@ -18,10 +19,44 @@ The independent capture contains checksum-valid SYN/ACK and RST/ACK replies:
 The OPEN reply has only a recognized MSS option; the CLOSED reply has no TCP
 options. Replaying these literal frames through the current parser, tuple/ACK
 validator and correlation lookup succeeds. A clean build from the current main
-base also passes the live OPEN/CLOSED test. Therefore the exact cause of the
-historical binary's failure is **not established**, and the repair below must
-not be described as proving that historical root cause. The old dirty worktree
-and its evidence were preserved rather than integrated wholesale.
+base also passes the live OPEN/CLOSED test. Initially the historical rejection
+boundary was unresolved; debugger inspection of the preserved executable then
+identified it, as recorded below. The old dirty worktree and its evidence were
+preserved rather than integrated wholesale.
+
+### Historical rejecting boundary: scheduler lifecycle
+
+Read-only debugger instrumentation of the preserved executable (build ID
+`0ac8f962dbe047d57d5438969d6916f5b64528d9`) established this path for both probes:
+submission returns `Ok`; capture dispatch occurs; lookup reaches the matching
+entry; `matches_tcp_reply` returns true; scheduler receives the response;
+`TcpSynProbe::assess` returns `Ok` with OPEN or CLOSED; the scheduler's
+`received_at > deadline_at` comparison then rejects it. The failed field is
+**lifecycle / received-after-deadline**, not AF, tuple, protocol or TCP ACK.
+
+Offsets were verified against that executable's disassembly, not guessed from
+the new source layout. The recorded monotonic-clock values were:
+
+| Probe ID | Started (ns) | Read timestamp (ns) | Deadline (ns) | Rejected comparison |
+| --- | --- | --- | --- | --- |
+| 1 | 1904107599213 | 1904315165713 | 1904157599213 | after deadline |
+| 2 | 1904204307266 | 1904445249414 | 1904254307266 | after deadline |
+
+Both deadlines were 50 ms after start despite the requested 1000 ms CLI timeout
+in this trace. These are debugger-instrumented processing timestamps, **not**
+network RTT measurements. `PacketReceiver::receive` assigns a user-space drain
+timestamp, not the kernel's actual arrival timestamp. Treating that value as
+on-wire arrival time can reject buffered evidence when submission/capture work
+delays the event loop. Instrumentation overhead can contribute to delay; this
+trace proves the rejecting comparison, not its uninstrumented delay breakdown.
+
+Current published main already uses the still-pending attempt lifecycle rather
+than that historical dirty-worktree upper timestamp check. This repair does not
+import or remove that unpublished check. A scheduler regression now covers
+valid buffered OPEN/CLOSED replies drained after a nominal timer deadline but
+before retirement, plus pre-submission and retired-response rejection. No
+generation/tuple guard is removed; accurate kernel-arrival timestamps and a
+complete generation-aware expiry contract remain future CORE-03 work.
 
 ## Proven related rejection and minimal repair
 
@@ -84,15 +119,16 @@ and UDP IPv4 response/port-unreachable. ACK IPv6 is now included in the lab's
 strict acceptance assertions. Independent capture and listener/firewall
 snapshots accompany local ignored evidence in `validation_runs/`.
 
-Four targeted transport/filter/receiver tests passed, including address and
-undefined-behavior sanitizer builds. The lab contract's six tests, version
+Five targeted tests (transport/filter/receiver plus the scheduler) passed address
+and undefined-behavior sanitizer builds. The lab contract's six tests, version
 consistency and line-ending checks passed. Full-suite execution and independent
-review results are recorded below after completion; a timeout is not a pass.
+review results are recorded below; a timeout is not a pass.
 
 Known gaps:
 
-- The exact historical OPEN/CLOSED timeout cause is unresolved on the preserved
-  stale executable; current-base success is not proof of its cause.
+- The historical rejecting lifecycle comparison is identified. Its timing
+  breakdown without debugger overhead and kernel-arrival timestamps is not
+  established; current-base success alone was not used as proof of its cause.
 - Explicit generation and expanded correlation-key protections are not yet
   implemented in the base and are not supplied by this narrow wire-evidence fix.
 - Non-loopback UDP IPv6 neighbor resolution is not implemented by the existing
@@ -126,3 +162,21 @@ Known gaps:
 - Independent read-only whole-diff and follow-up review found no blockers.
   Both suggested test improvements (probe assessment and combined/padded
   captures) were implemented and the targeted test passed again.
+- Full `timeout -k 5s 360s make -j2 test` exited 0: 88 registered C++ test
+  binaries, 213 corpus tests (run twice by existing Make targets), and 46
+  comparison tests. The new lifecycle test was then rebuilt and run separately.
+- The comparison suite first failed on CRLF-altered baseline fixture bytes.
+  `.gitattributes` now forces LF for those hash-bound text fixtures. Expected
+  hashes and validators were unchanged. Fresh non-overwriting `checkout-index`
+  copies match all three published manifest/Skan/Nmap artifact hashes.
+- The CLI compatibility/terminal-policy/ACK-option/ACK-lab-contract chain exited
+  0 with bounded commands. Its earlier 45-second chain timed out; the full
+  script completed under a bounded 90-second budget.
+- Eight workflow/security regression tests and workflow-policy validation
+  exited 0. No new dependency was added. No CI result is claimed.
+- Read-only debugger inspection localized the old TIMEOUT to scheduler lifecycle
+  after successful tuple/ACK validation and probe assessment, as detailed above.
+- Final sanitizer re-run added `test_port_scheduler` to the four transport
+  targets and exited 0. Follow-up review strengthened the pre-submission test
+  with opposite-state evidence and direct retired-ID scheduler delivery; the
+  final normal and sanitized scheduler tests passed.

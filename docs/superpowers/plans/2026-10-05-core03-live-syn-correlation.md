@@ -31,13 +31,15 @@ Files: `src/net/network_scan_transport.cpp`, `src/net/packet_receiver.cpp`, `src
 
 - [x] Attempt reproduction from the latest base and inspect independent packet evidence (clean base passes; historical executable still fails).
 - [x] Record submission/key, wire SYN/reply, parser status, validation field, lookup and lifecycle/evidence decision; debug-only logs must not alter classification.
-- [ ] Identify the first failing boundary with actual output, not a timing assumption.
+- [x] Identify the first failing boundary with actual output, not a timing assumption (debugger: scheduler lifecycle, received-after-deadline).
 
 The historical MSS-only SYN/ACK and optionless RST/ACK pass current replay and
-live validation. Their historical failure boundary is not yet proven. Independent
-review found a separate lossy TCP re-serialization rejection, reproduced by RED
-tests; that proven related defect is repaired below, not substituted as an
-explanation of the historical failure.
+live validation. Read-only debugger inspection of the preserved failing binary
+identified its scheduler's received-after-deadline rejection after successful
+tuple/ACK lookup and probe assessment. Instrumentation delay is not claimed as
+network latency. Independent review also found a separate lossy TCP
+re-serialization rejection, reproduced by RED tests; that related defect is
+repaired below, not substituted as the historical rejection's explanation.
 
 ### Task 2: minimal repair, RED then GREEN
 
@@ -52,6 +54,11 @@ Files: the proven faulty boundary and its existing unit test; no unrelated chang
 Files: lab acceptance tests and `docs/CORE03_SYN_REPAIR.md` execution ledger.
 
 - [x] Build and run SYN OPEN/CLOSED IPv4/IPv6, ACK IPv4/IPv6 and UDP IPv4 live truth with independent listener/firewall/capture evidence; record the existing non-loopback UDP IPv6 gap.
-- [ ] Run locally available relevant/full tests, sanitizers where practical; record failures/timeouts/skips.
-- [ ] Inspect full diff, perform independent review, commit and push valid fixes to the phase branch.
-- [ ] Leave full CORE-03 generation/key expansion and CI acceptance explicitly incomplete if not implemented/verified; never merge red or pending CI.
+- [x] Run locally available relevant/full tests, sanitizers where practical; record failures/timeouts/skips.
+- [x] Inspect full diff, perform independent review, commit and push valid fixes to the phase branch.
+- [x] Leave full CORE-03 generation/key expansion and CI acceptance explicitly incomplete if not implemented/verified; never merge red or pending CI.
+
+The broader phase is not complete: generation-aware identity/expiry expansion,
+kernel arrival timestamps and live non-loopback IPv6 UDP coverage remain gaps.
+Published fixes are scoped to proven wire preservation, diagnostic visibility
+and hash-bound fixture checkout stability; no stronger correlation claim is made.
