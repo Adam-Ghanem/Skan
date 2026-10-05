@@ -344,8 +344,12 @@ core::StatusCode LinuxUDPScanTransport::cancel(portscan::UDPProbeId id) noexcept
 {
     const auto found = pending_.find(id);
     if (found != pending_.end()) {
+        if (found->second.observed) {
+            ++session_.completed;
+        } else {
+            ++session_.timed_out;
+        }
         pending_.erase(found);
-        ++session_.timed_out;
     }
     return core::StatusCode::Ok;
 }
@@ -441,8 +445,7 @@ std::optional<portscan::UDPProbeId> LinuxUDPScanTransport::match_icmp(
         const auto target = parse_ipv4(pending.submission.target);
         if (!target.has_value() || embedded_source != source_ipv4_ || embedded_destination != *target ||
             embedded_source_port != pending.submission.source_port ||
-            embedded_destination_port != pending.submission.port.number ||
-            observation.ipv4->source_address() != *target) {
+            embedded_destination_port != pending.submission.port.number) {
             continue;
         }
         if (matched.has_value()) {
@@ -474,8 +477,7 @@ std::optional<portscan::UDPProbeId> LinuxUDPScanTransport::match_icmpv6(
             quote->ip.destination_address() != pending.submission.destination_ip.bytes ||
             observation.ipv6->destination_address() != pending.submission.source_ip.bytes ||
             quote->source_port != pending.submission.source_port ||
-            quote->destination_port != pending.submission.port.number ||
-            observation.ipv6->source_address() != pending.submission.destination_ip.bytes) {
+            quote->destination_port != pending.submission.port.number) {
             continue;
         }
         if (matched.has_value()) {
@@ -547,9 +549,8 @@ void LinuxUDPScanTransport::dispatch_observation(const PacketObservation &observ
             return;
         }
     }
+    found->second.observed = true;
     portscan::UDPResponseCallback callback = found->second.callback;
-    pending_.erase(found);
-    ++session_.completed;
     callback(response);
 }
 
