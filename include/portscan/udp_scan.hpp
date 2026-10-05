@@ -160,6 +160,10 @@ private:
         UDPSubmission submission;
         UDPScanTimePoint started_at{};
         io::TimerId timer_id{0U};
+        std::optional<PortState> candidate_state;
+        ScanReason candidate_reason{ScanReason::InternalError};
+        UDPScanTimePoint candidate_at{};
+        bool conflict{false};
     };
 
     core::StatusCode validate_config() const noexcept;
