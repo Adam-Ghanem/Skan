@@ -49,6 +49,7 @@ struct PortResponse final {
     std::vector<std::uint8_t> bytes;
     PortScanTimePoint received_at{};
     core::IpAddress source_ip{};
+    ScanReason reason{ScanReason::InternalError};
 };
 
 class PortScanTransport {
