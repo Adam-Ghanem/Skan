@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <regex>
 #include <span>
+#include <set>
+#include "detect/protocol_validators.hpp"
 
 #include "detect/protocol_parsers.hpp"
 
@@ -281,6 +283,7 @@ ServiceMatchResult ServiceMatcher::match(
         }
     }
     std::string owned_response;
+    std::set<std::string> validated_families;
     for (std::size_t index = 0U; index < probe.rules.size(); ++index) {
         const ServiceMatchRule &rule = probe.rules[index];
         std::match_results<std::string::const_iterator> matches;
@@ -289,6 +292,34 @@ ServiceMatchResult ServiceMatcher::match(
         if (templated_service) {
             if (!rule_matches(rule, looks_http ? std::string_view{normalized_http} : response, matches, owned_response)) continue;
             service = expand_template(service, &matches);
+        }
+        if (has_api_validator(service) || has_exchange_validator(service)) {
+            if (!validated_families.insert(service).second) continue;
+            std::optional<ProtocolIdentity> parsed;
+            if (has_api_validator(service)) {
+                if (looks_http && probe.protocol == TransportProtocol::Tcp)
+                    parsed = parse_api_identity(service, probe.payload, http);
+            } else parsed = validate_exchange(service, probe, response, terminal);
+            if (!parsed) continue;
+            ServiceMatchResult candidate;
+            candidate.matched = true;
+            candidate.service = parsed->service;
+            candidate.product = parsed->product;
+            candidate.version = parsed->version;
+            candidate.extra = parsed->extra;
+            if (service == "irc") candidate.hostname = response.substr(1U, response.find(' ') - 1U);
+            candidate.strength = parsed->provisional ? ServiceMatchStrength::Soft : ServiceMatchStrength::Hard;
+            candidate.confidence = 0.97;
+            candidate.priority = 6U;
+            candidate.rule_index = index;
+            candidate.evidence = ProtocolEvidence{parsed->validator, "structured", parsed->version_source,
+                parsed->protocol_version, std::nullopt, true};
+            if (has_api_validator(service)) {
+                candidate.evidence->protocol_version = http.protocol_version;
+                candidate.evidence->status_code = http.status_code;
+            }
+            if (service_match_is_better(candidate, best)) best = std::move(candidate);
+            continue;
         }
         if (!looks_http && service == "http") continue;
         if (looks_http && service == "http") {

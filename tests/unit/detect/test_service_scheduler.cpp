@@ -778,7 +778,9 @@ int main()
                            response_bytes(capabilities), false, DetectionClock::now()});
         assert(scheduler.complete());
         assert(scheduler.results().front().service == "nntp");
-        assert(scheduler.results().front().version == "2");
+        assert(scheduler.results().front().version.empty());
+        assert(scheduler.results().front().evidence);
+        assert(scheduler.results().front().evidence->protocol_version == "2");
     }
 
     {
@@ -800,7 +802,52 @@ int main()
                            response_bytes("0\n"), false, DetectionClock::now()});
         assert(scheduler.complete());
         assert(scheduler.results().front().service == "rsync");
-        assert(scheduler.results().front().version == "31.10");
+        assert(scheduler.results().front().version.empty());
+        assert(scheduler.results().front().evidence);
+        assert(scheduler.results().front().evidence->protocol_version == "31.10");
+    }
+    {
+        skan::core::StatusCode status{};
+        const auto database=ServiceProbeDatabase::load_file("data/service-probes.db",status);
+        assert(status==skan::core::StatusCode::Ok);
+        skan::io::IOEngine engine; RecordingServiceTransport transport;
+        ServiceScheduler scheduler(engine,transport,database,
+            ServiceDetectionConfig{1U,std::chrono::milliseconds{100},256U,1U});
+        assert(scheduler.submit({open_port("127.0.0.1",27017U)})==skan::core::StatusCode::Ok);
+        const auto submission=transport.submissions().front();
+        assert(submission.payload.size()==52U);
+        std::string reply(34U,0);
+        reply[0U]=34; reply.replace(8U,4U,submission.payload.substr(4U,4U));
+        reply[12U]=static_cast<char>(0xdd);reply[13U]=7;
+        reply[21U]=13;reply[25U]=16;reply[26U]='o';reply[27U]='k';reply[29U]=1;
+        transport.deliver({submission.id,submission.target,ServiceResponseKind::Data,0,
+            response_bytes(reply.substr(0U,16U)),false,DetectionClock::now()});
+        assert(!scheduler.complete());
+        transport.deliver({submission.id,submission.target,ServiceResponseKind::Data,0,
+            response_bytes(reply.substr(16U)),false,DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().front().service=="mongodb");
+        assert(scheduler.results().front().evidence->validator=="mongodb-opmsg-bson-v1");
+    }
+    {
+        skan::core::StatusCode status{};
+        const auto database=ServiceProbeDatabase::load_file("data/service-probes.db",status);
+        skan::io::IOEngine engine; RecordingServiceTransport transport;
+        ServiceScheduler scheduler(engine,transport,database,
+            ServiceDetectionConfig{1U,std::chrono::milliseconds{100},256U,1U});
+        assert(scheduler.submit({open_port("127.0.0.1",6379U)})==skan::core::StatusCode::Ok);
+        const auto submission=transport.submissions().front();
+        transport.deliver({submission.id,submission.target,ServiceResponseKind::Data,0,
+            response_bytes("+PONG\r\n"),false,DetectionClock::now()});
+        assert(!scheduler.complete());
+        const std::string info="# Server\r\nredis_version:7.2.0\r\n";
+        const std::string bulk="$"+std::to_string(info.size())+"\r\n"+info+"\r\n";
+        transport.deliver({submission.id,submission.target,ServiceResponseKind::Data,0,
+            response_bytes(bulk),false,DetectionClock::now()});
+        assert(scheduler.complete());
+        assert(scheduler.results().front().service=="redis");
+        assert(scheduler.results().front().version=="7.2.0");
+        assert(scheduler.results().front().evidence->version_source=="INFO.redis_version");
     }
     return 0;
 }

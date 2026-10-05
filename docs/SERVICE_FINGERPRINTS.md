@@ -2,6 +2,10 @@
 
 Skan's service/version detector uses the project-owned corpus installed at `/usr/share/skan/service-probes.db`; development builds resolve the same repository-owned corpus from `data/service-probes.db` through the centralized runtime path boundary. Resolution never depends on the current working directory. The database is a bounded, clean-room format and is not an Nmap probe database derivative.
 
+The installed TCP families now use scoped protocol validators before any
+legacy identity rule. See [Protocol validators](PROTOCOL_VALIDATORS.md) for
+framing, version provenance, supported exchanges and coverage limits.
+
 ## Probe format
 
 ```text

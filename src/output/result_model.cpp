@@ -1,4 +1,5 @@
 #include "output/result_model.hpp"
+#include "detect/protocol_evidence.hpp"
 
 #include <cmath>
 #include <limits>
@@ -172,7 +173,7 @@ OutputStatus validate_report(const ScanReport &report) noexcept
                 } else if (e.validator == "http-1x-v1") {
                     if (!e.status_code || !(e.protocol_version == "1.0" || e.protocol_version == "1.1") ||
                         !(e.kind == "protocol" || e.kind == "header" || e.kind == "legacy-rule")) return OutputStatus::InvalidReport;
-                } else return OutputStatus::InvalidReport;
+                } else if (!detect::valid_protocol_evidence(service)) return OutputStatus::InvalidReport;
             }
             if (service.rtt_ms.has_value() && !valid_nonnegative(*service.rtt_ms)) {
                 return OutputStatus::InvalidReport;

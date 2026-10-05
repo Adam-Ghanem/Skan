@@ -138,11 +138,11 @@ struct JsonNode { JsonKind kind; std::size_t parent; std::string key; std::strin
 class JsonReader final {
 public:
     explicit JsonReader(std::string_view input) : input_(input) {}
-    bool read()
+    bool read(bool object_only = true)
     {
         if (input_.size() > kMaxResponse || !value(std::numeric_limits<std::size_t>::max(), {}, 0U)) return false;
         whitespace();
-        return position_ == input_.size() && !nodes_.empty() && nodes_.front().kind == JsonKind::Object;
+        return position_ == input_.size() && !nodes_.empty() && (!object_only || nodes_.front().kind == JsonKind::Object);
     }
     const JsonNode *member(std::size_t parent, std::string_view key) const noexcept
     {
@@ -150,6 +150,7 @@ public:
         return nullptr;
     }
     std::size_t index(const JsonNode *node) const noexcept { return static_cast<std::size_t>(node - nodes_.data()); }
+    const std::vector<JsonNode> &nodes() const noexcept { return nodes_; }
 private:
     void whitespace() noexcept
     {
@@ -277,9 +278,12 @@ private:
         if (kind == JsonKind::String) return string(nodes_[id].value);
         if (kind == JsonKind::Scalar) {
             for (auto literal : {std::string_view{"true"}, std::string_view{"false"}, std::string_view{"null"}}) {
-                if (input_.substr(position_, literal.size()) == literal) { position_ += literal.size(); return true; }
+                if (input_.substr(position_, literal.size()) == literal) { nodes_[id].value = literal; position_ += literal.size(); return true; }
             }
-            return number();
+            const auto start = position_;
+            if (!number()) return false;
+            nodes_[id].value = input_.substr(start, position_ - start);
+            return true;
         }
         ++position_;
         const char closing = kind == JsonKind::Object ? '}' : ']';
@@ -298,15 +302,15 @@ private:
     std::vector<JsonNode> nodes_;
 };
 
-bool version_token(std::string_view s) noexcept
+bool version_token(std::string_view s, unsigned int components = 3U) noexcept
 {
     if (s.empty() || s.size() > 128U || s.front() < '0' || s.front() > '9') return false;
     std::size_t pos = 0U;
-    for (unsigned int part = 0U; part < 3U; ++part) {
+    for (unsigned int part = 0U; part < components; ++part) {
         const auto start = pos;
         while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') ++pos;
         if (pos == start) return false;
-        if (part < 2U && (pos == s.size() || s[pos++] != '.')) return false;
+        if (part + 1U < components && (pos == s.size() || s[pos++] != '.')) return false;
     }
     if (pos < s.size() && s[pos] != '-' && s[pos] != '+') return false;
     if (pos < s.size() && pos + 1U == s.size()) return false;
@@ -415,6 +419,192 @@ std::optional<SearchIdentity> parse_search_identity(std::string_view body)
         return SearchIdentity{"opensearch", "OpenSearch", *number};
     }
     return std::nullopt;
+}
+
+
+namespace {
+std::string_view string_member(const JsonReader &r, std::size_t parent, std::string_view key)
+{
+    const auto *n = r.member(parent, key);
+    return n && n->kind == JsonKind::String ? std::string_view{n->value} : std::string_view{};
+}
+bool bool_member(const JsonReader &r, std::string_view key)
+{
+    const auto *n = r.member(0U, key);
+    return n && n->kind == JsonKind::Scalar && (n->value == "true" || n->value == "false");
+}
+bool integer_member(const JsonReader &r, std::string_view key, std::size_t &out)
+{
+    const auto *n = r.member(0U, key);
+    return n && n->kind == JsonKind::Scalar && unsigned_number(n->value, out);
+}
+std::optional<std::string_view> unique_header(const HttpResponse &http, std::string_view wanted)
+{
+    std::optional<std::string_view> result;
+    std::size_t p = http.headers.find("\r\n") + 2U;
+    while (p < http.headers.size()) {
+        const auto end = http.headers.find("\r\n", p);
+        if (end == std::string_view::npos || end == p) break;
+        std::string_view name, value;
+        if (!header_field(http.headers.substr(p, end-p), name, value)) return std::nullopt;
+        if (iequal(name, wanted)) {
+            if (result) return std::nullopt;
+            result = value;
+        }
+        p = end+2U;
+    }
+    return result;
+}
+bool request_path(std::string_view request, std::string_view path)
+{
+    const auto end = request.find("\r\n");
+    const auto line = request.substr(0U, end);
+    return line == "GET " + std::string{path} + " HTTP/1.0" ||
+           line == "GET " + std::string{path} + " HTTP/1.1";
+}
+}
+
+bool has_api_validator(std::string_view family) noexcept
+{
+    for (auto name : {"couchdb", "clickhouse", "docker", "kubernetes", "matrix", "prometheus",
+                      "grafana", "vault", "etcd", "influxdb", "consul"}) if (family == name) return true;
+    return false;
+}
+
+std::optional<ProtocolIdentity> parse_api_identity(
+    std::string_view family, std::string_view request, const HttpResponse &http)
+{
+    if (!has_api_validator(family) || http.state != HttpParseState::Complete || !http.identity_encoding) return std::nullopt;
+    ProtocolIdentity out;
+    out.service = family;
+    out.validator = std::string{family} + "-api-v1";
+    const auto success = http.status_code == 200U;
+    if (family == "influxdb") {
+        const auto header = unique_header(http, "X-Influxdb-Version");
+        if (!request_path(request,"/ping") || !(success || http.status_code == 204U) || !header || !version_token(*header)) return std::nullopt;
+        out.product = "InfluxDB"; out.version = *header; out.version_source = "X-Influxdb-Version";
+        return out;
+    }
+    if (family == "clickhouse") {
+        if (!success || !request_path(request,"/?query=SELECT%20version%28%29")) return std::nullopt;
+        auto body = trim(http.body);
+        if (!body.empty() && body.back() == '\n') body.remove_suffix(1U);
+        if (!body.empty() && body.back() == '\r') body.remove_suffix(1U);
+        if (!version_token(body) && !version_token(body,4U)) return std::nullopt;
+        out.product = "ClickHouse"; out.version = body; out.version_source = "SELECT version()";
+        return out;
+    }
+    if (!http.json_content) return std::nullopt;
+    JsonReader r(http.body);
+    if (!r.read(family != "consul")) return std::nullopt;
+    const auto str = [&](std::string_view key) { return string_member(r,0U,key); };
+    if (family == "consul") {
+        const auto header = unique_header(http,"X-Consul-Default-Acl-Policy");
+        if (!success || !request_path(request,"/v1/status/leader") || !header || !(*header == "allow" || *header == "deny") || r.nodes().front().kind != JsonKind::String) return std::nullopt;
+        out.product = "Consul";
+    } else if (family == "prometheus") {
+        if (!success || !request_path(request,"/api/v1/status/buildinfo") || str("status") != "success") return std::nullopt;
+        const auto *data = r.member(0U,"data");
+        if (!data || data->kind != JsonKind::Object) return std::nullopt;
+        const auto parent = r.index(data);
+        const auto v = string_member(r,parent,"version");
+        if (!version_token(v) || string_member(r,parent,"revision").empty()) return std::nullopt;
+        out.product = "Prometheus"; out.version = v; out.version_source = "data.version";
+    } else if (family == "grafana") {
+        if (!success || !request_path(request,"/api/health") || str("database") != "ok" || str("commit").empty() || !version_token(str("version"))) return std::nullopt;
+        out.product = "Grafana"; out.version = str("version"); out.version_source = "version";
+    } else if (family == "vault") {
+        std::size_t timestamp = 0U;
+        const auto code = http.status_code;
+        if (!request_path(request,"/v1/sys/health") || !(code == 200U || code == 429U || code == 472U || code == 473U || code == 474U || code == 501U || code == 503U || code == 530U) ||
+            !bool_member(r,"initialized") || !bool_member(r,"sealed") || !integer_member(r,"server_time_utc",timestamp) || !version_token(str("version"))) return std::nullopt;
+        out.product = "Vault-API"; out.version = str("version"); out.version_source = "version";
+    } else if (family == "docker") {
+        const auto api = str("ApiVersion");
+        std::size_t dot = api.find('.'), major = 0U, minor = 0U;
+        if (!success || !request_path(request,"/version") || !version_token(str("Version")) || dot == std::string_view::npos ||
+            !unsigned_number(api.substr(0U,dot),major) || !unsigned_number(api.substr(dot+1U),minor)) return std::nullopt;
+        out.product = "Docker-Engine"; out.version = str("Version"); out.version_source = "Version";
+    } else if (family == "kubernetes") {
+        auto v = str("gitVersion");
+        if (v.starts_with('v')) v.remove_prefix(1U);
+        const auto dot = v.find('.'); const auto second = v.find('.',dot == std::string_view::npos ? 0U : dot+1U);
+        auto minor = str("minor"); if (minor.ends_with('+')) minor.remove_suffix(1U);
+        if (!success || !request_path(request,"/version") || !version_token(v) || str("gitCommit").empty() || str("major") != v.substr(0U,dot) ||
+            minor != v.substr(dot+1U,second-dot-1U)) return std::nullopt;
+        out.product = "Kubernetes"; out.version = v; out.version_source = "gitVersion";
+    } else if (family == "etcd") {
+        if (!success || !request_path(request,"/version") || !version_token(str("etcdserver")) || !version_token(str("etcdcluster"))) return std::nullopt;
+        out.product = "etcd"; out.version = str("etcdserver"); out.version_source = "etcdserver";
+    } else if (family == "couchdb") {
+        if (!success || !request_path(request,"/") || str("couchdb") != "Welcome" || !version_token(str("version"))) return std::nullopt;
+        out.product = "Apache-CouchDB"; out.version = str("version"); out.version_source = "version";
+    } else if (family == "matrix") {
+        if (!request_path(request,"/_matrix/client/versions")) return std::nullopt;
+        const auto *versions = r.member(0U,"versions");
+        if (success && versions && versions->kind == JsonKind::Array) {
+            bool have = false;
+            for (const auto &n : r.nodes()) if (n.parent == r.index(versions)) {
+                if (n.kind != JsonKind::String || n.value.empty() || !(n.value.starts_with('v') || n.value.starts_with('r'))) return std::nullopt;
+                auto value = std::string_view{n.value}.substr(1U);
+                const auto dot = value.find('.'); std::size_t a = 0U, b = 0U;
+                if (n.value.starts_with('r')) {
+                    if (!version_token(value)) return std::nullopt;
+                } else if (dot == std::string_view::npos || !unsigned_number(value.substr(0U,dot),a) || !unsigned_number(value.substr(dot+1U),b)) return std::nullopt;
+                have = true;
+            }
+            if (!have) return std::nullopt;
+        } else if (!((http.status_code == 400U || http.status_code == 404U) && str("errcode") == "M_UNRECOGNIZED" && !str("error").empty())) return std::nullopt;
+        out.product = "Matrix-Homeserver";
+    } else return std::nullopt;
+    return out;
+}
+
+std::optional<ProtocolIdentity> parse_nats_info(std::string_view response)
+{
+    if (response.size() > kMaxResponse || !response.starts_with("INFO ")) return std::nullopt;
+    const auto end = response.find("\r\n");
+    if (end == std::string_view::npos) return std::nullopt;
+    JsonReader r(response.substr(5U,end-5U));
+    std::size_t proto = 0U;
+    if (!r.read() || string_member(r,0U,"server_id").empty() || !integer_member(r,"proto",proto) || proto > 1U || !version_token(string_member(r,0U,"version"))) return std::nullopt;
+    ProtocolIdentity out;
+    out.service = "nats"; out.product = "NATS"; out.version = string_member(r,0U,"version");
+    out.validator = "nats-info-json-v1"; out.version_source = "INFO.version";
+    return out;
+}
+
+std::optional<ProtocolIdentity> parse_minecraft_status(std::string_view response)
+{
+    if (response.size() > kMaxResponse) return std::nullopt;
+    std::size_t pos = 0U;
+    const auto varint = [&](std::size_t &value) {
+        value = 0U;
+        for (unsigned int i=0U; i<5U; ++i) {
+            if (pos == response.size()) return false;
+            const auto b = static_cast<unsigned char>(response[pos++]);
+            if (i == 4U && (b & 0xf0U)) return false;
+            value |= static_cast<std::size_t>(b & 127U) << (7U*i);
+            if (!(b & 128U)) return i == 0U || (b & 127U) != 0U;
+        }
+        return false;
+    };
+    std::size_t length = 0U, packet = 0U, json = 0U;
+    if (!varint(length) || length != response.size()-pos || !varint(packet) || packet != 0U || !varint(json) || json != response.size()-pos) return std::nullopt;
+    JsonReader r(response.substr(pos));
+    if (!r.read()) return std::nullopt;
+    const auto *version = r.member(0U,"version");
+    const auto *players = r.member(0U,"players");
+    if (!version || version->kind != JsonKind::Object || !players || players->kind != JsonKind::Object) return std::nullopt;
+    const auto v = string_member(r,r.index(version),"name");
+    const auto *protocol = r.member(r.index(version),"protocol");
+    std::size_t n = 0U;
+    if (v.empty() || v.size()>128U || !protocol || protocol->kind != JsonKind::Scalar || !unsigned_number(protocol->value,n)) return std::nullopt;
+    for (unsigned char c : v) if (c<32U || c==127U) return std::nullopt;
+    ProtocolIdentity out;
+    out.service="minecraft"; out.product="Minecraft-Java"; out.version=v;
+    out.validator="minecraft-status-json-v1"; out.version_source="version.name";
+    return out;
 }
 
 std::optional<ZooKeeperIdentity> parse_zookeeper_srvr(std::string_view response, bool terminal)

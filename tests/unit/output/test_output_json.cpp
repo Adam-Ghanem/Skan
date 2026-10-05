@@ -53,5 +53,11 @@ int main()
     assert(writer.write(report, compact_output, compact) == skan::output::OutputStatus::Ok);
     assert(compact_output.str().find('\n') == compact_output.str().size() - 1U);
     assert(compact_output.str().find(",]") == std::string::npos);
+    auto &service=report.hosts.front().services.front();
+    service.service="prometheus";service.version="3.5.0";
+    service.evidence=skan::detect::ProtocolEvidence{"prometheus-api-v1","structured","data.version","1.1",200U,true};
+    std::ostringstream validated;
+    assert(writer.write(report,validated,skan::output::OutputContext{})==skan::output::OutputStatus::Ok);
+    assert(validated.str().find("prometheus-api-v1")!=std::string::npos);
     return 0;
 }

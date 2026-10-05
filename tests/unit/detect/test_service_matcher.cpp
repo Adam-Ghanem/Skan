@@ -130,13 +130,10 @@ int main()
     assert(match.service == "ssh");
     assert(match.product == "OpenSSH");
     assert(match.version == "9.6");
-    assert(match.confidence == 0.90);
+    assert(match.confidence == 0.97);
 
     const ServiceMatchResult prefix = matcher.match(database.probes().front(), "SSH-legacy\n");
-    assert(prefix.matched);
-    assert(prefix.service == "ssh");
-    assert(prefix.product == "SSH");
-    assert(prefix.confidence == 0.50);
+    assert(!prefix.matched);
 
     const ServiceMatchResult suffix = matcher.match(database.probes().front(), "SERVICE READY");
     assert(suffix.matched);
@@ -167,7 +164,7 @@ int main()
 
     const std::string soft_text =
         "Probe TCP Soft rarity=1\n"
-        "softmatch type=regex pattern=\"^220 ([A-Za-z0-9.-]+)\" service=smtp product=SMTP hostname=\"$1\" confidence=0.70\n";
+        "softmatch type=regex pattern=\"^220 ([A-Za-z0-9.-]+)\" service=fixture-smtp product=SMTP hostname=\"$1\" confidence=0.70\n";
     skan::core::StatusCode soft_status = skan::core::StatusCode::InternalError;
     const ServiceProbeDatabase soft_database = ServiceProbeDatabase::parse(soft_text, soft_status);
     assert(soft_status == skan::core::StatusCode::Ok);

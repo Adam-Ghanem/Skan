@@ -35,6 +35,23 @@ struct SearchIdentity final {
 // wrong types, nested collisions, and conflicting distribution markers fail.
 std::optional<SearchIdentity> parse_search_identity(std::string_view body);
 
+struct ProtocolIdentity final {
+    std::string service;
+    std::string product;
+    std::string version;
+    std::string extra;
+    std::string validator;
+    std::string version_source;
+    std::string protocol_version;
+    bool provisional{false};
+};
+
+bool has_api_validator(std::string_view family) noexcept;
+std::optional<ProtocolIdentity> parse_api_identity(
+    std::string_view family, std::string_view request, const HttpResponse &http);
+std::optional<ProtocolIdentity> parse_nats_info(std::string_view response);
+std::optional<ProtocolIdentity> parse_minecraft_status(std::string_view response);
+
 struct ZooKeeperIdentity final {
     std::string version;
     std::string mode;
