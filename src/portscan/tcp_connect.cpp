@@ -100,10 +100,10 @@ core::StatusCode TcpConnectProbe::assess(
             state = PortState::Unreachable;
             reason = ScanReason::NetworkUnreachable;
         } else if (response.system_error == EADDRNOTAVAIL) {
-            state = PortState::Unknown;
+            state = PortState::Error;
             reason = ScanReason::LocalAddressUnavailable;
         } else {
-            state = PortState::Unknown;
+            state = PortState::Error;
             reason = ScanReason::SocketError;
         }
         return core::StatusCode::Ok;
