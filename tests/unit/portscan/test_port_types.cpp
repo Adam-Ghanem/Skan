@@ -1,3 +1,4 @@
+#include <array>
 #include <cassert>
 #include <string>
 
@@ -52,5 +53,71 @@ int main()
     assert(std::string{scan_reason_name(ScanReason::AckRst)} == "ACK_RST");
     assert(std::string{scan_reason_name(ScanReason::AckTimeout)} == "ACK_TIMEOUT");
     assert(std::string{scan_reason_name(ScanReason::ConflictingEvidence)} == "CONFLICTING_EVIDENCE");
+    assert(std::string{scan_reason_name(ScanReason::IcmpProtocolUnreachable)} == "ICMP_PROTOCOL_UNREACHABLE");
+
+    constexpr std::array<Protocol, 2U> protocols{Protocol::Tcp, Protocol::Udp};
+    constexpr std::array<ScanProbeType, 4U> probes{
+        ScanProbeType::TcpConnect, ScanProbeType::TcpSyn, ScanProbeType::Udp, ScanProbeType::TcpAck};
+    constexpr std::array<PortState, 8U> states{
+        PortState::Open, PortState::Closed, PortState::Filtered, PortState::Unknown,
+        PortState::OpenOrFiltered, PortState::Unfiltered, PortState::Error, PortState::Unreachable};
+    constexpr std::array<ScanReason, 27U> reasons{
+        ScanReason::ImmediateSuccess, ScanReason::ConnectionRefused, ScanReason::NetworkUnreachable,
+        ScanReason::LocalAddressUnavailable, ScanReason::SynAck, ScanReason::Rst, ScanReason::Timeout,
+        ScanReason::SocketError, ScanReason::MalformedResponse, ScanReason::UnrelatedResponse,
+        ScanReason::InvalidTarget, ScanReason::InvalidPort, ScanReason::UnsupportedMethod,
+        ScanReason::CapabilityUnavailable, ScanReason::InternalError, ScanReason::UdpResponse,
+        ScanReason::IcmpPortUnreachable, ScanReason::IcmpAdministrativelyProhibited,
+        ScanReason::IcmpNetworkUnreachable, ScanReason::UdpTimeout, ScanReason::DuplicateResponse,
+        ScanReason::LateResponse, ScanReason::UnsupportedProtocol, ScanReason::AckRst,
+        ScanReason::AckTimeout, ScanReason::ConflictingEvidence, ScanReason::IcmpProtocolUnreachable};
+
+    const auto expected = [](Protocol protocol, ScanProbeType probe, PortState state, ScanReason reason) {
+        if ((protocol == Protocol::Udp) != (probe == ScanProbeType::Udp)) return false;
+        if (state == PortState::Open)
+            return (probe == ScanProbeType::TcpConnect && reason == ScanReason::ImmediateSuccess) ||
+                   (probe == ScanProbeType::TcpSyn && reason == ScanReason::SynAck) ||
+                   (probe == ScanProbeType::Udp && reason == ScanReason::UdpResponse);
+        if (state == PortState::Closed)
+            return (probe == ScanProbeType::TcpConnect && reason == ScanReason::ConnectionRefused) ||
+                   (probe == ScanProbeType::TcpSyn && reason == ScanReason::Rst) ||
+                   (probe == ScanProbeType::Udp && reason == ScanReason::IcmpPortUnreachable);
+        if (state == PortState::Filtered)
+            return (probe == ScanProbeType::TcpConnect && reason == ScanReason::Timeout) ||
+                   (probe == ScanProbeType::TcpSyn &&
+                    (reason == ScanReason::Timeout || reason == ScanReason::IcmpAdministrativelyProhibited ||
+                     reason == ScanReason::IcmpPortUnreachable || reason == ScanReason::IcmpProtocolUnreachable)) ||
+                   (probe == ScanProbeType::TcpAck &&
+                    (reason == ScanReason::AckTimeout || reason == ScanReason::IcmpAdministrativelyProhibited ||
+                     reason == ScanReason::IcmpPortUnreachable || reason == ScanReason::IcmpProtocolUnreachable)) ||
+                   (probe == ScanProbeType::Udp && reason == ScanReason::IcmpAdministrativelyProhibited);
+        if (state == PortState::Unknown) return reason == ScanReason::ConflictingEvidence;
+        if (state == PortState::OpenOrFiltered)
+            return probe == ScanProbeType::Udp && reason == ScanReason::UdpTimeout;
+        if (state == PortState::Unfiltered)
+            return probe == ScanProbeType::TcpAck && reason == ScanReason::AckRst;
+        if (state == PortState::Error)
+            return reason == ScanReason::LocalAddressUnavailable || reason == ScanReason::SocketError ||
+                   reason == ScanReason::InvalidTarget || reason == ScanReason::InvalidPort ||
+                   reason == ScanReason::UnsupportedMethod || reason == ScanReason::CapabilityUnavailable ||
+                   reason == ScanReason::InternalError || reason == ScanReason::UnsupportedProtocol;
+        return state == PortState::Unreachable &&
+               ((probe == ScanProbeType::TcpConnect && reason == ScanReason::NetworkUnreachable) ||
+                (probe != ScanProbeType::TcpConnect && reason == ScanReason::IcmpNetworkUnreachable));
+    };
+
+    std::size_t evaluated = 0U;
+    for (const Protocol protocol : protocols) {
+        for (const ScanProbeType probe : probes) {
+            for (const PortState state : states) {
+                for (const ScanReason reason : reasons) {
+                    assert(valid_port_result_semantics(protocol, probe, state, reason) ==
+                           expected(protocol, probe, state, reason));
+                    ++evaluated;
+                }
+            }
+        }
+    }
+    assert(evaluated == 1728U);
     return 0;
 }
