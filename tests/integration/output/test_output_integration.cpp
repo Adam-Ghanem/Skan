@@ -21,13 +21,48 @@ skan::output::ScanReport make_port_state_report()
     const auto add_port = [&](std::uint16_t number,
                               skan::portscan::Protocol protocol,
                               skan::portscan::PortState state) {
+        skan::portscan::ScanProbeType probe = skan::portscan::ScanProbeType::TcpConnect;
+        skan::portscan::ScanReason reason = skan::portscan::ScanReason::InternalError;
+        switch (state) {
+        case skan::portscan::PortState::Open:
+            probe = skan::portscan::ScanProbeType::TcpConnect;
+            reason = skan::portscan::ScanReason::ImmediateSuccess;
+            break;
+        case skan::portscan::PortState::OpenOrFiltered:
+            probe = skan::portscan::ScanProbeType::Udp;
+            reason = skan::portscan::ScanReason::UdpTimeout;
+            break;
+        case skan::portscan::PortState::Closed:
+            probe = skan::portscan::ScanProbeType::TcpConnect;
+            reason = skan::portscan::ScanReason::ConnectionRefused;
+            break;
+        case skan::portscan::PortState::Filtered:
+            probe = skan::portscan::ScanProbeType::TcpConnect;
+            reason = skan::portscan::ScanReason::Timeout;
+            break;
+        case skan::portscan::PortState::Unknown:
+            probe = skan::portscan::ScanProbeType::TcpSyn;
+            reason = skan::portscan::ScanReason::ConflictingEvidence;
+            break;
+        case skan::portscan::PortState::Unfiltered:
+            probe = skan::portscan::ScanProbeType::TcpAck;
+            reason = skan::portscan::ScanReason::AckRst;
+            break;
+        case skan::portscan::PortState::Error:
+            probe = skan::portscan::ScanProbeType::TcpConnect;
+            reason = skan::portscan::ScanReason::SocketError;
+            break;
+        case skan::portscan::PortState::Unreachable:
+            probe = skan::portscan::ScanProbeType::TcpConnect;
+            reason = skan::portscan::ScanReason::NetworkUnreachable;
+            break;
+        }
         host.ports.push_back(skan::portscan::PortResult{
             host.address,
             skan::portscan::Port{number, protocol},
             state,
-            protocol == skan::portscan::Protocol::Udp ? skan::portscan::ScanProbeType::Udp
-                                                       : skan::portscan::ScanProbeType::TcpConnect,
-            skan::portscan::ScanReason::InternalError,
+            probe,
+            reason,
             std::nullopt,
             {},
             0U,
