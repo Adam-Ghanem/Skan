@@ -127,7 +127,7 @@ void assert_open_only_writer_parity()
             const std::size_t possible_line = serialized.find("11/udp");
             const std::size_t possible_line_end = serialized.find('\n', possible_line);
             const std::string possible_row = serialized.substr(possible_line, possible_line_end - possible_line);
-            assert(possible_row.find("OPEN_OR_") != std::string::npos);
+            assert(possible_row.find("OPEN_OR_FILTERED") != std::string::npos);
         }
         for (const char *excluded : expectation.excluded_ports) {
             assert(serialized.find(excluded) == std::string::npos);
