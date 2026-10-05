@@ -9,6 +9,13 @@ int main()
 {
     skan::output::XmlOutputWriter writer;
     skan::output::ScanReport report = skan::output::test::make_report();
+    skan::portscan::PortResult ambiguous;
+    ambiguous.target = report.hosts.front().address;
+    ambiguous.port = {53U, skan::portscan::Protocol::Udp};
+    ambiguous.probe = skan::portscan::ScanProbeType::Udp;
+    ambiguous.state = skan::portscan::PortState::OpenOrFiltered;
+    ambiguous.reason = skan::portscan::ScanReason::UdpTimeout;
+    report.hosts.front().ports.push_back(std::move(ambiguous));
     report.warnings.push_back(std::string("invalid-utf8") + static_cast<char>(0x9b));
     report.warnings.push_back("xml-forbidden:\xef\xbf\xbe:\xef\xbf\xbf");
     std::ostringstream first;
@@ -48,5 +55,8 @@ int main()
     assert(first.str().find("\xef\xbf\xbe") == std::string::npos);
     assert(first.str().find("\xef\xbf\xbf") == std::string::npos);
     assert(first.str().find("xml-forbidden:?:?") != std::string::npos);
+    assert(first.str().find("state=\"OPEN_OR_FILTERED\"") != std::string::npos);
+    assert(first.str().find("reason=\"UDP_TIMEOUT\"") != std::string::npos);
+    assert(first.str().find("<open-or-filtered-ports>1</open-or-filtered-ports>") != std::string::npos);
     return 0;
 }
