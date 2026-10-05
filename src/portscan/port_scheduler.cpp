@@ -409,6 +409,20 @@ void PortScanScheduler::finish_attempt(
             matching_observations = ++work.error_observations;
         }
 
+        const std::size_t evidence_kinds =
+            static_cast<std::size_t>(work.closed_observations > 0U) +
+            static_cast<std::size_t>(work.filtered_observations > 0U);
+        if (evidence_kinds > 1U) {
+            append_terminal_result(
+                work,
+                config_.method,
+                PortState::Unknown,
+                ScanReason::ConflictingEvidence,
+                rtt_ms);
+            pump();
+            return;
+        }
+
         if (matching_observations < 2U && work.retry_count < max_retries) {
             if (defer_retry(work)) {
                 pump();
@@ -419,21 +433,6 @@ void PortScanScheduler::finish_attempt(
                 config_.method,
                 PortState::Error,
                 ScanReason::InternalError,
-                rtt_ms);
-            pump();
-            return;
-        }
-
-        const std::size_t evidence_kinds =
-            static_cast<std::size_t>(work.closed_observations > 0U) +
-            static_cast<std::size_t>(work.filtered_observations > 0U) +
-            static_cast<std::size_t>(work.error_observations > 0U);
-        if (matching_observations < 2U && evidence_kinds > 1U) {
-            append_terminal_result(
-                work,
-                config_.method,
-                PortState::Unknown,
-                ScanReason::ConflictingEvidence,
                 rtt_ms);
             pump();
             return;
