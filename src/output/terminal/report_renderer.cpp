@@ -324,7 +324,7 @@ private:
             return;
         }
         constexpr std::size_t endpoint_cells = 12U;
-        constexpr std::size_t state_cells = 13U;
+        constexpr std::size_t state_cells = 18U;
         constexpr std::size_t service_cells = 14U;
         constexpr std::size_t version_cells = 28U;
         output << "\n  " << padded("PORT", endpoint_cells) << padded("STATE", state_cells)
@@ -387,7 +387,7 @@ private:
                             const TerminalTheme &theme)
     {
         constexpr std::size_t endpoint_cells = 11U;
-        constexpr std::size_t state_cells = 14U;
+        constexpr std::size_t state_cells = 18U;
         constexpr std::size_t service_cells = 18U;
         const std::size_t reason_cells = context.include_reasons ? 20U : 0U;
         const std::size_t fixed = 2U + endpoint_cells + state_cells + service_cells + reason_cells;
@@ -419,7 +419,7 @@ private:
                               const TerminalTheme &theme)
     {
         constexpr std::size_t endpoint_cells = 11U;
-        constexpr std::size_t state_cells = 14U;
+        constexpr std::size_t state_cells = 18U;
         constexpr std::size_t service_cells = 18U;
         const std::size_t version_cells = layout.columns - 2U - endpoint_cells - state_cells - service_cells;
         write_row(output, "PORT", "STATE", "SERVICE", "VERSION", "", endpoint_cells, state_cells,
@@ -450,7 +450,7 @@ private:
                               const TerminalTheme &theme)
     {
         constexpr std::size_t endpoint_cells = 11U;
-        constexpr std::size_t state_cells = 14U;
+        constexpr std::size_t state_cells = 18U;
         const std::size_t service_cells = layout.columns - 2U - endpoint_cells - state_cells;
         write_row(output, "PORT", "STATE", "SERVICE", "", "", endpoint_cells, state_cells,
                   service_cells, 0U, 0U, theme, TerminalStyle::Brand);
@@ -484,43 +484,48 @@ public:
                 const TerminalTheme &theme) const
     {
         const ScanSummary summary = calculate_summary(report);
+        const std::string primary =
+            std::to_string(summary.open_ports) + " open / " +
+            std::to_string(summary.closed_ports) + " closed / " +
+            std::to_string(summary.filtered_ports) + " filtered";
+        const std::string ambiguous =
+            std::to_string(summary.open_or_filtered_ports) + " open_or_filtered / " +
+            std::to_string(summary.unfiltered_ports) + " unfiltered / " +
+            std::to_string(summary.unknown_ports) + " unknown";
+        const std::string failures =
+            std::to_string(summary.error_ports) + " error / " +
+            std::to_string(summary.unreachable_ports) + " unreachable";
+        const std::string totals =
+            std::to_string(summary.ports_scanned) + " scanned / " +
+            std::to_string(summary.services_detected) + " services";
+
         if (layout.mode == TerminalLayoutMode::Plain) {
             if (layout.columns < 64U) {
-                const std::string compact = std::to_string(summary.open_ports) + " open / " +
-                                            std::to_string(summary.closed_ports) + " closed / " +
-                                            std::to_string(summary.filtered_ports) + " filtered / " +
-                                            std::to_string(summary.ports_scanned) + " scanned";
-                output << "Summary  " << fit(compact, available_after(layout.columns, 9U)) << '\n';
+                output << "Summary\n"
+                       << "  " << primary << '\n'
+                       << "  " << ambiguous << '\n'
+                       << "  " << failures << '\n'
+                       << "  " << totals << '\n';
                 return;
             }
             output << "Summary: " << summary.hosts << " hosts (" << summary.hosts_up << " up); "
-                   << summary.ports_scanned << " ports scanned; " << summary.open_ports << " open, "
-                   << summary.closed_ports << " closed, " << summary.filtered_ports << " filtered; "
-                   << summary.services_detected << " services";
+                   << primary << "; " << ambiguous << "; " << failures << "; " << totals;
             if (report.duration_ms.has_value()) {
                 output << " duration=" << format_ms(*report.duration_ms);
             }
             output << '\n';
             return;
         }
+
         output << theme.apply("Scan complete", TerminalStyle::Success);
         if (report.duration_ms.has_value()) {
             output << "  " << theme.apply(format_ms(*report.duration_ms), TerminalStyle::Metadata);
         }
-        const std::string open = std::to_string(summary.open_ports) + " open";
-        const std::string closed = std::to_string(summary.closed_ports) + " closed";
-        const std::string filtered = std::to_string(summary.filtered_ports) + " filtered";
-        const std::string remainder = std::to_string(summary.ports_scanned) + " scanned / " +
-                                      std::to_string(summary.services_detected) + " services";
-        const std::string complete = open + " / " + closed + " / " + filtered + " / " + remainder;
-        if (display_width(complete) + 2U > layout.columns) {
-            output << "\n  " << theme.apply(fit(complete, layout.columns - 2U), TerminalStyle::Metadata) << '\n';
-        } else {
-            output << '\n' << "  " << theme.apply(open, TerminalStyle::Open)
-                   << " / " << theme.apply(closed, TerminalStyle::Closed)
-                   << " / " << theme.apply(filtered, TerminalStyle::Filtered)
-                   << " / " << remainder << '\n';
-        }
+        output << '\n'
+               << "  " << theme.apply(primary, TerminalStyle::Metadata) << '\n'
+               << "  " << theme.apply(ambiguous, TerminalStyle::Metadata) << '\n'
+               << "  " << theme.apply(failures, TerminalStyle::Metadata) << '\n'
+               << "  " << theme.apply(totals, TerminalStyle::Metadata) << '\n';
     }
 };
 
