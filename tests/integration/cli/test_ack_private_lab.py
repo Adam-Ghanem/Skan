@@ -49,7 +49,7 @@ def main():
         numbers = [int(port) for port in ports.split(",")]
         expected = {port: ("UNFILTERED", "ACK_RST", "ack") for port in numbers[:2]}
         expected[8084] = ("FILTERED", "ACK_TIMEOUT", "ack")
-        expected[8085] = ("FILTERED", "ICMP_NETWORK_UNREACHABLE", "ack")
+        expected[8085] = ("FILTERED", "ICMP_ADMINISTRATIVELY_PROHIBITED", "ack")
         assert observed == expected, (family, observed, result.stderr)
 
         # Nmap is an external lab comparator only; Skan never invokes it.
