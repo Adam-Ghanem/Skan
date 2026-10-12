@@ -1,4 +1,5 @@
 #include "detect/service_scheduler.hpp"
+#include "detect/tls_session.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -9,6 +10,21 @@
 
 namespace skan::detect {
 namespace {
+
+ServiceMatchResult tls_identity(const TlsMetadata &metadata)
+{
+    ServiceMatchResult tunnel;
+    tunnel.matched = true;
+    tunnel.service = "tls";
+    tunnel.tunnel = "tls";
+    tunnel.tls = metadata;
+    tunnel.strength = ServiceMatchStrength::Soft;
+    tunnel.confidence = 0.92;
+    tunnel.priority = 1U;
+    tunnel.evidence = ProtocolEvidence{"tls-session-v1", "negotiated", "",
+        metadata.protocol_version, std::nullopt, false};
+    return tunnel;
+}
 
 DetectionError error_for_status(core::StatusCode status) noexcept
 {
@@ -124,7 +140,7 @@ core::StatusCode ServiceScheduler::validate_config() const noexcept
     }
     if (config_.max_outstanding == 0U || config_.timeout.count() <= 0 ||
         config_.max_response_bytes == 0U || config_.max_probes_per_port == 0U ||
-        config_.retry_delay.count() < 0 ||
+        config_.retry_delay.count() < 0 || !valid_tls_server_name(config_.tls_server_name) ||
         (timing_ != nullptr && timing_->validate() != core::StatusCode::Ok)) {
         return core::StatusCode::InvalidArgument;
     }
@@ -233,6 +249,54 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
     if (response.source_address != pending.submission.target) {
         return;
     }
+    if (response.kind == ServiceResponseKind::TlsEstablished) {
+        if (pending.tls || !pending.submission.tls_session || !response.tls || !response.tls->detected ||
+            (response.tls->protocol_version != "TLS 1.2" && response.tls->protocol_version != "TLS 1.3")) return;
+        try {
+            pending.tls = response.tls;
+            pending.work.tls_session = true;
+            ServiceMatchResult tunnel = tls_identity(*response.tls);
+            if (!pending.work.best_match || service_match_is_better(tunnel, *pending.work.best_match)) {
+                pending.work.best_match = std::move(tunnel);
+                pending.work.best_match_probe_index = pending.probe_index;
+            }
+            pending.previous_best_match = pending.work.best_match;
+            pending.previous_best_match_probe_index = pending.work.best_match_probe_index;
+        } catch (const std::bad_alloc &) {
+            status_ = core::StatusCode::MemoryError;
+            complete_pending(response.id, DetectionState::Error, DetectionError::InternalError, nullptr, DetectionClock::now());
+            return;
+        }
+        if (!pending.submission.tls_handshake_only) return;
+        ServiceResponse finished;
+        finished.id = response.id;
+        finished.source_address = response.source_address;
+        finished.kind = ServiceResponseKind::Closed;
+        finished.received_at = response.received_at;
+        receive(finished);
+        return;
+    }
+    if (response.kind == ServiceResponseKind::TlsError) {
+        if (!pending.submission.tls_session) return;
+        pending.terminal_error = DetectionError::TlsFailure;
+        pending.response.clear();
+        pending.work.best_match = std::move(pending.previous_best_match);
+        pending.work.best_match_probe_index = pending.previous_best_match_probe_index;
+        ServiceResponse finished;
+        finished.id = response.id;
+        finished.source_address = response.source_address;
+        finished.kind = ServiceResponseKind::Closed;
+        finished.received_at = response.received_at;
+        receive(finished);
+        return;
+    }
+    if (response.kind == ServiceResponseKind::SocketError && pending.submission.tls_session) {
+        // A broken TLS stream cannot finalize the current application response.
+        pending.response.clear();
+        pending.work.best_match = pending.previous_best_match;
+        pending.work.best_match_probe_index = pending.previous_best_match_probe_index;
+    }
+    if (response.kind == ServiceResponseKind::Data && pending.submission.tls_session && !pending.tls) return;
     const std::size_t active_probe_index = pending.probe_index;
     const ServiceProbeDefinition &definition = database_.probes()[active_probe_index];
     const ServiceProbe probe(definition, config_.max_response_bytes);
@@ -372,6 +436,11 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
             pending.work.best_match_probe_index = pending.previous_best_match_probe_index;
         }
         match = matcher_.match(definition, pending.response, response.kind == ServiceResponseKind::Closed);
+        if (match.matched && pending.tls.has_value()) {
+            match.tunnel = "tls";
+            match.tls = *pending.tls;
+            if (match.service == "http") match.service = "https";
+        }
     } catch (...) {
         complete_pending(
             response.id,
@@ -443,7 +512,8 @@ void ServiceScheduler::receive(const ServiceResponse &response) noexcept
             finished.work.port_result,
             &database_.probes()[active_probe_index],
             DetectionState::Unknown,
-            finished.response.empty() ? DetectionError::ConnectionClosed : DetectionError::NoMatch,
+            finished.terminal_error != DetectionError::None ? finished.terminal_error :
+                (finished.response.empty() ? DetectionError::ConnectionClosed : DetectionError::NoMatch),
             nullptr,
             rtt_ms);
     }
@@ -527,12 +597,26 @@ void ServiceScheduler::start_or_retry(WorkItem work) noexcept
             nullptr);
         return;
     }
+    submission.tls_session = submission.tls_session || work.tls_session;
+    if (submission.tls_session) {
+        submission.server_name = config_.tls_server_name;
+        // Override only the project/default Host, never a custom virtual host.
+        constexpr std::string_view default_host = "\r\nHost: localhost\r\n";
+        const auto host = submission.payload.find(default_host);
+        if (!submission.server_name.empty() && host != std::string::npos &&
+            (submission.payload.starts_with("GET / HTTP/1.0\r\n") ||
+             submission.payload.starts_with("GET / HTTP/1.1\r\n"))) {
+            submission.payload.replace(host + 8U, 9U, submission.server_name);
+        }
+    }
 
     Pending pending;
     pending.work = work;
     pending.submission = submission;
     pending.probe_index = probe_index;
     pending.started_at = DetectionClock::now();
+    pending.previous_best_match = work.best_match;
+    pending.previous_best_match_probe_index = work.best_match_probe_index;
     io::TimerId timer_id = 0U;
     try {
         const std::chrono::milliseconds adaptive_timeout =
@@ -649,6 +733,15 @@ void ServiceScheduler::complete_pending(
     const auto iterator = pending_.find(id);
     if (iterator == pending_.end()) {
         return;
+    }
+    std::optional<ServiceMatchResult> transport_match;
+    if (state == DetectionState::ResponseTooLarge && iterator->second.tls) {
+        try {
+            transport_match = tls_identity(*iterator->second.tls);
+            match = &*transport_match;
+        } catch (const std::bad_alloc &) {
+            status_ = core::StatusCode::MemoryError;
+        }
     }
     Pending pending = std::move(iterator->second);
     (void)engine_.cancel(pending.timer_id);

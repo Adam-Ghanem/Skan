@@ -22,6 +22,9 @@ struct TlsMetadata final {
 /** Parse bounded, unauthenticated metadata from complete TLS records already received. */
 TlsMetadata parse_tls_metadata(std::span<const std::uint8_t> response);
 
+/** Extract bounded observational fields from one DER leaf; does not establish TLS. */
+TlsMetadata parse_tls_certificate(std::span<const std::uint8_t> certificate);
+
 } // namespace skan::detect
 
 #endif // SKAN_DETECT_TLS_METADATA_HPP

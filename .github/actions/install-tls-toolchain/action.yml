@@ -1,0 +1,9 @@
+name: Install TLS build dependency
+description: Install the declared OpenSSL development dependency for native builds.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libssl-dev

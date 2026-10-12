@@ -13,6 +13,7 @@
 #include "core/types.hpp"
 #include "detect/service_db.hpp"
 #include "detect/service_types.hpp"
+#include "detect/tls_metadata.hpp"
 #include "io/event.hpp"
 #include "io/io_engine.hpp"
 
@@ -25,7 +26,9 @@ using ServiceResponseCallback = std::function<void(const ServiceResponse &)>;
 enum class ServiceResponseKind {
     Data = 0,
     Closed,
-    SocketError
+    SocketError,
+    TlsEstablished,
+    TlsError
 };
 
 struct ServiceSubmission final {
@@ -37,6 +40,9 @@ struct ServiceSubmission final {
     std::string payload;
     std::size_t max_response_bytes{8192U};
     core::IpAddress target_ip{};
+    bool tls_session{false};
+    bool tls_handshake_only{false};
+    std::string server_name{};
 };
 
 struct ServiceResponse final {
@@ -49,6 +55,7 @@ struct ServiceResponse final {
     std::vector<std::uint8_t> bytes;
     bool response_truncated{false};
     DetectionTimePoint received_at{};
+    std::optional<TlsMetadata> tls{};
 };
 
 class ServiceTransport {
@@ -101,6 +108,7 @@ private:
     void on_event(ServiceProbeId id) noexcept;
     void on_writable(ServiceProbeId id) noexcept;
     void on_readable(ServiceProbeId id) noexcept;
+    void on_tls_event(ServiceProbeId id) noexcept;
     void emit(ServiceProbeId id, ServiceResponseKind kind, const std::uint8_t *bytes,
               std::size_t byte_count, bool truncated, int system_error) noexcept;
     void cleanup(Connection &connection, bool retain_event = false) noexcept;

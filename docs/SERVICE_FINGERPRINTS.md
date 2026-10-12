@@ -53,7 +53,7 @@ Content-Length fields are accepted; comma-list lengths are deliberately
 unsupported. Chunk extensions and trailers are bounded and checked; trailers
 cannot redefine framing or representation metadata. Non-identity content
 encoding and unsupported transfer-coding chains do not yield parsed body
-identity. No decompression, HTTP/2, HTTP/3 or TLS application transport is added.
+identity. No decompression, HTTP/2 or HTTP/3 is supported. TLS sessions deliver decrypted bytes through the same bounded HTTP validator.
 
 Elasticsearch/OpenSearch require a correlated TCP `GET / HTTP/1.0` or
 `GET / HTTP/1.1`, final status 200, application/json content type and a complete
@@ -112,7 +112,17 @@ are exposed separately under `mqtt` in JSON, an `<mqtt>` element in XML, and
 
 ## TLS metadata
 
-The TLS probe sends a bounded TLS ClientHello. The detector recognizes TLS records and, when the server exposes unencrypted TLS 1.2 handshake data, extracts the negotiated version, ALPN, leaf certificate subject, issuer, DNS SANs, and raw ASN.1 validity timestamps. TLS 1.3 encrypts certificates after ServerHello, so certificate fields can legitimately be absent. This metadata is observational and does not represent certificate trust verification.
+Configured TCP probes containing a complete bounded ClientHello and an explicit TLS match rule activate an OpenSSL 3 session. Probe names and port numbers do not establish TLS identity. The corpus remains unchanged; its static ClientHello bytes select the session attempt rather than overriding OpenSSL's negotiated profile.
+
+TLS 1.2 and 1.3 share the existing nonblocking event loop, per-probe deadlines, retry policy, concurrency and cancellation ownership. After a completed handshake, configured fallback probes run in fresh TLS sessions. No plaintext fallback is sent after TLS has been confirmed. A failed initial handshake can recover through configured plaintext fallbacks; an unrecovered protocol failure reports `TLS_FAILURE` without TLS/application identity.
+
+Only validated decrypted HTTP is renamed `https`. Other validated application identities retain their names with `tunnel=tls`. A completed handshake without application evidence reports generic `tls`, with empty software product/version. Certificate names and validity fields never supply software identity. Abrupt EOF or TLS framing errors cannot finalize close-delimited HTTP; malformed later application chunks revoke provisional identity.
+
+Session metadata reports the negotiated TLS version, selected ALPN, and bounded leaf certificate subject, issuer, DNS SANs and raw ASN.1 validity timestamps, including TLS 1.3 certificates. The client offers only `http/1.1`; an offered but unselected ALPN is absent from output. JSON, XML and grepable preserve these fields; grepable repeats `certificate_san="..."` and `alpn="..."` for multiple values, escaping each value.
+
+The optional library field `ServiceDetectionConfig::tls_server_name` accepts an empty value or an ASCII DNS name up to 253 bytes, with labels up to 63 bytes. It supplies SNI and replaces only the default `Host: localhost` in TLS HTTP root-GET probes. Custom Host headers remain intact. IP literals, non-ASCII, control bytes, empty labels and labels beginning/ending in a hyphen are rejected. Certificate names never supply SNI. The CLI currently scans IPs without SNI, so name-based virtual hosts can return their default site's identity.
+
+Inventory observes the peer and does not verify chain trust, hostname authenticity or certificate validity. Bounds are 64 KiB for the certificate handshake chain, 48 KiB for retained leaf DER, 512 KiB for inbound encrypted wire bytes, and the configured application response cap (8 KiB by default). Matcher/parser inputs remain hard-capped at 8 KiB even if a caller increases the transport response limit. STARTTLS, HTTP/2 and HTTP/3 are outside this milestone. See [validation and reproduction](SERVICE_TLS_VALIDATION.md).
 
 ## Corpus coverage
 

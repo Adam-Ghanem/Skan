@@ -42,9 +42,8 @@ int main()
         assert(detector.results().front().state == DetectionState::Unknown);
     }
 
-    // A valid TLS soft match must survive later transient failures from fallback
-    // probes. Hardened TLS endpoints commonly reset plaintext fallbacks instead
-    // of closing them cleanly; that must not erase already-observed TLS evidence.
+    // A completed TLS handshake must survive transient failures from encrypted
+    // fallback attempts without fabricating application identity.
     {
         skan::io::IOEngine engine;
         RecordingServiceTransport transport;
@@ -64,22 +63,24 @@ int main()
         assert(transport.submissions().size() == 1U);
         const auto tls = transport.submissions().front();
         assert(tls.probe_name == "TLSClientHello");
-        transport.deliver({tls.id, tls.target, ServiceResponseKind::Data, 0,
-                           {0x16U, 0x03U, 0x03U, 0x00U, 0x00U}, false,
-                           DetectionClock::now()});
-        assert(!detector.complete());
-        transport.deliver({tls.id, tls.target, ServiceResponseKind::Closed, 0, {}, false,
-                           DetectionClock::now()});
+        ServiceResponse established;
+        established.id = tls.id;
+        established.source_address = tls.target;
+        established.kind = ServiceResponseKind::TlsEstablished;
+        established.tls.emplace();
+        established.tls->detected = true;
+        established.tls->protocol_version = "TLS 1.3";
+        transport.deliver(established);
 
         assert(transport.submissions().size() == 2U);
         const auto http = transport.submissions().back();
-        assert(http.probe_name == "HTTPGet");
+        assert(http.probe_name == "HTTPGet" && http.tls_session);
         transport.deliver({http.id, http.target, ServiceResponseKind::SocketError, ECONNRESET, {}, false,
                            DetectionClock::now()});
 
         assert(transport.submissions().size() == 3U);
         const auto generic = transport.submissions().back();
-        assert(generic.probe_name == "GenericBanner");
+        assert(generic.probe_name == "GenericBanner" && generic.tls_session);
         transport.deliver({generic.id, generic.target, ServiceResponseKind::SocketError, ECONNRESET, {}, false,
                            DetectionClock::now()});
 
@@ -87,6 +88,8 @@ int main()
         assert(detector.results().size() == 1U);
         assert(detector.results().front().state == DetectionState::Detected);
         assert(detector.results().front().service == "tls");
+        assert(detector.results().front().product.empty() && detector.results().front().version.empty());
+        assert(detector.results().front().tls_version == "TLS 1.3");
         assert(detector.results().front().probe_name == "TLSClientHello");
     }
 
