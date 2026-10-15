@@ -3,6 +3,10 @@
 This is a bounded repair on `core/v3-correlation`, based on `b75afca`.
 It is **not** a declaration that CORE-03 or correlation V3 is complete.
 
+The subsequent capture-session key/admission increment is documented separately
+in `CORE03_CONTEXT_CORRELATION.md`; it does not replace or erase the historical
+failure evidence below.
+
 ## Historical failure remains real
 
 The historical CORE-02 executable returned TIMEOUT for both the independently

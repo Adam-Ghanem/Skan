@@ -385,18 +385,30 @@ std::optional<std::uint32_t> ipv4_next_hop_for(std::string_view interface_name, 
     return best_hop;
 }
 
-std::string ipv4_text(std::uint32_t address)
-{
-    in_addr value{};
-    value.s_addr = htonl(address);
-    char buffer[INET_ADDRSTRLEN]{};
-    if (::inet_ntop(AF_INET, &value, buffer, sizeof(buffer)) == nullptr) {
-        return {};
-    }
-    return buffer;
-}
-
 } // namespace
+
+std::optional<CorrelationKey> tcp_correlation_key(
+    const portscan::PortSubmission &submission,
+    std::uint32_t interface_index,
+    std::uint64_t scan_generation)
+{
+    if (interface_index == 0U || scan_generation == 0U ||
+        !submission.target_ip.valid() || !submission.source_ip.valid() ||
+        submission.target_ip.family != submission.source_ip.family ||
+        (submission.probe != portscan::ScanProbeType::TcpSyn &&
+         submission.probe != portscan::ScanProbeType::TcpAck)) {
+        return std::nullopt;
+    }
+    const auto &ip = submission.target_ip;
+    const std::uint32_t ipv4 = ip.is_ipv4()
+        ? (static_cast<std::uint32_t>(ip.bytes[0]) << 24U) |
+          (static_cast<std::uint32_t>(ip.bytes[1]) << 16U) |
+          (static_cast<std::uint32_t>(ip.bytes[2]) << 8U) | ip.bytes[3]
+        : 0U;
+    return CorrelationKey{ipv4, submission.source_port, submission.port.number,
+                          submission.sequence_number, ip, submission.source_ip,
+                          PacketProtocol::TCP, interface_index, scan_generation};
+}
 
 bool matches_tcp_reply(
     const portscan::PortSubmission &submission,
@@ -768,43 +780,37 @@ core::StatusCode LinuxNetworkScanTransport::submit(
         session_.last_error = "unable to construct a family-correct Ethernet/IP/TCP frame";
         return core::StatusCode::PermissionDenied;
     }
-    const std::uint32_t target_ipv4 = target_ip.is_ipv4()
-                                          ? ((static_cast<std::uint32_t>(target_ip.bytes[0]) << 24U) |
-                                             (static_cast<std::uint32_t>(target_ip.bytes[1]) << 16U) |
-                                             (static_cast<std::uint32_t>(target_ip.bytes[2]) << 8U) |
-                                             static_cast<std::uint32_t>(target_ip.bytes[3]))
-                                          : 0U;
-    const CorrelationKey correlation_key{
-        target_ipv4,
-        effective.source_port,
-        effective.port.number,
-        effective.sequence_number,
-        target_ip};
+    const auto correlation_key = tcp_correlation_key(effective, session_.interface.index, session_.id);
+    if (!correlation_key.has_value()) {
+        ++session_.failed;
+        trace("correlation reject id={} field=bound-context", effective.id);
+        return core::StatusCode::InvalidArgument;
+    }
     if (log::minimum_level() == log::Level::Debug) {
         try {
-            trace("correlation submission id={} AF={} local={}:{} remote={}:{} interface={} seq={} ack={} scope={} generation=not-implemented lifecycle=pending",
+            trace("correlation submission id={} AF={} local={}:{} remote={}:{} interface={} seq={} ack={} scope={} scan-generation={} probe-generation=not-implemented lifecycle=pending",
                   effective.id, target_ip.is_ipv4() ? "ipv4" : "ipv6", effective.source_ip.to_string(),
                   effective.source_port, target_ip.to_string(), effective.port.number, config_.interface_name,
-                  effective.sequence_number, effective.acknowledgment_number, target_ip.scope.value_or("none"));
+                  effective.sequence_number, effective.acknowledgment_number, target_ip.scope.value_or("none"), session_.id);
         } catch (...) { }
     }
     if (correlation_.insert(
-            correlation_key,
+            *correlation_key,
             effective.id,
             std::chrono::steady_clock::time_point::max()) != CorrelationStatus::Inserted) {
         ++session_.failed;
         return core::StatusCode::InvalidArgument;
     }
     try {
-        pending_.emplace(effective.id, Pending{effective, std::move(callback), correlation_key});
+        pending_.emplace(effective.id, Pending{effective, std::move(callback), *correlation_key});
     } catch (const std::bad_alloc &) {
-        correlation_.remove(correlation_key);
+        correlation_.remove(*correlation_key);
         ++session_.failed;
         return core::StatusCode::MemoryError;
     }
     const TransportResult send_result = transport_.send(std::span<const std::uint8_t>{*frame});
     if (!send_result.success()) {
-        correlation_.remove(correlation_key);
+        correlation_.remove(*correlation_key);
         pending_.erase(submission.id);
         ++session_.failed;
         session_.transport_status = send_result.status;
@@ -909,165 +915,140 @@ void LinuxNetworkScanTransport::on_capture_event(io::Event &event) noexcept
     }
 }
 
-void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &observation) noexcept
+std::optional<portscan::PortProbeId> detail::resolve_tcp_response(
+    const PacketObservation &observation,
+    const TcpPendingMap &pending,
+    CorrelationTable &correlation,
+    std::uint32_t interface_index,
+    std::uint64_t scan_generation)
 {
-    const auto complete_unreachable = [this, &observation](portscan::PortProbeId id) noexcept {
-        const auto pending = pending_.find(id);
-        if (pending == pending_.end()) {
-            return;
+    if (!observation.valid() || interface_index == 0U || scan_generation == 0U) {
+        trace("correlation reject field={}", !observation.valid() ? "parser" : "bound-context");
+        return std::nullopt;
+    }
+    const bool unreachable = observation.icmp.has_value() || observation.icmpv6.has_value();
+    const auto admitted = [&](portscan::PortProbeId id, const TcpPendingCorrelation &candidate) {
+        const auto &submission = candidate.submission;
+        if (submission.id != id) {
+            trace("correlation reject id={} field=probe-id", id);
+            return false;
         }
-        const auto typed_reason = classify_tcp_unreachable_reason(observation);
-        if (!typed_reason.has_value()) {
-            return;
+        if (unreachable ? !matches_tcp_unreachable(submission, observation)
+                        : !matches_tcp_reply(submission, observation)) {
+            trace("correlation reject id={} field={}", id,
+                  unreachable ? "quoted-identity" : reply_mismatch(submission, observation));
+            return false;
         }
-        portscan::PortResponse response;
-        response.id = id;
-        if (observation.ipv4.has_value()) {
-            response.source_ip = core::IpAddress::from_ipv4(observation.ipv4->source_address());
-        } else if (observation.ipv6.has_value()) {
-            response.source_ip = core::IpAddress::from_ipv6(observation.ipv6->source_address());
+        if (candidate.correlation_key.scan_generation != scan_generation) {
+            trace("correlation reject id={} field=scan-generation", id);
+            return false;
         }
-        response.source_address = response.source_ip.valid() ? response.source_ip.to_string() : std::string{};
-        response.kind = portscan::PortResponseKind::Unreachable;
-        response.received_at = observation.received_at;
-        response.reason = *typed_reason;
-        pending->second.observed = true;
-        portscan::PortResponseCallback callback = pending->second.callback;
-        callback(response);
+        if (candidate.correlation_key.interface_index != interface_index) {
+            trace("correlation reject id={} field=interface", id);
+            return false;
+        }
+        const auto found = correlation.lookup(candidate.correlation_key, observation.received_at);
+        if (found.status != CorrelationStatus::Found || !found.entry || found.entry->token != id) {
+            trace("correlation reject id={} field=registry-lifecycle status={}", id,
+                  static_cast<int>(found.status));
+            return false;
+        }
+        return true;
     };
 
-    if (observation.icmp.has_value() || observation.icmpv6.has_value()) {
-        std::optional<portscan::PortProbeId> matched_id;
-        for (const auto &[id, pending] : pending_) {
-            if (matches_tcp_unreachable(pending.submission, observation)) {
-                if (matched_id.has_value()) {
-                    return; // Ambiguous evidence must never retire an arbitrary probe.
-                }
-                matched_id = id;
+    // Preserve the indexed IPv4 SYN/ACK path. A miss never falls back to a
+    // less-specific tuple; all candidates still undergo the strict validator.
+    if (!unreachable && observation.ipv4 && !observation.ipv6 && observation.tcp &&
+        packet::has_flag(observation.tcp->flags(), packet::TcpFlag::Ack)) {
+        const auto &tcp = *observation.tcp;
+        portscan::PortSubmission identity;
+        identity.probe = portscan::ScanProbeType::TcpSyn;
+        identity.target_ip = core::IpAddress::from_ipv4(observation.ipv4->source_address());
+        identity.source_ip = core::IpAddress::from_ipv4(observation.ipv4->destination_address());
+        identity.source_port = tcp.destination_port();
+        identity.port.number = tcp.source_port();
+        identity.sequence_number = tcp.acknowledgment_number() - 1U;
+        const auto key = tcp_correlation_key(identity, interface_index, scan_generation);
+        if (!key) { return std::nullopt; }
+        const auto found = correlation.lookup(*key, observation.received_at);
+        trace("correlation lookup remote={} local-port={} remote-port={} seq={} status={}",
+              key->target_ipv4, key->source_port, key->destination_port, key->sequence,
+              static_cast<int>(found.status));
+        if (found.status == CorrelationStatus::Found && found.entry) {
+            const auto candidate = pending.find(found.entry->token);
+            if (candidate != pending.end() && admitted(candidate->first, candidate->second)) {
+                return candidate->first;
             }
         }
-        if (matched_id.has_value()) {
-            complete_unreachable(*matched_id);
+        if (log::minimum_level() == log::Level::Debug) {
+            for (const auto &[id, candidate] : pending) {
+                trace("correlation unmatched id={} field={}", id,
+                      matches_tcp_reply(candidate.submission, observation)
+                          ? "key/lifecycle" : reply_mismatch(candidate.submission, observation));
+            }
         }
-        return;
+        return std::nullopt;
     }
 
-    if (observation.valid() && observation.ipv6.has_value() && observation.tcp.has_value()) {
-        const packet::TCP &tcp = *observation.tcp;
-        const core::IpAddress observed_source = core::IpAddress::from_ipv6(observation.ipv6->source_address());
-        std::optional<portscan::PortProbeId> matched_id;
-        for (const auto &[id, pending] : pending_) {
-            if (!matches_tcp_reply(pending.submission, observation)) {
-                trace("correlation reject id={} field={}", id, reply_mismatch(pending.submission, observation));
-                continue;
-            }
-            if (matched_id.has_value()) {
-                trace("correlation reject field=lifecycle-ambiguous ids={},{}", *matched_id, id);
-                matched_id.reset();
-                break;
-            }
-            matched_id = id;
+    std::optional<portscan::PortProbeId> matched;
+    for (const auto &[id, candidate] : pending) {
+        if (!admitted(id, candidate)) { continue; }
+        if (matched) {
+            trace("correlation reject field=lifecycle-ambiguous ids={},{}", *matched, id);
+            return std::nullopt;
         }
-        if (matched_id.has_value()) {
-            const auto pending = pending_.find(*matched_id);
-            if (pending != pending_.end()) {
-                auto bytes = tcp_response_bytes(observation);
-                if (bytes.has_value()) {
-                    portscan::PortResponse response;
-                    response.id = *matched_id;
-                    response.source_ip = observed_source;
-                    response.source_ip.scope = pending->second.submission.target_ip.scope;
-                    response.source_address = response.source_ip.to_string();
-                    response.kind = portscan::PortResponseKind::Packet;
-                    response.bytes = std::move(*bytes);
-                    response.received_at = observation.received_at;
-                    pending->second.observed = true;
-                    portscan::PortResponseCallback callback = pending->second.callback;
-                    trace("correlation admitted id={} TCP-seq={} TCP-ack={} lifecycle=pending", *matched_id,
-                          tcp.sequence_number(), tcp.acknowledgment_number());
-                    callback(response);
-                } else {
-                    trace("correlation reject id={} field=wire-bounds", *matched_id);
-                }
-            }
+        matched = id;
+    }
+    return matched;
+}
+
+void LinuxNetworkScanTransport::dispatch_observation(const PacketObservation &observation) noexcept
+{
+    try {
+        // This adapter owns the context: received packets cannot choose it.
+        if (observation.ipv4 && observation.tcp &&
+            observation.ipv4->destination_address() != source_ipv4_) {
+            trace("correlation reject field=dst-IP interface={}", config_.interface_name);
+            return;
         }
-        return;
-    }
-    PacketFilter filter;
-    filter.protocol = PacketProtocol::TCP;
-    if (!matches(filter, observation) || !observation.ipv4.has_value() || !observation.tcp.has_value() ||
-        observation.ipv4->destination_address() != source_ipv4_) {
-        trace("correlation reject field={} interface={}", !observation.valid() ? "parser" :
-              !observation.tcp ? "protocol" : !observation.ipv4 ? "AF" : "dst-IP", config_.interface_name);
-        return;
-    }
-    const std::uint32_t source_address = observation.ipv4->source_address();
-    const packet::TCP &tcp = *observation.tcp;
-    std::optional<portscan::PortProbeId> matched_id;
-    if (packet::has_flag(tcp.flags(), packet::TcpFlag::Ack)) {
-        const CorrelationKey key{
-            source_address,
-            tcp.destination_port(),
-            tcp.source_port(),
-            tcp.acknowledgment_number() - 1U,
-            core::IpAddress::from_ipv4(source_address)};
-        const CorrelationResult found = correlation_.lookup(key, std::chrono::steady_clock::now());
-        trace("correlation lookup remote={} local-port={} remote-port={} seq={} status={}",
-              source_address, key.source_port, key.destination_port, key.sequence, static_cast<int>(found.status));
-        if (found.status == CorrelationStatus::Found && found.entry.has_value()) {
-            const auto pending = pending_.find(static_cast<portscan::PortProbeId>(found.entry->token));
-            if (pending == pending_.end() || !matches_tcp_reply(pending->second.submission, observation)) {
-                trace("correlation reject id={} field={}", found.entry->token, pending == pending_.end() ? "lifecycle" :
-                      reply_mismatch(pending->second.submission, observation));
+        const auto matched = detail::resolve_tcp_response(
+            observation, pending_, correlation_, session_.interface.index, session_.id);
+        if (!matched) { return; }
+        const auto pending = pending_.find(*matched);
+        if (pending == pending_.end()) { return; }
+        portscan::PortResponse response;
+        response.id = *matched;
+        response.received_at = observation.received_at;
+        if (observation.ipv4) {
+            response.source_ip = core::IpAddress::from_ipv4(observation.ipv4->source_address());
+        } else if (observation.ipv6) {
+            response.source_ip = core::IpAddress::from_ipv6(observation.ipv6->source_address());
+        }
+        if (observation.icmp || observation.icmpv6) {
+            const auto reason = classify_tcp_unreachable_reason(observation);
+            if (!reason) { return; }
+            response.kind = portscan::PortResponseKind::Unreachable;
+            response.reason = *reason;
+        } else {
+            auto bytes = tcp_response_bytes(observation);
+            if (!bytes) {
+                trace("correlation reject id={} field=wire-bounds", *matched);
                 return;
             }
-            matched_id = static_cast<portscan::PortProbeId>(found.entry->token);
+            response.kind = portscan::PortResponseKind::Packet;
+            response.bytes = std::move(*bytes);
+            response.source_ip.scope = pending->second.submission.target_ip.scope;
+            trace("correlation admitted id={} TCP-seq={} TCP-ack={} lifecycle=pending",
+                  *matched, observation.tcp->sequence_number(), observation.tcp->acknowledgment_number());
         }
-    } else {
-        for (const auto &[id, pending] : pending_) {
-            if (matches_tcp_reply(pending.submission, observation)) {
-                if (matched_id.has_value()) {
-                    trace("correlation reject field=lifecycle-ambiguous ids={},{}", *matched_id, id);
-                    matched_id.reset();
-                    break;
-                }
-                matched_id = id;
-            } else {
-                trace("correlation reject id={} field={}", id, reply_mismatch(pending.submission, observation));
-            }
-        }
+        response.source_address = response.source_ip.to_string();
+        pending->second.observed = true;
+        auto callback = pending->second.callback;
+        callback(response);
+    } catch (...) {
+        session_.capture_status = CaptureStatus::ReceiveFailed;
+        trace("correlation reject field=receive-exception");
     }
-    if (!matched_id.has_value()) {
-        if (log::minimum_level() == log::Level::Debug) {
-            for (const auto &[id, pending] : pending_) {
-                trace("correlation unmatched id={} field={}", id, matches_tcp_reply(pending.submission, observation)
-                      ? "key/lifecycle" : reply_mismatch(pending.submission, observation));
-            }
-        }
-        return;
-    }
-    const auto pending = pending_.find(*matched_id);
-    if (pending == pending_.end()) {
-        return;
-    }
-    auto bytes = tcp_response_bytes(observation);
-    if (!bytes.has_value()) {
-        trace("correlation reject id={} field=wire-bounds", *matched_id);
-        return;
-    }
-    portscan::PortResponse response;
-    response.id = *matched_id;
-    response.source_address = ipv4_text(source_address);
-    response.source_ip = core::IpAddress::from_ipv4(source_address);
-    response.kind = portscan::PortResponseKind::Packet;
-    response.bytes = std::move(*bytes);
-    response.received_at = observation.received_at;
-    response.source_ip.scope = pending->second.submission.target_ip.scope;
-    pending->second.observed = true;
-    trace("correlation admitted id={} TCP-seq={} TCP-ack={} lifecycle=pending", *matched_id,
-          tcp.sequence_number(), tcp.acknowledgment_number());
-    portscan::PortResponseCallback callback = pending->second.callback;
-    callback(response);
 }
 
 std::optional<std::vector<std::uint8_t>> LinuxNetworkScanTransport::compose_frame(

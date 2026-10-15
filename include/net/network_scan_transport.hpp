@@ -34,6 +34,12 @@ enum class NetworkScanStatus {
 
 const char *network_scan_status_name(NetworkScanStatus status) noexcept;
 
+/** Exact identity owned by one bound capture session, not a wire replay nonce. */
+std::optional<CorrelationKey> tcp_correlation_key(
+    const portscan::PortSubmission &submission,
+    std::uint32_t interface_index,
+    std::uint64_t scan_generation);
+
 /** Pure, allocation-free correlation policy shared by both IP receive paths. */
 bool matches_tcp_reply(
     const portscan::PortSubmission &submission,
@@ -84,6 +90,29 @@ struct NetworkScanResult final {
     bool success() const noexcept { return status == NetworkScanStatus::Success; }
 };
 
+namespace detail {
+
+/** Internal receive state; capture ownership is supplied only by the adapter. */
+struct TcpPendingCorrelation final {
+    portscan::PortSubmission submission;
+    portscan::PortResponseCallback callback;
+    CorrelationKey correlation_key;
+    bool observed{false};
+    bool failed{false};
+};
+
+using TcpPendingMap = std::unordered_map<portscan::PortProbeId, TcpPendingCorrelation>;
+
+/** Resolve evidence without delivering callbacks or mutating pending state. */
+std::optional<portscan::PortProbeId> resolve_tcp_response(
+    const PacketObservation &observation,
+    const TcpPendingMap &pending,
+    CorrelationTable &correlation,
+    std::uint32_t interface_index,
+    std::uint64_t scan_generation);
+
+} // namespace detail
+
 /**
  * Capability-gated real TCP SYN/ACK adapter. It implements only the existing PortScanTransport
  * contract; packet construction, scheduling, timing, and result classification remain in Phase 2,
@@ -112,13 +141,7 @@ public:
     int capture_file_descriptor() const noexcept;
 
 private:
-    struct Pending final {
-        portscan::PortSubmission submission;
-        portscan::PortResponseCallback callback;
-        CorrelationKey correlation_key;
-        bool observed{false};
-        bool failed{false};
-    };
+    using Pending = detail::TcpPendingCorrelation;
 
     void on_capture_event(io::Event &event) noexcept;
     void dispatch_observation(const PacketObservation &observation) noexcept;

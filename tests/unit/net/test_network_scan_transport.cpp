@@ -70,14 +70,25 @@ void test_captured_open_and_closed_syn_responses()
         submission.sequence_number = captured.sent_sequence;
         assert(net::matches_tcp_reply(submission, reply));
         net::CorrelationTable table;
-        const net::CorrelationKey sent{0xc0000206U, captured.local_port, captured.remote_port,
-                                      captured.sent_sequence, submission.target_ip};
-        const net::CorrelationKey received{reply.ipv4->source_address(), reply.tcp->destination_port(),
-            reply.tcp->source_port(), reply.tcp->acknowledgment_number() - 1U,
-            core::IpAddress::from_ipv4(reply.ipv4->source_address())};
-        assert(table.insert(sent, 42U, std::chrono::steady_clock::time_point::max()) == net::CorrelationStatus::Inserted);
-        const auto found = table.lookup(received, std::chrono::steady_clock::now());
+        const auto sent = net::tcp_correlation_key(submission, 7U, 19U);
+        assert(sent);
+        portscan::PortSubmission observed;
+        observed.probe = portscan::ScanProbeType::TcpSyn;
+        observed.source_ip = core::IpAddress::from_ipv4(reply.ipv4->destination_address());
+        observed.target_ip = core::IpAddress::from_ipv4(reply.ipv4->source_address());
+        observed.source_port = reply.tcp->destination_port();
+        observed.port.number = reply.tcp->source_port();
+        observed.sequence_number = reply.tcp->acknowledgment_number() - 1U;
+        const auto received = net::tcp_correlation_key(observed, 7U, 19U);
+        assert(received);
+        assert(table.insert(*sent, 42U, std::chrono::steady_clock::time_point::max()) == net::CorrelationStatus::Inserted);
+        const auto found = table.lookup(*received, std::chrono::steady_clock::now());
         assert(found.status == net::CorrelationStatus::Found && found.entry->token == 42U);
+        net::detail::TcpPendingMap pending;
+        pending.emplace(42U, net::detail::TcpPendingCorrelation{submission, {}, *sent});
+        assert(net::detail::resolve_tcp_response(reply, pending, table, 7U, 19U) == 42U);
+        assert(!net::detail::resolve_tcp_response(reply, pending, table, 8U, 19U));
+        assert(!net::detail::resolve_tcp_response(reply, pending, table, 7U, 20U));
         const auto bytes = net::tcp_response_bytes(reply);
         assert(bytes && std::equal(bytes->begin(), bytes->end(), frame.begin() + 34));
         const bool closed = captured.remote_port == 18082U;
@@ -88,8 +99,9 @@ void test_captured_open_and_closed_syn_responses()
         assert(!net::matches_tcp_reply(wrong_ack, reply));
         auto wrong_destination = submission; wrong_destination.source_ip.bytes[3] = 7U;
         assert(!net::matches_tcp_reply(wrong_destination, reply));
-        assert(table.remove(sent) == net::CorrelationStatus::Removed);
-        assert(table.lookup(received, std::chrono::steady_clock::now()).status == net::CorrelationStatus::NotFound);
+        assert(table.remove(*sent) == net::CorrelationStatus::Removed);
+        assert(table.lookup(*received, std::chrono::steady_clock::now()).status == net::CorrelationStatus::NotFound);
+        assert(!net::detail::resolve_tcp_response(reply, pending, table, 7U, 19U));
     }
 }
 
@@ -220,6 +232,53 @@ void test_tcp_reply_correlation()
         reply.tcp->set_sequence_number(456U);
         reply.tcp->set_flags(static_cast<std::uint16_t>(packet::TcpFlag::Rst));
         assert(net::matches_tcp_reply(submission, reply));
+        // Exercise the production receive resolver, not just key equality.
+        submission.id = 73U;
+        reply.received_at = std::chrono::steady_clock::now();
+        const auto key = net::tcp_correlation_key(submission, 7U, 19U);
+        assert(key);
+        std::size_t callbacks = 0U;
+        net::detail::TcpPendingMap pending;
+        pending.emplace(73U, net::detail::TcpPendingCorrelation{
+            submission, [&callbacks](const portscan::PortResponse &) { ++callbacks; }, *key});
+        net::CorrelationTable registry;
+        const auto resolve = [&](const net::PacketObservation &packet, std::uint32_t iface = 7U,
+                                 std::uint64_t generation = 19U) {
+            return net::detail::resolve_tcp_response(packet, pending, registry, iface, generation);
+        };
+        assert(!resolve(reply)); // Missing registry must not admit a valid tuple.
+        const auto expiry = reply.received_at + std::chrono::seconds{10};
+        assert(registry.insert(*key, 73U, expiry) == net::CorrelationStatus::Inserted);
+        assert(resolve(reply) == 73U);
+        assert(!resolve(reply, 8U));
+        assert(!resolve(reply, 7U, 20U));
+        assert(!resolve(reply, 0U));
+        assert(!resolve(reply, 7U, 0U));
+        auto malformed = reply;
+        malformed.status = net::ParseStatus::MalformedTCP;
+        assert(!resolve(malformed));
+        auto unrelated = reply;
+        unrelated.tcp->set_destination_port(40010U);
+        assert(!resolve(unrelated));
+        registry.remove(*key);
+        assert(registry.insert(*key, 999U, expiry) == net::CorrelationStatus::Inserted);
+        assert(!resolve(reply)); // Exact key with the wrong owner token is not authority.
+        registry.remove(*key);
+        assert(registry.insert(*key, 73U, expiry) == net::CorrelationStatus::Inserted);
+        auto second = submission;
+        second.id = 74U;
+        ++second.sequence_number;
+        const auto second_key = net::tcp_correlation_key(second, 7U, 19U);
+        assert(second_key);
+        pending.emplace(74U, net::detail::TcpPendingCorrelation{second, {}, *second_key});
+        assert(registry.insert(*second_key, 74U, expiry) == net::CorrelationStatus::Inserted);
+        assert(!resolve(reply)); // A bare ACK-scan RST matches both: reject ambiguity.
+        pending.erase(74U);
+        registry.remove(*second_key);
+        assert(resolve(reply) == 73U);
+        assert(callbacks == 0U); // Admission resolution cannot deliver or retire work.
+        assert(registry.lookup(*key, reply.received_at).entry->token == 73U);
+        assert(pending.size() == 1U && !pending.at(73U).observed);
         // RFC 9293: without ACK set, the acknowledgment field is not significant.
         reply.tcp->set_acknowledgment_number(999U);
         assert(net::matches_tcp_reply(submission, reply));
@@ -337,6 +396,24 @@ void test_icmp_quote_correlation()
         }
         set_quote(error, quote);
 
+        submission.id = 91U;
+        error.received_at = std::chrono::steady_clock::now();
+        const auto key = net::tcp_correlation_key(submission, 7U, 19U);
+        assert(key);
+        net::detail::TcpPendingMap pending;
+        pending.emplace(91U, net::detail::TcpPendingCorrelation{submission, {}, *key});
+        net::CorrelationTable registry;
+        assert(!net::detail::resolve_tcp_response(error, pending, registry, 7U, 19U));
+        assert(registry.insert(*key, 91U, error.received_at + std::chrono::seconds{10}) ==
+               net::CorrelationStatus::Inserted);
+        assert(net::detail::resolve_tcp_response(error, pending, registry, 7U, 19U) == 91U);
+        assert(!net::detail::resolve_tcp_response(error, pending, registry, 8U, 19U));
+        assert(!net::detail::resolve_tcp_response(error, pending, registry, 7U, 20U));
+        auto malformed_quote = error;
+        if (ipv6) { malformed_quote.icmpv6->set_payload({}); }
+        else { malformed_quote.icmp->set_payload({}); }
+        assert(!net::detail::resolve_tcp_response(malformed_quote, pending, registry, 7U, 19U));
+
         if (ipv6) {
             auto classified = error;
             classified.icmpv6->set_code(0U);
@@ -413,6 +490,47 @@ void test_icmp_quote_correlation()
 
 int main()
 {
+    // A legacy tuple projection must not erase bound capture context.
+    for (const bool ipv6 : {false, true}) {
+        skan::portscan::PortSubmission submission;
+        submission.probe = skan::portscan::ScanProbeType::TcpSyn;
+        submission.target_ip = *skan::core::parse_ip_address(ipv6 ? "fe80::2%eth-test" : "192.0.2.2");
+        submission.source_ip = *skan::core::parse_ip_address(ipv6 ? "fe80::1%eth-test" : "192.0.2.1");
+        submission.source_port = 40001U;
+        submission.port.number = 18080U;
+        submission.sequence_number = 12345U;
+        const auto key = skan::net::tcp_correlation_key(submission, 7U, 19U);
+        assert(key.has_value());
+        assert(key->target_ip == submission.target_ip);
+        assert(key->source_ip == submission.source_ip);
+        assert(key->protocol == skan::net::PacketProtocol::TCP);
+        assert(key->interface_index == 7U);
+        assert(key->scan_generation == 19U);
+        skan::net::CorrelationTable table;
+        const auto now = std::chrono::steady_clock::now();
+        assert(table.insert(*key, 73U, now + std::chrono::seconds{10}) ==
+               skan::net::CorrelationStatus::Inserted);
+        assert(table.lookup(*key, now).entry->token == 73U);
+        auto other_session = skan::net::tcp_correlation_key(submission, 7U, 20U);
+        assert(other_session.has_value());
+        assert(table.lookup(*other_session, now).status == skan::net::CorrelationStatus::NotFound);
+        assert(!skan::net::tcp_correlation_key(submission, 0U, 19U));
+        assert(!skan::net::tcp_correlation_key(submission, 7U, 0U));
+        auto invalid = submission;
+        invalid.source_ip = {};
+        assert(!skan::net::tcp_correlation_key(invalid, 7U, 19U));
+        invalid = submission;
+        invalid.source_ip = *skan::core::parse_ip_address(ipv6 ? "192.0.2.1" : "2001:db8::1");
+        assert(!skan::net::tcp_correlation_key(invalid, 7U, 19U));
+        invalid = submission;
+        invalid.target_ip = {};
+        assert(!skan::net::tcp_correlation_key(invalid, 7U, 19U));
+        invalid = submission;
+        invalid.probe = skan::portscan::ScanProbeType::TcpConnect;
+        assert(!skan::net::tcp_correlation_key(invalid, 7U, 19U));
+        submission.probe = skan::portscan::ScanProbeType::TcpAck;
+        assert(skan::net::tcp_correlation_key(submission, 7U, 19U));
+    }
     test_captured_open_and_closed_syn_responses();
     test_tcp_response_preserves_valid_wire_options();
     test_tcp_reply_correlation();

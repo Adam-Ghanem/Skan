@@ -32,6 +32,47 @@ int main()
     assert(!skan::net::matches(skan::net::PacketFilter{}, invalid));
 
     skan::net::CorrelationTable table;
+    // Dropping any context component must not correlate an unrelated probe.
+    for (const bool ipv6 : {false, true}) {
+        skan::net::CorrelationKey contextual;
+        contextual.target_ip = *skan::core::parse_ip_address(ipv6 ? "fe80::2%eth-test" : "192.0.2.2");
+        contextual.source_ip = *skan::core::parse_ip_address(ipv6 ? "fe80::1%eth-test" : "192.0.2.1");
+        contextual.source_port = 40001U;
+        contextual.destination_port = 18080U;
+        contextual.sequence = 12345U;
+        contextual.protocol = skan::net::PacketProtocol::TCP;
+        contextual.interface_index = 7U;
+        contextual.scan_generation = 19U;
+        skan::net::CorrelationTable context_table;
+        assert(context_table.insert(contextual, 73U, timestamp + std::chrono::seconds{10}) ==
+               skan::net::CorrelationStatus::Inserted);
+        for (unsigned int field = 0U; field < 7U; ++field) {
+            auto wrong = contextual;
+            switch (field) {
+            case 0U: wrong.source_ip.bytes[3] ^= 1U; break;
+            case 1U: wrong.protocol = skan::net::PacketProtocol::UDP; break;
+            case 2U: ++wrong.interface_index; break;
+            case 3U: ++wrong.scan_generation; break;
+            case 4U: wrong.source_ip.family = skan::core::AddressFamily::Unknown; break;
+            case 5U: wrong.target_ip.scope = "other-interface"; break;
+            case 6U: wrong.source_ip.scope = "other-interface"; break;
+            }
+            assert(context_table.lookup(wrong, timestamp).status == skan::net::CorrelationStatus::NotFound);
+            assert(context_table.lookup(contextual, timestamp).entry->token == 73U);
+        }
+        auto legacy = contextual;
+        legacy.source_ip = {};
+        legacy.protocol = skan::net::PacketProtocol::Any;
+        legacy.interface_index = 0U;
+        legacy.scan_generation = 0U;
+        assert(context_table.lookup(legacy, timestamp).status == skan::net::CorrelationStatus::NotFound);
+        assert(context_table.remove(contextual) == skan::net::CorrelationStatus::Removed);
+        ++contextual.scan_generation;
+        assert(context_table.insert(contextual, 74U, timestamp + std::chrono::seconds{10}) ==
+               skan::net::CorrelationStatus::Inserted);
+        --contextual.scan_generation;
+        assert(context_table.lookup(contextual, timestamp).status == skan::net::CorrelationStatus::NotFound);
+    }
     const skan::net::CorrelationKey key{0x7F000001U, 12345U, 80U, 99U};
     const auto expiry = timestamp + std::chrono::seconds{10};
     assert(table.insert(key, 42U, expiry) == skan::net::CorrelationStatus::Inserted);
