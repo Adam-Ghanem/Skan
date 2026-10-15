@@ -3,6 +3,8 @@
 Makefile text eol=lf
 VERSION text eol=lf
 tests/data/output/*.golden text eol=lf
+# The baseline manifest authenticates exact capture bytes, including line endings.
+tests/comparison/fixtures/baseline-v1/** text eol=lf
 tests/data/service-fingerprints*.tsv text eol=lf
 corpus/canonical/*.jsonl text eol=lf
 corpus/canonical/*.json text eol=lf
