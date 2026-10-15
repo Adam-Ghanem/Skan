@@ -37,4 +37,4 @@ and key fields `source_ip`, `protocol`, `interface_index`, `scan_generation`.
 - [x] Review-driven coverage: extract `detail::resolve_tcp_response` using the adapter's real pending-map state. Test both-family ACK and ICMP receive decisions, missing/wrong registry authority, wrong context and ambiguity without callback effects. Verify deletion of the registry guard fails these tests, then restore and rerun.
 - [x] Run bounded factory, parser, scheduler and UDP unit tests; expect exit 0. Run the CORE-01 smoke lab and sanitizer targets; expect exit 0 and independent SYN/ACK/UDP truth assertions unchanged.
 - [x] Independent review; fix important findings with RED/GREEN tests. Review full diff and record exact outcomes/limits in `docs/CORE03_CONTEXT_CORRELATION.md`.
-- [ ] Commit and push verified work; verify remote branch SHA without CI polling or merge. Publication evidence lives in Git history/remote state, not inferred from this checklist.
+- [x] Commit and push verified work; verify remote branch SHA without CI polling or merge. Published `39dd8c2d804b6bd4dfab149fca357c361595eac5`; the remote branch SHA matched. No merge or CI status claim.

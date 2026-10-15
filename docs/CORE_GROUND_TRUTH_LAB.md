@@ -130,9 +130,20 @@ A live smoke run records:
 - IPv4 ACK output
 - IPv6 ACK output
 - IPv4 Connect and UDP output
+- IPv6 UDP output (OPEN echo response and CLOSED ICMPv6 port-unreachable)
 - packet capture
 
 The truth snapshots contain the manifest plus observed listener/firewall/qdisc state and do not derive truth from scanner output.
+
+The UDPv6 smoke uses the already-primed, directly reachable kernel neighbor entry
+on the explicitly selected veth interface. TCP and UDP share the same read-only
+exact-interface/address lookup. It does not resolve arbitrary neighbors, probe a
+gateway or guess an off-link route. An absent/unusable entry remains a capability
+failure rather than triggering a fallback transport. The lookup has a 32-batch
+ceiling, a 100 ms monotonic admission budget and a 100 ms receive timeout: a
+receive begun near the deadline can finish after it (roughly another 100 ms,
+plus operating-system scheduling). This is bounded I/O, not a strict 100 ms
+wall-clock guarantee.
 
 ## CORE-01 acceptance boundary
 

@@ -17,7 +17,10 @@
 #include <sstream>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
+
+#include "net/unique_fd.hpp"
 
 #include "packet/ethernet.hpp"
 #include "packet/checksum.hpp"
@@ -235,15 +238,21 @@ std::optional<std::array<std::uint8_t, 6U>> ipv6_neighbor_mac_for(
     if (interface_index == 0U) {
         return std::nullopt;
     }
-    const int descriptor = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
-    if (descriptor < 0) {
+    const detail::UniqueFd descriptor{::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE)};
+    if (descriptor.get() < 0) {
+        return std::nullopt;
+    }
+
+    // A cache miss must not turn into an unbounded scanner startup wait.
+    const timeval receive_timeout{0, 100000};
+    if (::setsockopt(descriptor.get(), SOL_SOCKET, SO_RCVTIMEO,
+                     &receive_timeout, sizeof(receive_timeout)) != 0) {
         return std::nullopt;
     }
 
     sockaddr_nl local{};
     local.nl_family = AF_NETLINK;
-    if (::bind(descriptor, reinterpret_cast<const sockaddr *>(&local), sizeof(local)) != 0) {
-        (void)::close(descriptor);
+    if (::bind(descriptor.get(), reinterpret_cast<const sockaddr *>(&local), sizeof(local)) != 0) {
         return std::nullopt;
     }
 
@@ -260,22 +269,23 @@ std::optional<std::array<std::uint8_t, 6U>> ipv6_neighbor_mac_for(
     sockaddr_nl kernel{};
     kernel.nl_family = AF_NETLINK;
     const ssize_t sent = ::sendto(
-        descriptor,
+        descriptor.get(),
         &request,
         request.header.nlmsg_len,
-        0,
+        MSG_DONTWAIT,
         reinterpret_cast<const sockaddr *>(&kernel),
         sizeof(kernel));
     if (sent != static_cast<ssize_t>(request.header.nlmsg_len)) {
-        (void)::close(descriptor);
         return std::nullopt;
     }
 
     std::optional<std::array<std::uint8_t, 6U>> result;
-    std::array<std::uint8_t, 8192U> buffer{};
+    alignas(nlmsghdr) std::array<std::uint8_t, 8192U> buffer{};
     bool finished = false;
-    while (!finished) {
-        const ssize_t received = ::recv(descriptor, buffer.data(), buffer.size(), 0);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{100};
+    for (std::size_t batch = 0U; batch < 32U && !finished &&
+         std::chrono::steady_clock::now() < deadline; ++batch) {
+        const ssize_t received = ::recv(descriptor.get(), buffer.data(), buffer.size(), 0);
         if (received <= 0) {
             break;
         }
@@ -290,7 +300,7 @@ std::optional<std::array<std::uint8_t, 6U>> ipv6_neighbor_mac_for(
                 finished = true;
                 break;
             }
-            if (header->nlmsg_type != RTM_NEWNEIGH) {
+            if (header->nlmsg_type != RTM_NEWNEIGH || header->nlmsg_len < NLMSG_LENGTH(sizeof(ndmsg))) {
                 continue;
             }
             const auto *neighbor = static_cast<const ndmsg *>(NLMSG_DATA(header));
@@ -325,7 +335,6 @@ std::optional<std::array<std::uint8_t, 6U>> ipv6_neighbor_mac_for(
             }
         }
     }
-    (void)::close(descriptor);
     return result;
 }
 
@@ -386,6 +395,17 @@ std::optional<std::uint32_t> ipv4_next_hop_for(std::string_view interface_name, 
 }
 
 } // namespace
+
+std::optional<std::array<std::uint8_t, 6U>> detail::cached_ipv6_neighbor_mac(
+    std::string_view interface_name, const core::IpAddress &target_ip)
+{
+    if (!target_ip.is_ipv6() || interface_name.empty() ||
+        (target_ip.is_ipv6_link_local() &&
+         !core::ipv6_scope_matches_interface(target_ip, interface_name))) {
+        return std::nullopt;
+    }
+    return ipv6_neighbor_mac_for(interface_name, target_ip.bytes);
+}
 
 std::optional<CorrelationKey> tcp_correlation_key(
     const portscan::PortSubmission &submission,
@@ -1149,7 +1169,7 @@ std::optional<std::array<std::uint8_t, 6U>> LinuxNetworkScanTransport::destinati
     if (config_.interface_name == "lo") {
         return std::array<std::uint8_t, 6U>{};
     }
-    return ipv6_neighbor_mac_for(config_.interface_name, target_ip.bytes);
+    return detail::cached_ipv6_neighbor_mac(config_.interface_name, target_ip);
 }
 
 std::optional<core::IpAddress> LinuxNetworkScanTransport::source_address_for(

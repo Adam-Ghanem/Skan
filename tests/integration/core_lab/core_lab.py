@@ -535,6 +535,15 @@ def smoke(skan: Path, evidence_dir: Path) -> None:
         assert_output(udp4, 18090, "udp", "OPEN", "UDP_RESPONSE")
         assert_output(udp4, 18092, "udp", "CLOSED", "ICMP_PORT_UNREACHABLE")
 
+        udp6 = scanner_run(
+            skan,
+            ["-Pn", "-sU", "-6", "-p", "18091,18092", "--reason",
+             "-e", topo["scanner_interface"], ipv6_target],
+            evidence_dir / "udp-ipv6.txt",
+        )
+        assert_output(udp6, 18091, "udp", "OPEN", "UDP_RESPONSE")
+        assert_output(udp6, 18092, "udp", "CLOSED", "ICMP_PORT_UNREACHABLE")
+
         snapshot("clean", evidence_dir / "truth-after.json")
     finally:
         if capture is not None:

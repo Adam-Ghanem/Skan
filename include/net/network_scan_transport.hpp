@@ -92,6 +92,10 @@ struct NetworkScanResult final {
 
 namespace detail {
 
+/** Bounded, read-only lookup of an existing directly reachable IPv6 neighbor. */
+std::optional<std::array<std::uint8_t, 6U>> cached_ipv6_neighbor_mac(
+    std::string_view interface_name, const core::IpAddress &target_ip);
+
 /** Internal receive state; capture ownership is supplied only by the adapter. */
 struct TcpPendingCorrelation final {
     portscan::PortSubmission submission;

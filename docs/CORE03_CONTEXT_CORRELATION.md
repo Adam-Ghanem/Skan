@@ -47,8 +47,9 @@ No correlation field is silently ignored to force a passing lab result.
 Session generation is registry ownership, **not an on-wire replay nonce**. A
 received packet cannot carry or prove that generation. Fresh per-attempt wire
 identity, probe generations across asynchronous callbacks, bounded retired-identity
-handling, kernel arrival timestamps and live non-loopback UDPv6 coverage remain
-unfinished. The existing receive lifecycle uses scheduler retirement, not an
+handling and kernel arrival timestamps remain unfinished. Non-loopback UDPv6
+coverage was also missing at this increment; the follow-up below closes that
+direct-neighbor lab gap. The existing receive lifecycle uses scheduler retirement, not an
 unproven user-space drain timestamp as wire-arrival time. Historical live SYN
 failure evidence remains visible in the earlier investigation document.
 
@@ -87,3 +88,32 @@ GitHub CI is asynchronous; no waiting or polling is part of this work.
   the registry-guard deletion mutation was caught. A remaining nonblocking
   improvement is independent assertions for every legacy scalar projected by
   the factory for both probe types.
+
+## Follow-up: directly reachable UDPv6
+
+The UDP adapter now reuses the TCP adapter's exact-interface/address kernel
+neighbor-cache lookup. Explicit destination-MAC and loopback paths are unchanged;
+an absent/unusable neighbor is still a capability failure. The shared netlink
+lookup has RAII descriptor ownership, aligned/bounded message parsing, a receive
+timeout, a monotonic admission budget and a batch cap. It emits no NDP probes and
+does not guess an off-link gateway. Its scheduling/timing limit is documented in
+`CORE_GROUND_TRUTH_LAB.md`.
+
+The new live assertion failed before the fix with UDP scan submission failure.
+With the fix, the same independently configured namespace reports IPv6 UDP echo
+port 18091 OPEN/UDP_RESPONSE and no-listener port 18092
+CLOSED/ICMP_PORT_UNREACHABLE. Independent tcpdump shows valid-checksum IPv6 UDP
+request/echo traffic and an ICMPv6 port-unreachable quoting port 18092. Artifacts
+are local under `validation_runs/core03-udp6-green/`, not repository runtime data.
+Existing dual-stack SYN/ACK, connect and UDPv4 smoke assertions also passed.
+This is not full NDP, arbitrary IPv6 routing, loss-resilience or UDP generation
+acceptance; those capabilities are not inferred from this clean lab.
+
+The follow-up's production build, live dual-stack smoke, 88 C++ binaries,
+213 corpus tests and 46 comparison tests passed. Five targeted ASan/UBSan
+executions passed using Linux-temporary linked binaries to avoid mounted-volume
+linker stalls. Sanitizers first caught a too-long scope-name test fixture being
+dereferenced after failed parsing; the fixture was corrected and explicitly
+asserts parse success. The final normal UDP target was rebuilt/run after that
+fixture-only change. Production scope validation was not relaxed. Timeout and
+test-failure history is recorded in the follow-up plan rather than hidden.
