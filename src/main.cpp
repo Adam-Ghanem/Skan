@@ -1379,9 +1379,9 @@ int run_scan(int argc, char **argv)
                        format, *orchestrator.report(), output, file_context) ==
                    skan::output::OutputStatus::Ok && output.good();
         };
-        if (!write_aggregate(skan::output::OutputFormat::Normal, ".nmap") ||
+        if (!write_aggregate(skan::output::OutputFormat::Normal, ".skan") ||
             !write_aggregate(skan::output::OutputFormat::Xml, ".xml") ||
-            !write_aggregate(skan::output::OutputFormat::Grepable, ".gnmap")) {
+            !write_aggregate(skan::output::OutputFormat::Grepable, ".gskan")) {
             std::cerr << "Error: failed to write one or more -oA output files.\n";
             return EXIT_FAILURE;
         }

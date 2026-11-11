@@ -66,9 +66,9 @@ python3 -m json.tool "$tmp_dir/scan-os-db.json" >/dev/null
 python3 -m json.tool "$tmp_dir/nmap-os-db.json" >/dev/null
 
 "$skan_bin" -sS --transport offline --top-ports 10 -T4 -oA "$tmp_dir/aggregate" 192.0.2.1
-test -s "$tmp_dir/aggregate.nmap"
+test -s "$tmp_dir/aggregate.skan"
 test -s "$tmp_dir/aggregate.xml"
-test -s "$tmp_dir/aggregate.gnmap"
+test -s "$tmp_dir/aggregate.gskan"
 
 "$skan_bin" -sT -p 1 -oX "$tmp_dir/connect.xml" 127.0.0.1
 test -s "$tmp_dir/connect.xml"
@@ -142,16 +142,16 @@ if "$skan_bin" -sU --transport offline -p 53 --udp-ports 53 192.0.2.1 >/dev/null
 fi
 
 "$skan_bin" -sS --transport offline -p 80 --reason --output normal \
-  192.0.2.1 >"$tmp_dir/reason.nmap"
-grep -Eq "^[[:space:]]*80/tcp[[:space:]]+FILTERED[[:space:]]+.*TIMEOUT$" "$tmp_dir/reason.nmap"
+  192.0.2.1 >"$tmp_dir/reason.skan"
+grep -Eq "^[[:space:]]*80/tcp[[:space:]]+FILTERED[[:space:]]+.*TIMEOUT$" "$tmp_dir/reason.skan"
 
 "$skan_bin" -sS --transport offline -p 80 --open --output normal \
-  192.0.2.1 >"$tmp_dir/open-only.nmap"
-if grep -Eq "^[[:space:]]*80/tcp[[:space:]]" "$tmp_dir/open-only.nmap"; then
+  192.0.2.1 >"$tmp_dir/open-only.skan"
+if grep -Eq "^[[:space:]]*80/tcp[[:space:]]" "$tmp_dir/open-only.skan"; then
   echo "--open unexpectedly emitted a filtered port" >&2
   exit 1
 fi
-grep -q "1 filtered" "$tmp_dir/open-only.nmap"
+grep -q "1 filtered" "$tmp_dir/open-only.skan"
 
 "$skan_bin" -sU --transport offline -p 53 --open --output json \
   --output-file "$tmp_dir/open-only.json" 192.0.2.1
@@ -194,32 +194,32 @@ PY
 
 "$skan_bin" -sU --transport offline -p 53 --open -oA \
   "$tmp_dir/open-only-aggregate" 192.0.2.1
-grep -Eq '^[[:space:]]*53/udp[[:space:]]+OPEN_OR_' "$tmp_dir/open-only-aggregate.nmap"
+grep -Eq '^[[:space:]]*53/udp[[:space:]]+OPEN_OR_' "$tmp_dir/open-only-aggregate.skan"
 grep -q 'number="53" protocol="udp" state="OPEN_OR_FILTERED"' \
   "$tmp_dir/open-only-aggregate.xml"
 grep -q 'number=53 protocol=udp state=OPEN_OR_FILTERED' \
-  "$tmp_dir/open-only-aggregate.gnmap"
+  "$tmp_dir/open-only-aggregate.gskan"
 
 "$skan_bin" -sS --transport offline -p 80 --open -oA \
   "$tmp_dir/filtered-open-only-aggregate" 192.0.2.1
 if grep -qE '^[[:space:]]*80/tcp[[:space:]]|number="80"|number=80 ' \
-  "$tmp_dir/filtered-open-only-aggregate.nmap" \
+  "$tmp_dir/filtered-open-only-aggregate.skan" \
   "$tmp_dir/filtered-open-only-aggregate.xml" \
-  "$tmp_dir/filtered-open-only-aggregate.gnmap"; then
+  "$tmp_dir/filtered-open-only-aggregate.gskan"; then
   echo "--open output aggregate unexpectedly emitted a filtered port" >&2
   exit 1
 fi
-grep -q '^Host 192\.0\.2\.1' "$tmp_dir/filtered-open-only-aggregate.nmap"
+grep -q '^Host 192\.0\.2\.1' "$tmp_dir/filtered-open-only-aggregate.skan"
 grep -q '<host address="192.0.2.1"' "$tmp_dir/filtered-open-only-aggregate.xml"
 grep -q '<filtered-ports>1</filtered-ports>' "$tmp_dir/filtered-open-only-aggregate.xml"
-grep -q '^Host: address="192.0.2.1"' "$tmp_dir/filtered-open-only-aggregate.gnmap"
-grep -q 'filtered_ports=1' "$tmp_dir/filtered-open-only-aggregate.gnmap"
+grep -q '^Host: address="192.0.2.1"' "$tmp_dir/filtered-open-only-aggregate.gskan"
+grep -q 'filtered_ports=1' "$tmp_dir/filtered-open-only-aggregate.gskan"
 
 "$skan_bin" -sS --transport offline -p 80 --output normal \
-  192.0.2.1 >"$tmp_dir/redirected-normal.nmap"
-if grep -Eq '╭|╰|◈|●|○|\x1b' "$tmp_dir/redirected-normal.nmap"; then
+  192.0.2.1 >"$tmp_dir/redirected-normal.skan"
+if grep -Eq '╭|╰|◈|●|○|\x1b' "$tmp_dir/redirected-normal.skan"; then
   echo "redirected normal output unexpectedly contains terminal decoration" >&2
   exit 1
 fi
-grep -q '^SKAN v' "$tmp_dir/redirected-normal.nmap"
-grep -Eq '^[[:space:]]*80/tcp[[:space:]]+FILTERED' "$tmp_dir/redirected-normal.nmap"
+grep -q '^SKAN v' "$tmp_dir/redirected-normal.skan"
+grep -Eq '^[[:space:]]*80/tcp[[:space:]]+FILTERED' "$tmp_dir/redirected-normal.skan"

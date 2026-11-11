@@ -40,7 +40,7 @@ The compatibility form accepts one or more positional target specifications befo
 | `-oN` | normal output file | Replaces the selected file. |
 | `-oX` | XML output file | Replaces the selected file. |
 | `-oG` | grepable output file | Replaces the selected file. |
-| `-oA` | normal + XML + grepable | Writes `.nmap`, `.xml`, and `.gnmap`. |
+| `-oA` | normal + XML + grepable | Writes `.skan`, `.xml`, and `.gskan`. |
 | `--top-ports N` | first N Skan common TCP ports | Deterministic, TCP-only, and currently bounded to 100. |
 
 `-p` and `-p-` are protocol-aware: TCP is selected by default, while `-sU` makes the same syntax select UDP ports. Ambiguous combinations such as UDP `-p` plus `--udp-ports`, `-p` plus `--top-ports`, or `-4` plus `-6` fail explicitly. IPv4/IPv6 targets, output formats, service/OS databases, timing bounds, and target ceilings remain available.
