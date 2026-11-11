@@ -130,16 +130,16 @@ Packagers can stage the same deterministic layout without root by using `make in
 Optional validation tooling:
 
 ```bash
-sudo apt-get install clang nmap
+sudo apt-get install clang
 make asan
 make ubsan
 make coverage
 make fuzz
 ```
 
-## 🧭 Nmap-style usage
+## 🧭 Skan CLI shortcuts
 
-The native `skan scan <target>` interface remains supported. A scoped Nmap-compatible mode accepts one or more positional target specifications before, between, or after supported options:
+The native `skan scan <target>` interface remains supported. Skan's short-form option mode accepts one or more positional target specifications before, between, or after supported options:
 
 ```bash
 skan -sT -p 22,80,443 127.0.0.1
@@ -153,7 +153,7 @@ skan -sT -p 22,80,443 --exclude-ports 80 192.0.2.10 192.0.2.11
 sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 ```
 
-| Nmap-style option | Skan behavior |
+| Short-form option | Skan behavior |
 | --- | --- |
 | `-sT` | TCP Connect scan |
 | `-sS` | Capability-gated Linux SYN scan |
@@ -169,7 +169,7 @@ sudo skan -sS -p 1-1024 --open --reason 192.0.2.2
 | `-oN`, `-oX`, `-oG`, `-oA` | Normal, XML, grepable, or aggregate output |
 | `--top-ports 1..100` | Deterministic Skan-owned common TCP corpus |
 
-See [Nmap compatibility](docs/NMAP_COMPATIBILITY.md) for exact boundaries.
+See [CLI compatibility and limitations](docs/NMAP_COMPATIBILITY.md) for exact boundaries.
 See [Service fingerprinting](docs/SERVICE_FINGERPRINTS.md) for the clean-room probe format and corpus limits.
 See [OS evidence confidence](docs/OS_EVIDENCE_CONFIDENCE.md) for scoring, missing observations, and classification limits.
 See [Core scanner contract](docs/CORE_SCANNER_SPEC.md),
@@ -183,7 +183,7 @@ source, canonical-record, and migration-gate contracts.
 
 Skan CI enforces clean builds, the complete registered test suite, corpus
 governance/schema/serialization checks, debug/release builds, ASan/LSan, UBSan,
-coverage, fuzz capability handling, static safety checks, Nmap-compatible and
+coverage, fuzz capability handling, static safety checks, short-form CLI and
 PTY terminal-policy regressions, isolated privileged dual-stack validation,
 Debian package policy checks, and installed-package acceptance on Debian 12 and
 Ubuntu 24.04.
@@ -224,12 +224,12 @@ Phases 29.1–33 establish the current release baseline:
 
 - IPv6 advertised-length truncation is classified before structural parsing, including VLAN fixtures.
 - The privileged harness is authorization-gated, executable, auditable, and forced onto the explicit Linux transport.
-- CI creates an isolated dual-stack network namespace, validates raw IPv4/IPv6 open and closed ports, and compares Skan with Nmap.
-- Nmap-style aliases cover the implemented Connect, SYN, UDP, discovery, service, OS, timing, interface, and output capabilities.
+- CI creates an isolated dual-stack network namespace, validates raw IPv4/IPv6 open and closed ports, and checks Skan against a reference scanner in controlled conditions.
+- Skan CLI aliases cover the implemented Connect, SYN, UDP, discovery, service, OS, timing, interface, and output capabilities.
 - Phase 32 adds multiple positional targets, `-4`/`-6`, resolved target exclusions, active-protocol port exclusions, and protocol-aware `-p`/`-p-`.
 - Service detection adds prioritized probes, per-probe timeouts, explicit fallbacks, soft/hard matches, a broader project-owned corpus, and bounded TLS certificate/ALPN metadata.
 - Phase 33 adds `--open` and `--reason` through the canonical output context without changing scan evidence or summaries.
 - The terminal-dashboard milestone adds capability detection, responsive layouts, safe display-width handling, deterministic redirected output, and truthful post-stage progress without changing scan evidence.
 - The project is MIT licensed.
 
-Skan is not a complete Nmap replacement yet. NSE, traceroute, advanced scan families, Nmap-scale fingerprint breadth, and cross-platform raw transports remain future work. The project does not silently emulate unsupported features.
+Skan is a standalone scanner with intentionally bounded capabilities. Script engines, traceroute, advanced scan families, large-scale fingerprint coverage, and cross-platform raw transports remain future work. The project does not silently emulate unsupported features.

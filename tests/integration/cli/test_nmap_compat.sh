@@ -9,6 +9,14 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 version=$(<"$repo_root/VERSION")
 test "$("$skan_bin" --version)" = "Skan $version"
 
+# User-facing CLI help should describe Skan, not a third-party tool.
+"$skan_bin" --help >"$tmp_dir/help.txt"
+grep -q 'Skan | Modular network discovery and security inspection' "$tmp_dir/help.txt"
+if grep -Eqi 'nmap' "$tmp_dir/help.txt"; then
+  echo "Skan help unexpectedly exposes third-party scanner branding" >&2
+  exit 1
+fi
+
 "$skan_bin" -sT -p 1 --timeout-ms 50 --output json 127.0.0.1 >"$tmp_dir/connect.json"
 python3 -m json.tool "$tmp_dir/connect.json" >/dev/null
 

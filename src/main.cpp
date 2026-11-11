@@ -52,7 +52,7 @@ std::string terminal_safe(std::string_view value)
 void print_help()
 {
     std::cout << skan::core::constants::SKAN_DISPLAY_VERSION << '\n'
-              << "Nmap-inspired modular network scanning platform\n\n"
+              << "Skan | Modular network discovery and security inspection\n\n"
               << "Usage:\n"
               << "  skan [options]\n"
               << "  skan discover <ip-address> [options]\n"
@@ -72,7 +72,7 @@ void print_help()
               << "  --udp                  Run the explicit bounded UDP scan mode\n"
               << "  --udp-ports <spec>     UDP ports: single, list, or range\n"
               << "  --method <connect|syn|ack> TCP Connect, SYN, or ACK firewall mapping (not with --udp)\n"
-              << "  -sT / -sS / -sA / -sU Nmap-style Connect, SYN, ACK, or UDP scan aliases\n"
+              << "  -sT / -sS / -sA / -sU Short forms for Connect, SYN, ACK, or UDP scans\n"
               << "  -sn / -Pn            Discovery-only or skip-discovery aliases\n"
               << "  -sV / -O             Service/version or OS detection aliases\n"
               << "  -4 / -6              Restrict resolved targets to IPv4 or IPv6\n"
@@ -82,7 +82,7 @@ void print_help()
               << "  --reason             Show port-state reasons in normal output\n"
               << "  --top-ports <1-100>  Scan the deterministic Skan-owned common TCP corpus\n"
               << "  -oN/-oX/-oG <file>   Normal, XML, or grepable output aliases\n"
-              << "  -oA <prefix>          Write .nmap, .xml, and .gnmap outputs\n"
+              << "  -oA <prefix>          Write normal, XML, and grepable reports\n"
               << "  --transport <mode>     connect, offline, or explicit Linux raw-packet transport\n"
               << "  --max-outstanding <n>  Bound concurrent TCP probes\n"
               << "  --udp-max-outstanding <n> Bound concurrent UDP probes (default 64)\n"
@@ -843,7 +843,7 @@ int run_scan(int argc, char **argv)
     bool ipv6_only = false;
     std::string transport_mode;
     std::optional<unsigned int> top_ports_count;
-    std::optional<std::string> nmap_port_specification;
+    std::optional<std::string> selected_port_specification;
     std::optional<std::string> excluded_port_specification;
     std::optional<std::string> output_all_prefix;
     std::vector<std::string> excluded_target_specifications;
@@ -912,7 +912,7 @@ int run_scan(int argc, char **argv)
                    argument[2] >= '0' && argument[2] <= '5') {
             if (skan::scanengine::TimingProfile::parse(argument.substr(1U), config.timing_profile) !=
                 skan::core::StatusCode::Ok) {
-                std::cerr << "Error: invalid Nmap-style timing profile.\n";
+                std::cerr << "Error: invalid timing profile (expected T0..T5).\n";
                 return EXIT_FAILURE;
             }
             adaptive_timing = true;
@@ -953,13 +953,13 @@ int run_scan(int argc, char **argv)
             }
             explicit_ports = true;
         } else if (argument == "-p" && index + 1 < argc) {
-            nmap_port_specification = argv[++index];
-            if (nmap_port_specification->empty()) {
+            selected_port_specification = argv[++index];
+            if (selected_port_specification->empty()) {
                 std::cerr << "Error: -p port specification cannot be empty.\n";
                 return EXIT_FAILURE;
             }
         } else if (argument == "-p-") {
-            nmap_port_specification = "1-65535";
+            selected_port_specification = "1-65535";
         } else if (argument == "--method" && index + 1 < argc) {
             const std::string_view method(argv[++index]);
             if (method == "connect") {
@@ -1072,7 +1072,7 @@ int run_scan(int argc, char **argv)
         } else if ((argument == "-oN" || argument == "-oX" || argument == "-oG") && index + 1 < argc) {
             const char *format = argument == "-oN" ? "normal" : (argument == "-oX" ? "xml" : "grepable");
             if (skan::output::parse_output_format(format, config.output_format) != skan::output::OutputStatus::Ok) {
-                std::cerr << "Error: invalid Nmap-style output format.\n";
+                std::cerr << "Error: invalid output format.\n";
                 return EXIT_FAILURE;
             }
             config.output_file = argv[++index];
@@ -1138,18 +1138,18 @@ int run_scan(int argc, char **argv)
         std::cerr << "Error: -4 and -6 cannot be combined.\n";
         return EXIT_FAILURE;
     }
-    if (top_ports_count.has_value() && nmap_port_specification.has_value()) {
+    if (top_ports_count.has_value() && selected_port_specification.has_value()) {
         std::cerr << "Error: --top-ports cannot be combined with -p or -p-.\n";
         return EXIT_FAILURE;
     }
-    if (config.udp_enabled && nmap_port_specification.has_value() && explicit_udp_ports) {
+    if (config.udp_enabled && selected_port_specification.has_value() && explicit_udp_ports) {
         std::cerr << "Error: use either -p or --udp-ports for a UDP scan, not both.\n";
         return EXIT_FAILURE;
     }
-    if (nmap_port_specification.has_value()) {
+    if (selected_port_specification.has_value()) {
         const skan::portscan::PortSelection selection = config.udp_enabled
-                                                            ? skan::portscan::parse_udp_ports(*nmap_port_specification)
-                                                            : skan::portscan::parse_tcp_ports(*nmap_port_specification);
+                                                            ? skan::portscan::parse_udp_ports(*selected_port_specification)
+                                                            : skan::portscan::parse_tcp_ports(*selected_port_specification);
         if (selection.status != skan::core::StatusCode::Ok) {
             std::cerr << "Error: invalid " << (config.udp_enabled ? "UDP" : "TCP")
                       << " port selection for -p.\n";
@@ -1389,7 +1389,7 @@ int run_scan(int argc, char **argv)
     return EXIT_SUCCESS;
 }
 
-int run_nmap_compatible(int argc, char **argv)
+int run_skan_positional(int argc, char **argv)
 {
     if (argc < 2) {
         return EXIT_FAILURE;
@@ -1424,7 +1424,7 @@ int run_nmap_compatible(int argc, char **argv)
             options.emplace_back(argument);
             if (option_requires_value(argument)) {
                 if (index + 1 >= argc) {
-                    std::cerr << "Error: incomplete Nmap-compatible option.\n";
+                    std::cerr << "Error: option requires a value.\n";
                     return EXIT_FAILURE;
                 }
                 options.emplace_back(argv[++index]);
@@ -1434,7 +1434,7 @@ int run_nmap_compatible(int argc, char **argv)
         }
     }
     if (targets.empty()) {
-        std::cerr << "Error: Nmap-compatible mode requires at least one target specification.\n";
+        std::cerr << "Error: at least one target specification is required.\n";
         return EXIT_FAILURE;
     }
     std::string target_specification;
@@ -1499,7 +1499,7 @@ int main(int argc, char **argv)
     }
 
     if (argc >= 2) {
-        return run_nmap_compatible(argc, argv);
+        return run_skan_positional(argc, argv);
     }
 
     std::cerr << "Error: unknown or missing argument. Use --help for usage.\n";
