@@ -69,20 +69,29 @@ bool matches(const PacketFilter &filter, const PacketObservation &packet) noexce
 
 std::size_t CorrelationKeyHash::operator()(const CorrelationKey &key) const noexcept
 {
-    std::size_t hash = static_cast<std::size_t>(key.target_ipv4);
-    if (key.target_ip.valid()) {
-        hash = static_cast<std::size_t>(key.target_ip.family);
-        for (const std::uint8_t byte : key.target_ip.bytes) {
-            hash ^= static_cast<std::size_t>(byte) + static_cast<std::size_t>(0x9e3779b9U) +
-                    (hash << 6U) + (hash >> 2U);
+    std::size_t hash = 0U;
+    const auto mix = [&hash](std::size_t value) noexcept {
+        hash ^= value + static_cast<std::size_t>(0x9e3779b9U) + (hash << 6U) + (hash >> 2U);
+    };
+    const auto address = [&mix](const core::IpAddress &ip) noexcept {
+        mix(static_cast<std::size_t>(ip.family));
+        for (const std::uint8_t byte : ip.bytes) { mix(byte); }
+        mix(ip.scope.has_value() ? 1U : 0U);
+        if (ip.scope.has_value()) {
+            for (const unsigned char character : *ip.scope) { mix(character); }
         }
+    };
+    mix(key.target_ipv4);
+    address(key.target_ip);
+    address(key.source_ip);
+    mix(key.source_port);
+    mix(key.destination_port);
+    mix(key.sequence);
+    mix(static_cast<std::size_t>(key.protocol));
+    mix(key.interface_index);
+    for (unsigned int shift = 0U; shift < 64U; shift += 8U) {
+        mix(static_cast<std::uint8_t>(key.scan_generation >> shift));
     }
-    hash ^= static_cast<std::size_t>(key.source_port) + static_cast<std::size_t>(0x9e3779b9U) +
-            (hash << 6U) + (hash >> 2U);
-    hash ^= static_cast<std::size_t>(key.destination_port) + static_cast<std::size_t>(0x9e3779b9U) +
-            (hash << 6U) + (hash >> 2U);
-    hash ^= static_cast<std::size_t>(key.sequence) + static_cast<std::size_t>(0x9e3779b9U) +
-            (hash << 6U) + (hash >> 2U);
     return hash;
 }
 

@@ -38,6 +38,10 @@ struct CorrelationKey final {
     std::uint16_t destination_port{0U};
     std::uint32_t sequence{0U};
     core::IpAddress target_ip{};
+    core::IpAddress source_ip{};
+    PacketProtocol protocol{PacketProtocol::Any};
+    std::uint32_t interface_index{0U};
+    std::uint64_t scan_generation{0U};
 
     bool operator==(const CorrelationKey &) const noexcept = default;
 };

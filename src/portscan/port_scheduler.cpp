@@ -8,9 +8,17 @@
 #include "portscan/tcp_connect.hpp"
 #include "portscan/tcp_ack.hpp"
 #include "portscan/tcp_syn.hpp"
+#include "core/log.hpp"
 
 namespace skan::portscan {
 namespace {
+
+template <typename... Args>
+void trace(std::string_view format, const Args &...args) noexcept
+{
+    if (log::minimum_level() != log::Level::Debug) { return; }
+    try { log::debug(format, args...); } catch (...) { }
+}
 
 bool valid_host_address(const core::Host &host) noexcept
 {
@@ -196,6 +204,7 @@ void PortScanScheduler::receive(const PortResponse &response) noexcept
 {
     const auto iterator = pending_.find(response.id);
     if (iterator == pending_.end() || !probe_) {
+        trace("scheduler reject id={} field=lifecycle", response.id);
         return;
     }
     PortState state = PortState::Unknown;
@@ -206,6 +215,7 @@ void PortScanScheduler::receive(const PortResponse &response) noexcept
         state,
         reason);
     if (assessment != core::StatusCode::Ok) {
+        trace("scheduler reject id={} field=probe-assessment status={}", response.id, static_cast<int>(assessment));
         return;
     }
     const PortScanTimePoint completed_at = response.received_at == PortScanTimePoint{}
@@ -213,6 +223,7 @@ void PortScanScheduler::receive(const PortResponse &response) noexcept
                                                : response.received_at;
     Pending &pending = iterator->second;
     if (completed_at < pending.started_at) {
+        trace("scheduler reject id={} field=lifecycle-before-submission", response.id);
         return;
     }
 
@@ -222,16 +233,21 @@ void PortScanScheduler::receive(const PortResponse &response) noexcept
     }
 
     if (!pending.candidate_state.has_value()) {
+        trace("scheduler evidence id={} state={} reason={}", response.id, port_state_name(state), scan_reason_name(reason));
         pending.candidate_state = state;
         pending.candidate_reason = reason;
         pending.candidate_at = completed_at;
         return;
     }
     if (!pending.conflict && *pending.candidate_state != state) {
+        trace("scheduler evidence id={} state=UNKNOWN reason=CONFLICTING_EVIDENCE previous={} received={}",
+              response.id, port_state_name(*pending.candidate_state), port_state_name(state));
         pending.candidate_state = PortState::Unknown;
         pending.candidate_reason = ScanReason::ConflictingEvidence;
         pending.candidate_at = completed_at;
         pending.conflict = true;
+    } else {
+        trace("scheduler evidence id={} lifecycle=pending disposition=duplicate-or-already-conflicting", response.id);
     }
 }
 

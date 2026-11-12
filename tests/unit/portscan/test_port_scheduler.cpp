@@ -271,6 +271,50 @@ int main()
         assert(scheduler.results().front().reason == ScanReason::Rst);
     }
 
+    // User-space capture can drain a buffered valid reply after the nominal
+    // timer deadline, before the event loop retires its still-pending probe.
+    // Do not mistake that processing timestamp for its on-wire arrival time.
+    for (const bool closed : {false, true}) {
+        skan::io::IOEngine engine;
+        RecordingPortScanTransport transport;
+        PortScanConfig config{ScanProbeType::TcpSyn, std::chrono::milliseconds{2}, 1U};
+        config.retries = 0U;
+        PortScanScheduler scheduler(engine, transport, config);
+        assert(scheduler.submit(loopback_target(), {{443U, Protocol::Tcp}}) == skan::core::StatusCode::Ok);
+        const auto submission = transport.submissions().front();
+        skan::packet::TCP reply;
+        reply.set_source_port(submission.port.number);
+        reply.set_destination_port(submission.source_port);
+        reply.set_acknowledgment_number(submission.sequence_number + 1U);
+        reply.set_flags((closed ? skan::packet::TcpFlag::Rst : skan::packet::TcpFlag::Syn) |
+                        skan::packet::TcpFlag::Ack);
+        std::vector<std::uint8_t> bytes(reply.serialized_size());
+        assert(reply.serialize(bytes) == skan::core::StatusCode::Ok);
+        std::this_thread::sleep_for(std::chrono::milliseconds{3});
+        const PortResponse response{submission.id, submission.target, PortResponseKind::Packet, 0,
+                                    bytes, PortScanClock::now()};
+        auto predates_submission = response;
+        predates_submission.received_at -= std::chrono::hours{1};
+        auto opposite = reply;
+        opposite.set_flags((closed ? skan::packet::TcpFlag::Syn : skan::packet::TcpFlag::Rst) |
+                           skan::packet::TcpFlag::Ack);
+        assert(opposite.serialize(predates_submission.bytes) == skan::core::StatusCode::Ok);
+        // Accidental early admission would now conflict with the valid reply.
+        transport.deliver(predates_submission);
+        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
+        transport.deliver(response);
+        assert(scheduler.pending_count() == 1U && scheduler.results().empty());
+        assert(scheduler.run_once(0) == skan::core::StatusCode::Ok);
+        assert(scheduler.complete() && scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == (closed ? PortState::Closed : PortState::Open));
+        assert(scheduler.results().front().reason == (closed ? ScanReason::Rst : ScanReason::SynAck));
+        // Once the timer retires the attempt, its identity cannot receive evidence.
+        transport.deliver(response);
+        scheduler.receive(response);
+        assert(scheduler.results().size() == 1U);
+        assert(scheduler.results().front().state == (closed ? PortState::Closed : PortState::Open));
+    }
+
     // Duplicate raw evidence is idempotent; conflicting evidence is explicit UNKNOWN.
     {
         skan::io::IOEngine engine;

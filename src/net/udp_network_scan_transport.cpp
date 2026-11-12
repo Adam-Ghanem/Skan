@@ -667,7 +667,7 @@ std::optional<std::array<std::uint8_t, 6U>> LinuxUDPScanTransport::destination_m
     if (config_.interface_name == "lo") {
         return std::array<std::uint8_t, 6U>{};
     }
-    return std::nullopt;
+    return detail::cached_ipv6_neighbor_mac(config_.interface_name, target_ip);
 }
 
 std::optional<core::IpAddress> LinuxUDPScanTransport::source_address_for(
